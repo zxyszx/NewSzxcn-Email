@@ -216,7 +216,7 @@ func (a *App) handleImportMail(w http.ResponseWriter, r *http.Request) {
 
 	imported, skipped := 0, 0
 	problems := []string{}
-	maxMessageBytes := int64(a.cfg.SubmissionMaxMessageMB) * 1024 * 1024
+	maxMessageBytes := int64(a.config().SubmissionMaxMessageMB) * 1024 * 1024
 	if maxMessageBytes <= 0 {
 		maxMessageBytes = 35 * 1024 * 1024
 	}

@@ -70,7 +70,7 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusUnauthorized, "账号或密码错误")
 		return
 	}
-	if a.cfg.TwoFactorEnabled && user.TwoFactorEnabled {
+	if a.config().TwoFactorEnabled && user.TwoFactorEnabled {
 		challengeToken, err := a.createLoginChallenge(r.Context(), user.ID)
 		if err != nil {
 			respondError(w, http.StatusInternalServerError, "验证码生成失败，请稍后重试")
@@ -87,7 +87,7 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleRegister(w http.ResponseWriter, r *http.Request) {
-	if !a.cfg.OpenRegistration {
+	if !a.config().OpenRegistration {
 		respondError(w, http.StatusForbidden, "当前未开放注册")
 		return
 	}
@@ -176,7 +176,7 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request) {
 	if mailboxDomainID != "" && mailboxLocalPart != "" {
 		// Check reserved prefixes
 		reserved := map[string]bool{}
-		for _, item := range parseReservedPrefixes(a.cfg.ReservedMailboxPrefixes) {
+		for _, item := range parseReservedPrefixes(a.config().ReservedMailboxPrefixes) {
 			reserved[item] = true
 		}
 		if reserved[mailboxLocalPart] {
@@ -192,10 +192,10 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleLogout(w http.ResponseWriter, r *http.Request) {
-	if cookie, err := r.Cookie(a.cfg.CookieName); err == nil {
+	if cookie, err := r.Cookie(a.config().CookieName); err == nil {
 		_, _ = a.db.ExecContext(r.Context(), `DELETE FROM sessions WHERE token_hash=?`, hashToken(cookie.Value))
 	}
-	http.SetCookie(w, &http.Cookie{Name: a.cfg.CookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode})
+	http.SetCookie(w, &http.Cookie{Name: a.config().CookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode})
 	respondJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 

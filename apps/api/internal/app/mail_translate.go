@@ -32,7 +32,7 @@ type translateMailMessageResponse struct {
 }
 
 func (a *App) handleTranslateMailMessage(w http.ResponseWriter, r *http.Request) {
-	if !a.cfg.MailTranslateEnabled {
+	if !a.config().MailTranslateEnabled {
 		respondError(w, http.StatusForbidden, "mail translation is disabled")
 		return
 	}
@@ -59,7 +59,7 @@ func (a *App) handleTranslateMailMessage(w http.ResponseWriter, r *http.Request)
 		respondError(w, http.StatusBadRequest, "message has no translatable text")
 		return
 	}
-	maxChars := a.cfg.MailTranslateMaxChars
+	maxChars := a.config().MailTranslateMaxChars
 	if maxChars <= 0 {
 		maxChars = 8000
 	}
@@ -78,7 +78,7 @@ func (a *App) handleTranslateMailMessage(w http.ResponseWriter, r *http.Request)
 }
 
 func (a *App) handleTranslateExternalIMAPMessage(w http.ResponseWriter, r *http.Request) {
-	if !a.cfg.MailTranslateEnabled {
+	if !a.config().MailTranslateEnabled {
 		respondError(w, http.StatusForbidden, "mail translation is disabled")
 		return
 	}
@@ -126,7 +126,7 @@ func (a *App) handleTranslateExternalIMAPMessage(w http.ResponseWriter, r *http.
 		respondError(w, http.StatusBadRequest, "message has no translatable text")
 		return
 	}
-	maxChars := a.cfg.MailTranslateMaxChars
+	maxChars := a.config().MailTranslateMaxChars
 	if maxChars <= 0 {
 		maxChars = 8000
 	}

@@ -422,13 +422,13 @@ function PermissionGroupDialog({ group, catalog, open, onOpenChange }: { group?:
   const defaultLimitsQuery = useQuery({ queryKey: ["admin", "permission-limits", "defaults"], queryFn: api.defaultPermissionLimits, enabled: dialogOpen })
   const defaultLimits = defaultLimitsQuery.data || defaultPermissionLimits
   const [permissions, setPermissions] = React.useState<PermissionKey[]>(group?.permissions || [])
-  const [limits, setLimits] = React.useState<PermissionLimits>(group?.limits || defaultPermissionLimits)
+  const [limits, setLimits] = React.useState<PermissionLimits>(group?.limits || defaultLimits)
   React.useEffect(() => {
     if (dialogOpen) {
       setPermissions(group?.permissions || [])
-      setLimits(group?.limits || defaultPermissionLimits)
+      setLimits(group?.limits || defaultLimits)
     }
-  }, [dialogOpen, group])
+  }, [defaultLimits, dialogOpen, group])
   const mutation = useMutation({
     mutationFn: (form: FormData) => {
       const payload = {
@@ -1977,11 +1977,6 @@ function DNSPanel({ domain, embedded = false }: { domain?: Domain; embedded?: bo
   const header = <div className="flex items-center justify-between"><CardTitle>DNS 记录</CardTitle>{checkButton}</div>
   if (embedded) return <div className="space-y-4"><div className="flex items-center justify-between"><div className="font-medium">DNS 记录</div>{checkButton}</div>{content}</div>
   return <Card><CardHeader>{header}</CardHeader><CardContent>{content}</CardContent></Card>
-}
-
-const dnsDescriptions: Record<string, string> = {
-  MX: "指定收件服务器。把邮件投递到该地址指向的服务器。",
-  TXT: "", // 具体含义根据内容区分
 }
 
 function dnsDescription(record: DNSRecord): string {

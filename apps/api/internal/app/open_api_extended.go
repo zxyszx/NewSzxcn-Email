@@ -31,7 +31,7 @@ type deliveryWebhookEvent struct {
 }
 
 func (a *App) handleOpenAPIDeliveryWebhook(w http.ResponseWriter, r *http.Request) {
-	secret := strings.TrimSpace(a.cfg.DeliveryWebhookSecret)
+	secret := strings.TrimSpace(a.config().DeliveryWebhookSecret)
 	if secret == "" {
 		respondError(w, http.StatusServiceUnavailable, "delivery webhook is not configured")
 		return

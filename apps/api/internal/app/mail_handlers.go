@@ -971,7 +971,7 @@ func (a *App) sendMailWithSource(ctx context.Context, user *User, mb *Mailbox, r
 	for _, rcpt := range localRecipients {
 		rcptMailbox, err := a.mailboxByAddress(ctx, rcpt)
 		if err != nil {
-			if !a.cfg.CatchAllEnabled || !a.isLocalDomainAddress(ctx, rcpt) {
+			if !a.config().CatchAllEnabled || !a.isLocalDomainAddress(ctx, rcpt) {
 				continue
 			}
 			copyMsg := base
@@ -986,7 +986,7 @@ func (a *App) sendMailWithSource(ctx context.Context, user *User, mb *Mailbox, r
 			continue
 		}
 		if rcptMailbox.Status != "active" {
-			if a.cfg.CatchAllEnabled && a.isLocalDomainAddress(ctx, rcpt) {
+			if a.config().CatchAllEnabled && a.isLocalDomainAddress(ctx, rcpt) {
 				copyMsg := base
 				copyMsg.MailboxID = ""
 				copyMsg.FolderID = ""
@@ -2345,7 +2345,7 @@ func (a *App) storeAttachmentWithDB(ctx context.Context, db dbExecutor, messageI
 	if err != nil {
 		return err
 	}
-	dir := filepath.Join(a.cfg.DataDir, "attachments", messageID)
+	dir := filepath.Join(a.config().DataDir, "attachments", messageID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -2550,7 +2550,7 @@ func (a *App) deleteMessageFiles(ctx context.Context, messageID string) {
 			_ = os.Remove(p)
 		}
 	}
-	_ = os.RemoveAll(filepath.Join(a.cfg.DataDir, "attachments", messageID))
+	_ = os.RemoveAll(filepath.Join(a.config().DataDir, "attachments", messageID))
 }
 
 func (a *App) deleteMessage(ctx context.Context, messageID string) {

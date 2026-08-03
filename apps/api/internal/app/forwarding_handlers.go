@@ -389,7 +389,7 @@ func (a *App) issueForwardingVerification(ctx context.Context, userID, id, email
 }
 
 func (a *App) sendForwardingVerificationEmail(ctx context.Context, userID, targetEmail, token string, now time.Time) (string, error) {
-	if strings.TrimSpace(a.cfg.SMTPHost) == "" {
+	if strings.TrimSpace(a.config().SMTPHost) == "" {
 		return "", errors.New("SMTP 未配置，无法发送验证邮件")
 	}
 	mb, err := a.primaryMailboxForUser(ctx, userID)
@@ -428,9 +428,9 @@ func (a *App) sendForwardingVerificationEmail(ctx context.Context, userID, targe
 }
 
 func (a *App) forwardingVerificationURL(token string) string {
-	base := strings.TrimRight(strings.TrimSpace(a.cfg.PublicBaseURL), "/")
+	base := strings.TrimRight(strings.TrimSpace(a.config().PublicBaseURL), "/")
 	if base == "" {
-		base = "https://" + strings.Trim(strings.TrimSpace(a.cfg.PublicHostname), "/")
+		base = "https://" + strings.Trim(strings.TrimSpace(a.config().PublicHostname), "/")
 	}
 	return base + "/api/verify-email?token=" + url.QueryEscape(token)
 }

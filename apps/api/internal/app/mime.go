@@ -136,7 +136,7 @@ func writeBase64(w io.Writer, data []byte) {
 }
 
 func (a *App) sendSMTP(from string, recipients []string, mimeBytes []byte) error {
-	return sendSMTPWithConfig(a.cfg, from, recipients, mimeBytes)
+	return sendSMTPWithConfig(a.config(), from, recipients, mimeBytes)
 }
 
 func sendSMTPWithConfig(cfg Config, from string, recipients []string, mimeBytes []byte) error {

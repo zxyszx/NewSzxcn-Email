@@ -193,5 +193,5 @@ func cloneTimePtr(in *time.Time) *time.Time {
 }
 
 func (a *App) handleMaildirSyncHealth(w http.ResponseWriter, r *http.Request) {
-	respondJSON(w, http.StatusOK, a.maildirHealth.snapshot(a.cfg))
+	respondJSON(w, http.StatusOK, a.maildirHealth.snapshot(a.config()))
 }

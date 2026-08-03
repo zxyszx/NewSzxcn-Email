@@ -14,7 +14,7 @@ import (
 )
 
 func (a *App) writeStoredMessageToMaildir(ctx context.Context, messageID string, msg storedMessage, attachments []AttachmentInput) error {
-	if strings.TrimSpace(a.cfg.MaildirRoot) == "" || strings.TrimSpace(msg.MailboxID) == "" || strings.TrimSpace(msg.FolderID) == "" {
+	if strings.TrimSpace(a.config().MaildirRoot) == "" || strings.TrimSpace(msg.MailboxID) == "" || strings.TrimSpace(msg.FolderID) == "" {
 		return nil
 	}
 	raw, err := BuildMIME(MIMEMessage{
@@ -37,7 +37,7 @@ func (a *App) writeStoredMessageToMaildir(ctx context.Context, messageID string,
 }
 
 func (a *App) rewriteMessageMaildir(ctx context.Context, messageID string) error {
-	if strings.TrimSpace(a.cfg.MaildirRoot) == "" {
+	if strings.TrimSpace(a.config().MaildirRoot) == "" {
 		return nil
 	}
 	msg, err := a.storedMessageByID(ctx, messageID)
@@ -76,7 +76,7 @@ func (a *App) writeRawMessageToMaildir(ctx context.Context, messageID string, ra
 }
 
 func (a *App) writeRawMessageToMaildirFolder(ctx context.Context, messageID, folderID string, raw []byte, replace bool, updateFolder bool) error {
-	if strings.TrimSpace(a.cfg.MaildirRoot) == "" {
+	if strings.TrimSpace(a.config().MaildirRoot) == "" {
 		return nil
 	}
 	state, err := a.maildirMessageState(ctx, messageID)
@@ -114,7 +114,7 @@ func (a *App) writeRawMessageToMaildirFolder(ctx context.Context, messageID, fol
 	if err != nil {
 		return err
 	}
-	base := filepath.Join(strings.TrimSpace(a.cfg.MaildirRoot), mb.Domain, mb.LocalPart, "Maildir")
+	base := filepath.Join(strings.TrimSpace(a.config().MaildirRoot), mb.Domain, mb.LocalPart, "Maildir")
 	folderBase := maildirFolderPath(base, folderName)
 	subdir := "cur"
 	if strings.EqualFold(folderName, "Inbox") && !state.IsRead {
@@ -166,7 +166,7 @@ func (a *App) writeRawMessageToMaildirFolder(ctx context.Context, messageID, fol
 }
 
 func (a *App) moveMessageMaildir(ctx context.Context, messageID, targetFolderID string) error {
-	if strings.TrimSpace(a.cfg.MaildirRoot) == "" {
+	if strings.TrimSpace(a.config().MaildirRoot) == "" {
 		state, stateErr := a.maildirMessageState(ctx, messageID)
 		if stateErr != nil {
 			return stateErr
@@ -215,7 +215,7 @@ func (a *App) moveMessageMaildir(ctx context.Context, messageID, targetFolderID 
 	if err != nil {
 		return err
 	}
-	base := filepath.Join(strings.TrimSpace(a.cfg.MaildirRoot), mb.Domain, mb.LocalPart, "Maildir")
+	base := filepath.Join(strings.TrimSpace(a.config().MaildirRoot), mb.Domain, mb.LocalPart, "Maildir")
 	folderBase := maildirFolderPath(base, folderName)
 	if err := ensureMaildirFolderDirs(base, folderBase); err != nil {
 		return err
@@ -284,7 +284,7 @@ func (a *App) deleteMessageMaildirFile(ctx context.Context, messageID string) {
 }
 
 func (a *App) updateMessageMaildirFlags(ctx context.Context, messageID string, read, starred *bool) error {
-	if strings.TrimSpace(a.cfg.MaildirRoot) == "" {
+	if strings.TrimSpace(a.config().MaildirRoot) == "" {
 		return nil
 	}
 	state, err := a.maildirMessageState(ctx, messageID)
@@ -354,7 +354,7 @@ func (a *App) removeMaildirPath(ctx context.Context, rawPath string) {
 }
 
 func (a *App) backfillSQLiteMessagesToMaildir(ctx context.Context) (int, error) {
-	if strings.TrimSpace(a.cfg.MaildirRoot) == "" {
+	if strings.TrimSpace(a.config().MaildirRoot) == "" {
 		return 0, nil
 	}
 	rows, err := a.db.QueryContext(ctx, `SELECT id FROM messages WHERE COALESCE(mailbox_id,'')<>'' AND COALESCE(folder_id,'')<>'' AND raw_path='' ORDER BY created_at LIMIT 100`)
@@ -472,7 +472,7 @@ func (a *App) folderNameByID(ctx context.Context, folderID string) (string, erro
 }
 
 func (a *App) pathIsUnderMaildirRoot(path string) (bool, error) {
-	root := strings.TrimSpace(a.cfg.MaildirRoot)
+	root := strings.TrimSpace(a.config().MaildirRoot)
 	if root == "" || strings.TrimSpace(path) == "" {
 		return false, nil
 	}

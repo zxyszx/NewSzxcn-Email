@@ -232,25 +232,6 @@ func (a *App) bumpFolderModSeqWithDB(ctx context.Context, db dbExecutor, folderI
 	return next, nil
 }
 
-func (a *App) touchMessageIMAPModSeq(ctx context.Context, messageID string) error {
-	var folderID sql.NullString
-	if err := a.db.QueryRowContext(ctx, `SELECT folder_id FROM messages WHERE id=?`, messageID).Scan(&folderID); err != nil {
-		return err
-	}
-	if !folderID.Valid || folderID.String == "" {
-		return nil
-	}
-	modSeq, err := a.bumpFolderModSeq(ctx, folderID.String)
-	if err != nil {
-		return err
-	}
-	if modSeq == 0 {
-		return nil
-	}
-	_, err = a.db.ExecContext(ctx, `UPDATE messages SET imap_modseq=? WHERE id=?`, modSeq, messageID)
-	return err
-}
-
 func (a *App) updateMessageModSeq(ctx context.Context, messageID string, folderID string) (int64, error) {
 	if folderID == "" {
 		var dbFolderID sql.NullString

@@ -27,7 +27,7 @@ type statusWebhookEnvelope struct {
 }
 
 func (a *App) enqueueStatusWebhook(ctx context.Context, db dbExecutor, eventKey, eventType, mailboxID string, data any) error {
-	if strings.TrimSpace(a.cfg.StatusWebhookURL) == "" {
+	if strings.TrimSpace(a.config().StatusWebhookURL) == "" {
 		return nil
 	}
 	now := a.now().UTC()
@@ -39,7 +39,7 @@ func (a *App) enqueueStatusWebhook(ctx context.Context, db dbExecutor, eventKey,
 }
 
 func (a *App) statusWebhookWorker(ctx context.Context) {
-	if strings.TrimSpace(a.cfg.StatusWebhookURL) == "" {
+	if strings.TrimSpace(a.config().StatusWebhookURL) == "" {
 		return
 	}
 	a.log.Info("status webhook worker started")
@@ -59,7 +59,7 @@ func (a *App) statusWebhookWorker(ctx context.Context) {
 }
 
 func (a *App) processDueStatusWebhooks(ctx context.Context) error {
-	if strings.TrimSpace(a.cfg.StatusWebhookURL) == "" {
+	if strings.TrimSpace(a.config().StatusWebhookURL) == "" {
 		return nil
 	}
 	_, _ = a.db.ExecContext(ctx, `DELETE FROM status_webhook_outbox
@@ -104,7 +104,7 @@ func (a *App) deliverStatusWebhook(ctx context.Context, eventID string, payload 
 		return err
 	}
 	timestamp := strconv.FormatInt(a.now().UTC().Unix(), 10)
-	mac := hmac.New(sha256.New, []byte(a.cfg.StatusWebhookSecret))
+	mac := hmac.New(sha256.New, []byte(a.config().StatusWebhookSecret))
 	_, _ = mac.Write([]byte(timestamp + "."))
 	_, _ = mac.Write(payload)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.String(), bytes.NewReader(payload))
@@ -134,17 +134,17 @@ func (a *App) deliverStatusWebhook(ctx context.Context, eventID string, payload 
 }
 
 func (a *App) validatedStatusWebhookURL(ctx context.Context) (*url.URL, error) {
-	if strings.TrimSpace(a.cfg.StatusWebhookSecret) == "" {
+	if strings.TrimSpace(a.config().StatusWebhookSecret) == "" {
 		return nil, errors.New("LANQIN_STATUS_WEBHOOK_SECRET is required")
 	}
-	target, err := url.Parse(strings.TrimSpace(a.cfg.StatusWebhookURL))
+	target, err := url.Parse(strings.TrimSpace(a.config().StatusWebhookURL))
 	if err != nil || target.Hostname() == "" || target.User != nil || target.Fragment != "" {
 		return nil, errors.New("invalid status webhook URL")
 	}
-	if target.Scheme != "https" && !(a.cfg.StatusWebhookAllowPrivateHosts && target.Scheme == "http") {
+	if target.Scheme != "https" && !(a.config().StatusWebhookAllowPrivateHosts && target.Scheme == "http") {
 		return nil, errors.New("status webhook URL must use HTTPS")
 	}
-	if !a.cfg.StatusWebhookAllowPrivateHosts {
+	if !a.config().StatusWebhookAllowPrivateHosts {
 		if err := validatePublicWebhookHost(ctx, target.Hostname()); err != nil {
 			return nil, err
 		}
@@ -157,7 +157,7 @@ func (a *App) statusWebhookDialContext(ctx context.Context, network, address str
 	if err != nil {
 		return nil, err
 	}
-	if a.cfg.StatusWebhookAllowPrivateHosts {
+	if a.config().StatusWebhookAllowPrivateHosts {
 		return (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, network, address)
 	}
 	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)

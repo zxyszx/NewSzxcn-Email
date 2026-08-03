@@ -27,14 +27,14 @@ func (a *App) handleMailboxApplyOptions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	respondJSON(w, http.StatusOK, MailboxApplyOptions{
-		Enabled:          a.cfg.UserMailboxApplyEnabled,
+		Enabled:          a.config().UserMailboxApplyEnabled,
 		Domains:          domains,
-		ReservedPrefixes: parseReservedPrefixes(a.cfg.ReservedMailboxPrefixes),
+		ReservedPrefixes: parseReservedPrefixes(a.config().ReservedMailboxPrefixes),
 	})
 }
 
 func (a *App) handleApplyMailbox(w http.ResponseWriter, r *http.Request) {
-	if !a.cfg.UserMailboxApplyEnabled {
+	if !a.config().UserMailboxApplyEnabled {
 		respondError(w, http.StatusForbidden, "当前未开放邮箱申请")
 		return
 	}
@@ -73,7 +73,7 @@ func (a *App) handleApplyMailbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reserved := map[string]bool{}
-	for _, item := range parseReservedPrefixes(a.cfg.ReservedMailboxPrefixes) {
+	for _, item := range parseReservedPrefixes(a.config().ReservedMailboxPrefixes) {
 		reserved[item] = true
 	}
 	if reserved[localPart] {
@@ -129,10 +129,10 @@ func (a *App) handleApplyMailbox(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) mailboxApplyDomains(ctx context.Context) ([]Domain, error) {
-	if !a.cfg.UserMailboxApplyEnabled {
+	if !a.config().UserMailboxApplyEnabled {
 		return []Domain{}, nil
 	}
-	ids := cleanIDList(strings.Split(a.cfg.UserMailboxDomainIDs, ","))
+	ids := cleanIDList(strings.Split(a.config().UserMailboxDomainIDs, ","))
 	if len(ids) == 0 {
 		return []Domain{}, nil
 	}

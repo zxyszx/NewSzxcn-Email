@@ -45,7 +45,7 @@ func (a *App) processInboundForwarding(ctx context.Context, messageID, mailboxID
 		a.log.Warn("skip forwarding message that already has LanQin forwarding header", "message", messageID, "mailbox", mailboxID)
 		return
 	}
-	forwarded := addForwardingHeaders(raw, mailboxAddress, a.cfg.PublicHostname)
+	forwarded := addForwardingHeaders(raw, mailboxAddress, a.config().PublicHostname)
 	var rfcMessageID string
 	_ = a.db.QueryRowContext(ctx, `SELECT message_id FROM messages WHERE id=?`, messageID).Scan(&rfcMessageID)
 	if strings.TrimSpace(rfcMessageID) == "" {
@@ -101,7 +101,7 @@ func (a *App) processRuleForwarding(ctx context.Context, messageID, mailboxID st
 		a.log.Warn("skip rule forwarding message that already has LanQin forwarding header", "message", messageID, "mailbox", mailboxID)
 		return nil
 	}
-	forwarded := addForwardingHeaders(raw, mailboxAddress, a.cfg.PublicHostname)
+	forwarded := addForwardingHeaders(raw, mailboxAddress, a.config().PublicHostname)
 	var rfcMessageID string
 	_ = a.db.QueryRowContext(ctx, `SELECT message_id FROM messages WHERE id=?`, messageID).Scan(&rfcMessageID)
 	if strings.TrimSpace(rfcMessageID) == "" {

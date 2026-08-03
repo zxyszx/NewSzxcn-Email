@@ -215,7 +215,7 @@ func (a *App) registerOpenAPIRoutes(r chi.Router) {
 func (a *App) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if origin != "" && (strings.HasPrefix(origin, "http://localhost:") || strings.HasPrefix(origin, "http://127.0.0.1:") || origin == a.cfg.PublicBaseURL) {
+		if origin != "" && (strings.HasPrefix(origin, "http://localhost:") || strings.HasPrefix(origin, "http://127.0.0.1:") || origin == a.config().PublicBaseURL) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
@@ -273,7 +273,7 @@ func currentUser(r *http.Request) *User {
 }
 
 func (a *App) authenticateRequest(r *http.Request) (*User, error) {
-	cookie, err := r.Cookie(a.cfg.CookieName)
+	cookie, err := r.Cookie(a.config().CookieName)
 	if err != nil || cookie.Value == "" {
 		return nil, errors.New("no session")
 	}

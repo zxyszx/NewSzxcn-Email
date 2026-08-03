@@ -490,21 +490,6 @@ func regularUserDefaultPermissions() []string {
 	}
 }
 
-func fixedPermissionGroupIDs() map[string]bool {
-	out := map[string]bool{}
-	for _, group := range defaultPermissionGroups() {
-		out[group.ID] = true
-	}
-	return out
-}
-
-func assignablePermissionGroupIDs() map[string]bool {
-	out := fixedPermissionGroupIDs()
-	delete(out, PermissionGroupSuperAdmin)
-	delete(out, PermissionGroupRegular)
-	return out
-}
-
 func isAssignablePermissionGroupID(groupID string) bool {
 	return groupID != "" && groupID != PermissionGroupSuperAdmin && groupID != PermissionGroupRegular
 }
@@ -513,14 +498,6 @@ func permissionGroupOrder() map[string]int {
 	out := map[string]int{}
 	for index, group := range defaultPermissionGroups() {
 		out[group.ID] = index
-	}
-	return out
-}
-
-func permissionGroupNames() map[string]string {
-	out := map[string]string{}
-	for _, group := range defaultPermissionGroups() {
-		out[group.ID] = group.Name
 	}
 	return out
 }
@@ -1057,10 +1034,10 @@ func (a *App) isDefaultAdminUser(u *User) bool {
 	if u == nil {
 		return false
 	}
-	if adminUsername := normalizeLoginName(a.cfg.AdminUsername); adminUsername != "" && !strings.Contains(adminUsername, "@") {
+	if adminUsername := normalizeLoginName(a.config().AdminUsername); adminUsername != "" && !strings.Contains(adminUsername, "@") {
 		return strings.EqualFold(normalizeLoginName(u.LoginName), adminUsername)
 	}
-	adminEmail := normalizeEmail(a.cfg.AdminEmail)
+	adminEmail := normalizeEmail(a.config().AdminEmail)
 	return adminEmail != "" && strings.EqualFold(normalizeEmail(u.Email), adminEmail)
 }
 

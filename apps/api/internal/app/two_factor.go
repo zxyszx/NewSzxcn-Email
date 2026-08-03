@@ -144,7 +144,7 @@ func (a *App) loadUserAuthByID(ctx context.Context, id string) (*User, string, e
 }
 
 func (a *App) handleTwoFactorSetup(w http.ResponseWriter, r *http.Request) {
-	if !a.cfg.TwoFactorEnabled {
+	if !a.config().TwoFactorEnabled {
 		respondError(w, http.StatusBadRequest, "双因素认证已关闭")
 		return
 	}
@@ -179,7 +179,7 @@ func (a *App) handleTwoFactorSetup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleTwoFactorEnable(w http.ResponseWriter, r *http.Request) {
-	if !a.cfg.TwoFactorEnabled {
+	if !a.config().TwoFactorEnabled {
 		respondError(w, http.StatusBadRequest, "双因素认证已关闭")
 		return
 	}

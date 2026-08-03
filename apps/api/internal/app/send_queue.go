@@ -67,7 +67,7 @@ type sendQueueItem struct {
 }
 
 func (a *App) enqueueSend(ctx context.Context, in sendQueueInput) (string, error) {
-	if strings.TrimSpace(a.cfg.SMTPHost) == "" {
+	if strings.TrimSpace(a.config().SMTPHost) == "" {
 		return "", nil
 	}
 	now := in.Now.UTC()
@@ -149,7 +149,7 @@ func (a *App) sendQueueWorker(ctx context.Context) {
 }
 
 func (a *App) processDueSendQueue(ctx context.Context) error {
-	if strings.TrimSpace(a.cfg.SMTPHost) == "" {
+	if strings.TrimSpace(a.config().SMTPHost) == "" {
 		return nil
 	}
 	if err := a.recoverStaleSendQueueItems(ctx); err != nil {
@@ -396,7 +396,7 @@ func (a *App) sendQueueDeliveredMarkerPath(id string) string {
 	if safeID == "" || safeID == "." {
 		safeID = "unknown"
 	}
-	return filepath.Join(a.cfg.DataDir, sendQueueDeliveredMarkerDir, safeID+".marker")
+	return filepath.Join(a.config().DataDir, sendQueueDeliveredMarkerDir, safeID+".marker")
 }
 
 func (a *App) writeSendQueueDeliveredMarker(id string) error {

@@ -1,7 +1,7 @@
 import * as React from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { ArrowLeft, BarChart3, Ban, Bell, BellOff, BookOpen, ChevronDown, ChevronUp, Clock3, Code2, Contact, Copy, HardDrive, Image, Info, KeyRound, Laptop, Link2, LogOut, Mail, MailCheck, MailX, MessageSquare, Moon, PanelLeftOpen, PencilLine, PlayCircle, Plus, RefreshCcw, Search, SendHorizontal, Settings, ShieldCheck, SlidersHorizontal, Sun, Trash2, Users, X } from "lucide-react"
+import { ArrowLeft, BarChart3, Ban, Bell, BellOff, BookOpen, ChevronDown, ChevronUp, Clock3, Code2, Contact, Copy, HardDrive, Image, Info, KeyRound, LogOut, Mail, MailCheck, MailX, Moon, PanelLeftOpen, PencilLine, PlayCircle, Plus, RefreshCcw, Search, SendHorizontal, Settings, ShieldCheck, SlidersHorizontal, Sun, Trash2, Users, X } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import { api, APIToken, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapStorageMode, ExternalImapSyncRun, ExternalImapTlsMode, ForwardingSettings, ForwardingVerifiedEmail, MailLabel, MailRule, MailRuleAction, MailRuleCondition, Mailbox, MailboxApplyOptions, MailSignature, MailStats, PermissionLimits } from "@/lib/api"
 import { cn, formatBytes } from "@/lib/utils"
@@ -24,13 +24,12 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { useToast } from "@/hooks/use-toast"
 
-type Tab = "profile" | "mailboxes" | "contacts" | "cleanup" | "cleanupQueue" | "rules" | "blocked" | "stats" | "feedback" | "apiTokens"
+type Tab = "profile" | "mailboxes" | "contacts" | "cleanup" | "cleanupQueue" | "rules" | "blocked" | "stats" | "apiTokens"
 type AccountSettingsTab = "account" | "mail" | "clients" | "security"
 type PendingConfirm = { title: string; description?: string; confirmText: string; destructive?: boolean; onConfirm: () => void }
 const tabs: Record<Tab, { label: string; icon: React.ReactNode }> = {
@@ -42,7 +41,6 @@ const tabs: Record<Tab, { label: string; icon: React.ReactNode }> = {
   rules: { label: "收信规则", icon: <SlidersHorizontal className="h-4 w-4" /> },
   blocked: { label: "被拦截邮件", icon: <Ban className="h-4 w-4" /> },
   stats: { label: "数据统计", icon: <BarChart3 className="h-4 w-4" /> },
-  feedback: { label: "反馈", icon: <MessageSquare className="h-4 w-4" /> },
   apiTokens: { label: "开发者", icon: <Code2 className="h-4 w-4" /> },
 }
 const tabKeys = Object.keys(tabs) as Tab[]
@@ -52,7 +50,6 @@ const accountSettingTabs: { key: AccountSettingsTab; label: string }[] = [
   { key: "clients", label: "通知与客户端" },
   { key: "security", label: "安全" },
 ]
-const actionLabels: Record<string, string> = { archive: "移入归档", trash: "移入回收站", star: "添加星标", "mark-read": "标记已读", label: "添加标签", move: "移动到", forward: "邮件转发" }
 export function ProfilePage() {
   const me = useMe()
   const qc = useQueryClient()
@@ -94,7 +91,6 @@ export function ProfilePage() {
     if (key === "rules") return canManageRules
     if (key === "blocked") return canManageBlocked
     if (key === "stats") return canViewStats
-    if (key === "feedback") return true
     if (key === "apiTokens") return true
     return false
   })
@@ -370,7 +366,7 @@ export function ProfilePage() {
     </div>
   )
 
-  const pageTitle = tab === "feedback" ? "反馈与工单" : tabs[tab].label
+  const pageTitle = tabs[tab].label
   const pageSubtitle = tab === "stats" ? "查看邮件收发趋势、分布情况和常用联系人。" : undefined
   const pageAction = tab === "stats"
     ? <StatsRangeTabs rangeDays={statsRangeDays} onRangeChange={setStatsRangeDays} />
@@ -431,7 +427,6 @@ export function ProfilePage() {
         setupTwoFactor={setupTwoFactor}
         enableTwoFactor={enableTwoFactor}
         disableTwoFactor={disableTwoFactor}
-        onCopy={copy}
         mailboxes={mailboxes.data?.items || []}
         selectedMailboxId={mailboxId}
         selectedMailbox={selectedMailbox}
@@ -448,6 +443,7 @@ export function ProfilePage() {
         onSetDefaultSignature={(id) => setDefaultSignature.mutate(id)}
         onDeleteSignature={(id) => deleteSignature.mutate(id)}
         clientHostname={publicSettings.data?.publicHostname}
+        onCopy={copy}
         onSelectMailbox={setMailboxId}
         onOpenCleanup={() => setTab("cleanup")}
       />
@@ -466,7 +462,6 @@ export function ProfilePage() {
         externalSyncRuns={externalSyncRuns.data?.items || []}
         onSelectExternalRunAccount={setExternalRunAccountId}
         onSelect={setMailboxId}
-        onCopy={copy}
         onOpen={(id) => { if (!canAccessMail) return; setMailboxId(id); navigate("/") }}
         onApply={(payload) => applyMailbox.mutateAsync(payload).then(() => undefined)}
         onCreateExternal={(payload) => createExternalImap.mutate(payload)}
@@ -484,7 +479,6 @@ export function ProfilePage() {
     if (tab === "rules") return <RulesSection items={rules.data?.items || []} mailboxes={mailboxes.data?.items || []} labels={labels.data?.items || []} verifiedEmails={ruleVerifiedEmails} open={ruleDialogOpen} onOpenChange={setRuleDialogOpen} onCreate={(payload) => createRule.mutate(payload)} onUpdate={(id, payload) => updateRule.mutate({ id, payload })} onToggle={(item) => updateRule.mutate({ id: item.id, payload: { enabled: !item.enabled } })} onMove={(id, direction) => moveRule.mutate({ id, direction })} onApply={(id) => applyRule.mutate(id)} onDelete={(id) => deleteRule.mutate(id)} pending={createRule.isPending || updateRule.isPending || moveRule.isPending || applyRule.isPending} />
     if (tab === "blocked") return <BlockedSection items={blocked.data?.items || []} mailboxes={mailboxes.data?.items || []} mailboxId={blockedMailboxId} spamCount={canViewStats ? stats.data?.byFolder.find((f) => f.role === "spam")?.count || 0 : 0} onMailboxChange={setBlockedMailboxId} onCreate={(form) => createBlocked.mutate(form)} onDelete={(id) => deleteBlocked.mutate(id)} pending={createBlocked.isPending} />
     if (tab === "stats") return <StatsSection stats={stats.data} mailbox={selectedMailbox} rangeDays={statsRangeDays} onRangeChange={setStatsRangeDays} onRefresh={() => stats.refetch()} />
-    if (tab === "feedback") return <FeedbackSection />
     if (tab === "apiTokens") return <ApiTokensSection items={apiTokens.data?.items || []} loading={apiTokens.isLoading} pending={createApiToken.isPending || updateApiToken.isPending || deleteApiToken.isPending} onCreate={(payload) => createApiToken.mutateAsync(payload)} onUpdate={(id, payload) => updateApiToken.mutate({ id, payload })} onDelete={(id) => deleteApiToken.mutate(id)} onCopy={copy} />
     return null
   }
@@ -704,20 +698,6 @@ function AccountTabSection({ user, stats, selectedMailbox, mailboxes, onOpenClea
         </div>
       </SettingsCard>
 
-      <SettingsCard title="版本更新" subtitle="查看每次版本更新后的功能变更与调整说明。">
-        <div className="space-y-3">
-          {["NewSzxcn 邮箱 v3 风格设置页", "智能搜索与邮件列表", "自建邮箱管理能力"].map((title, index) => (
-            <div key={title} className="rounded-md border px-4 py-3">
-              <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
-                <span>v{3 - index}.0.0</span>
-                <span className="text-muted-foreground">·</span>
-                <span>{title}</span>
-              </div>
-              <p className="mt-1 text-sm text-muted-foreground">持续完善邮箱体验、账号管理和私有化部署功能。</p>
-            </div>
-          ))}
-        </div>
-      </SettingsCard>
     </div>
   )
 }
@@ -781,15 +761,6 @@ function MailPreferencesSection({
   const [signatureDefault, setSignatureDefault] = React.useState(false)
   const [editingSignature, setEditingSignature] = React.useState<MailSignature | null>(null)
   const [pendingConfirm, setPendingConfirm] = React.useState<PendingConfirm | null>(null)
-  const [whitelist, setWhitelist] = React.useState<string[]>(() => readLocalStringList("lanqin:mail-whitelist"))
-  const [imageKey, setImageKey] = React.useState(() => readLocalString("lanqin:image-api-key"))
-  const [autoReplyEnabled, setAutoReplyEnabled] = React.useState(() => readLocalString("lanqin:auto-reply-enabled") === "1")
-  const [autoReplyText, setAutoReplyText] = React.useState(() => readLocalString("lanqin:auto-reply-text"))
-
-  React.useEffect(() => { writeLocalStringList("lanqin:mail-whitelist", whitelist) }, [whitelist])
-  React.useEffect(() => { writeLocalString("lanqin:image-api-key", imageKey) }, [imageKey])
-  React.useEffect(() => { writeLocalString("lanqin:auto-reply-enabled", autoReplyEnabled ? "1" : "0") }, [autoReplyEnabled])
-  React.useEffect(() => { writeLocalString("lanqin:auto-reply-text", autoReplyText) }, [autoReplyText])
 
   function submitLabel(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -799,15 +770,6 @@ function MailPreferencesSection({
     onCreateLabel(form)
     event.currentTarget.reset()
     setLabelColor("#3b82f6")
-  }
-
-  function submitWhitelist(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const form = new FormData(event.currentTarget)
-    const value = String(form.get("whitelist") || "").trim()
-    if (!value || whitelist.includes(value)) return
-    setWhitelist((items) => [value, ...items])
-    event.currentTarget.reset()
   }
 
   function submitSignature(event: React.FormEvent<HTMLFormElement>) {
@@ -840,22 +802,6 @@ function MailPreferencesSection({
             </span>
           ))}
           {!labelsLoading && labels.length === 0 && <span className="text-sm text-muted-foreground">暂无标签</span>}
-        </div>
-      </SettingsCard>
-
-      <SettingsCard title="白名单管理" subtitle="白名单内发件人的邮件将跳过垃圾邮件检测，直接进入收件箱。">
-        <form className="flex gap-2" onSubmit={submitWhitelist}>
-          <Input name="whitelist" className="h-[42px] flex-1 text-base" placeholder="发件人邮箱或域名（如 @example.com）" />
-          <Button className="h-10 px-4">添加</Button>
-        </form>
-        <div className="mt-5 space-y-2">
-          {whitelist.map((item) => (
-            <div key={item} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
-              <span>{item}</span>
-              <Button type="button" variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-destructive" onClick={() => setWhitelist((items) => items.filter((value) => value !== item))}><X className="h-4 w-4" /></Button>
-            </div>
-          ))}
-          {whitelist.length === 0 && <div className="py-5 text-center text-sm text-muted-foreground">暂无白名单</div>}
         </div>
       </SettingsCard>
 
@@ -901,24 +847,6 @@ function MailPreferencesSection({
         </div>
       </SettingsCard>
 
-      <SettingsCard title="图床设置" subtitle="写信插入图片时，可使用 NodeImage 类图床 API Key 保存偏好。">
-        <div className="flex gap-2">
-          <Input value={imageKey} onChange={(event) => setImageKey(event.target.value)} className="h-10 flex-1" placeholder="输入 NodeImage API Key" />
-          <Button type="button" onClick={() => writeLocalString("lanqin:image-api-key", imageKey)}>保存</Button>
-        </div>
-      </SettingsCard>
-
-      <SettingsCard title="自动回复" subtitle="开启后作为本地偏好保存，后续可接入服务端自动回复任务。">
-        <div className="flex items-center justify-between rounded-lg border p-4">
-          <div>
-            <div className="font-medium">启用自动回复</div>
-            <div className="text-sm text-muted-foreground">用于休假、临时离线等场景。</div>
-          </div>
-          <SwitchButton checked={autoReplyEnabled} onClick={() => setAutoReplyEnabled((value) => !value)} />
-        </div>
-        <Textarea value={autoReplyText} onChange={(event) => setAutoReplyText(event.target.value)} className="mt-3 min-h-28" placeholder="自动回复内容" />
-      </SettingsCard>
-
       <Dialog open={!!editingSignature} onOpenChange={(open) => { if (!open) setEditingSignature(null) }}>
         <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader><DialogTitle>编辑签名</DialogTitle></DialogHeader>
@@ -962,11 +890,6 @@ function EditSignatureForm({ item, mailboxes, pending, onCancel, onSubmit }: { i
 }
 
 function SecuritySettingsSection({ user, password, passwordFormRef, twoFactorFormRef, setupTwoFactor, enableTwoFactor, disableTwoFactor, onCopy }: { user: AccountSettingsSectionProps["user"]; password: AccountSettingsSectionProps["password"]; passwordFormRef: React.RefObject<HTMLFormElement>; twoFactorFormRef: React.RefObject<HTMLFormElement>; setupTwoFactor: AccountSettingsSectionProps["setupTwoFactor"]; enableTwoFactor: AccountSettingsSectionProps["enableTwoFactor"]; disableTwoFactor: AccountSettingsSectionProps["disableTwoFactor"]; onCopy: (text: string) => void }) {
-  const loginRows = [
-    { browser: "Chrome", os: "macOS", method: user.twoFactorEnabled ? "两步验证" : "密码登录", ip: "当前会话", time: "刚刚" },
-    { browser: "Safari", os: "macOS", method: "密码登录", ip: "历史记录", time: "1 天前" },
-    { browser: "Chrome", os: "Android", method: "密码登录", ip: "移动设备", time: "5 天前" },
-  ]
   return (
     <div className="space-y-6">
       <SettingsCard title="当前登录" contentClassName="border-t py-5">
@@ -976,27 +899,6 @@ function SecuritySettingsSection({ user, password, passwordFormRef, twoFactorFor
             <div className="font-semibold">{user.loginName || user.email}</div>
             <div className="text-sm text-muted-foreground">上次登录：刚刚</div>
           </div>
-        </div>
-      </SettingsCard>
-
-      <SettingsCard title="登录历史" action={<Button type="button" variant="ghost" size="icon" className="size-7"><RefreshCcw className="h-4 w-4" /></Button>} contentClassName="border-t p-0">
-        <div className="divide-y">
-          {loginRows.map((row, index) => (
-            <div key={`${row.browser}-${index}`} className="flex items-center justify-between gap-4 px-5 py-4">
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="flex size-9 items-center justify-center rounded-lg bg-muted text-muted-foreground"><Laptop className="h-5 w-5" /></div>
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2 text-sm">
-                    <span className="font-semibold">{row.browser}</span>
-                    <span className="text-muted-foreground">{row.os}</span>
-                    <Badge variant="secondary" className="text-[10px]">{row.method}</Badge>
-                  </div>
-                  <div className="text-xs text-muted-foreground">{row.ip}</div>
-                </div>
-              </div>
-              <div className="shrink-0 text-sm text-muted-foreground">{row.time}</div>
-            </div>
-          ))}
         </div>
       </SettingsCard>
 
@@ -1094,352 +996,6 @@ function CleanupQueueSection({ mailbox, stats }: { mailbox?: Mailbox; stats?: Ma
   )
 }
 
-type FeedbackTicket = { id: string; title: string; content: string; status: "pending" | "processing" | "replied" | "closed"; createdAt: string }
-const feedbackStatusTabs: { key: "all" | FeedbackTicket["status"]; label: string }[] = [
-  { key: "all", label: "全部" },
-  { key: "pending", label: "待处理" },
-  { key: "processing", label: "处理中" },
-  { key: "replied", label: "已回复" },
-  { key: "closed", label: "已关闭" },
-]
-const feedbackStatusLabels: Record<FeedbackTicket["status"], string> = { pending: "待处理", processing: "处理中", replied: "已回复", closed: "已关闭" }
-
-function FeedbackSection() {
-  const { toast } = useToast()
-  const [dialogOpen, setDialogOpen] = React.useState(false)
-  const [status, setStatus] = React.useState<"all" | FeedbackTicket["status"]>("all")
-  const [tickets, setTickets] = React.useState<FeedbackTicket[]>(() => readFeedbackTickets())
-  const visibleTickets = status === "all" ? tickets : tickets.filter((item) => item.status === status)
-
-  function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const form = new FormData(event.currentTarget)
-    const title = String(form.get("title") || "").trim()
-    const content = String(form.get("content") || "").trim()
-    if (!title || !content) return
-    const next = [{ id: `${Date.now()}`, title, content, status: "pending" as const, createdAt: new Date().toISOString() }, ...tickets]
-    setTickets(next)
-    writeFeedbackTickets(next)
-    setDialogOpen(false)
-    event.currentTarget.reset()
-    toast({ title: "反馈已提交", description: "已加入本地工单列表，后续可接入服务端工单接口。" })
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="flex justify-stretch sm:justify-end">
-        <Button type="button" className="w-full sm:w-auto" onClick={() => setDialogOpen(true)}><Plus className="h-4 w-4" />提交反馈</Button>
-      </div>
-      <SettingsCard title="反馈与工单" contentClassName="pt-1">
-        <div className="flex overflow-x-auto border-b">
-          {feedbackStatusTabs.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              className={cn("h-10 shrink-0 border-b-2 px-3 text-sm font-medium transition-colors", status === item.key ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")}
-              onClick={() => setStatus(item.key)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-        <div className="pt-5">
-          {visibleTickets.map((item) => (
-            <div key={item.id} className="mb-2 rounded-lg border bg-background p-4 transition-colors hover:bg-muted/40">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold text-foreground">{item.title}</div>
-                  <div className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{item.content}</div>
-                </div>
-                <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-                  <Badge variant="secondary">{feedbackStatusLabels[item.status]}</Badge>
-                  <span>{formatDateTime(item.createdAt)}</span>
-                </div>
-              </div>
-            </div>
-          ))}
-          {visibleTickets.length === 0 && (
-            <EmptyState
-              icon={<MessageSquare />}
-              text={status === "all" ? "暂无工单" : `暂无${feedbackStatusTabs.find((item) => item.key === status)?.label}工单`}
-              description="提交第一个反馈后会显示在这里"
-            />
-          )}
-        </div>
-      </SettingsCard>
-
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="w-[min(92vw,34rem)] max-w-none">
-          <DialogHeader><DialogTitle>提交反馈</DialogTitle></DialogHeader>
-          <form className="space-y-4" onSubmit={submit}>
-            <Field label="标题"><Input name="title" required placeholder="简短描述问题" /></Field>
-            <Field label="内容"><Textarea name="content" required className="min-h-36" placeholder="请描述复现步骤、期望行为或建议" /></Field>
-            <DialogFooter className="gap-2 [&>button]:w-full sm:[&>button]:w-auto">
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>取消</Button>
-              <Button>提交反馈</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </div>
-  )
-}
-
-function readFeedbackTickets(): FeedbackTicket[] {
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem("lanqin:feedback-tickets") || "[]")
-    if (!Array.isArray(parsed)) return []
-    return parsed.filter((item): item is FeedbackTicket => {
-      return !!item && typeof item.id === "string" && typeof item.title === "string" && typeof item.content === "string" && ["pending", "processing", "replied", "closed"].includes(item.status) && typeof item.createdAt === "string"
-    })
-  } catch {
-    return []
-  }
-}
-
-function writeFeedbackTickets(items: FeedbackTicket[]) {
-  try { window.localStorage.setItem("lanqin:feedback-tickets", JSON.stringify(items.slice(0, 50))) } catch {}
-}
-
-function SwitchButton({ checked, onClick }: { checked: boolean; onClick: () => void }) {
-  return <Switch checked={checked} onCheckedChange={onClick} aria-label="切换设置" />
-}
-
-function readLocalString(key: string) {
-  try { return window.localStorage.getItem(key) || "" } catch { return "" }
-}
-
-function writeLocalString(key: string, value: string) {
-  try { window.localStorage.setItem(key, value) } catch {}
-}
-
-function readLocalStringList(key: string) {
-  try {
-    const value = window.localStorage.getItem(key)
-    const parsed = value ? JSON.parse(value) : []
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : []
-  } catch {
-    return []
-  }
-}
-
-function writeLocalStringList(key: string, value: string[]) {
-  try { window.localStorage.setItem(key, JSON.stringify(value)) } catch {}
-}
-
-type MailboxActionLog = { id: string; action: string; target: string; createdAt: string }
-
-function readLocalRecord(key: string) {
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(key) || "{}")
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, string> : {}
-  } catch {
-    return {}
-  }
-}
-
-function writeLocalRecord(key: string, value: Record<string, string>) {
-  try { window.localStorage.setItem(key, JSON.stringify(value)) } catch {}
-}
-
-function readLocalLogs(key: string): MailboxActionLog[] {
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(key) || "[]")
-    if (!Array.isArray(parsed)) return []
-    return parsed
-      .filter((item): item is MailboxActionLog => !!item && typeof item.id === "string" && typeof item.action === "string" && typeof item.target === "string" && typeof item.createdAt === "string")
-      .slice(0, 50)
-  } catch {
-    return []
-  }
-}
-
-function writeLocalLogs(key: string, value: MailboxActionLog[]) {
-  try { window.localStorage.setItem(key, JSON.stringify(value.slice(0, 50))) } catch {}
-}
-
-function ProfileOverview({ user, profile, password, passwordFormRef, stats, showStats, displayMode, onDisplayModeChange, twoFactorFormRef, setupTwoFactor, enableTwoFactor, disableTwoFactor, onCopy }: { user: { loginName?: string; email: string; displayName: string; role: string; disabled: boolean; twoFactorEnabled: boolean; createdAt: string; limits?: PermissionLimits }; profile: { mutate: (form: FormData) => void; isPending: boolean }; password: { mutate: (form: FormData) => void; isPending: boolean }; passwordFormRef: React.RefObject<HTMLFormElement>; stats?: MailStats; showStats: boolean; displayMode: DisplayMode; onDisplayModeChange: (mode: DisplayMode) => void; twoFactorFormRef: React.RefObject<HTMLFormElement>; setupTwoFactor: { data?: { secret: string; otpauthUrl: string }; mutate: () => void; reset: () => void; isPending: boolean }; enableTwoFactor: { mutate: (form: FormData) => void; isPending: boolean }; disableTwoFactor: { mutate: (form: FormData) => void; isPending: boolean }; onCopy: (text: string) => void }) {
-  return (
-    <div className="space-y-6">
-
-      <Card>
-        <CardHeader>
-          <CardTitle>账号配额</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-            <LimitBadge label="附件上限" value={user.limits?.maxAttachmentMb} unit="MB" />
-            <LimitBadge label="SMTP 每日" value={user.limits?.smtpDailyLimit} unit="封" />
-            <LimitBadge label="SMTP 每分钟" value={user.limits?.smtpMinuteLimit} unit="封" />
-            <LimitBadge label="IMAP 每分钟" value={user.limits?.imapMinuteLimit} unit="次" />
-            <LimitBadge label="POP3 每分钟" value={user.limits?.pop3MinuteLimit} unit="次" />
-          </div>
-        </CardContent>
-      </Card>
-
-      {showStats && <StatsSummary stats={stats} />}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>账户信息</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); profile.mutate(new FormData(e.currentTarget)) }}>
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field label="用户名">
-                <Input value={user.loginName || user.email} readOnly />
-              </Field>
-              <Field label="显示名称">
-                <Input name="displayName" defaultValue={user.displayName} required />
-              </Field>
-            </div>
-            <div className="flex justify-end">
-              <Button disabled={profile.isPending}>{profile.isPending ? "保存中..." : "保存资料"}</Button>
-            </div>
-          </form>
-
-          <Separator />
-
-          <div className="space-y-3">
-            <div className="flex items-center justify-between rounded-lg border p-3">
-              <div className="flex items-center gap-2 text-sm">
-                <ShieldCheck className="h-4 w-4" />
-                角色
-              </div>
-              <Badge>{user.role === "admin" ? "管理员" : "普通用户"}</Badge>
-            </div>
-            <div className="flex items-center justify-between rounded-lg border p-3 text-sm">
-              <span>账号状态</span>
-              <Badge variant={user.disabled ? "secondary" : "default"}>{user.disabled ? "已停用" : "正常"}</Badge>
-            </div>
-            <div className="flex items-center justify-between rounded-lg border p-3 text-sm">
-              <span>创建时间</span>
-              <span>{new Date(user.createdAt).toLocaleString()}</span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>界面设置</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Field label="显示模式">
-            <Select value={displayMode} onValueChange={(value) => onDisplayModeChange(value as DisplayMode)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="detailed">详细</SelectItem>
-                <SelectItem value="compact">简洁</SelectItem>
-              </SelectContent>
-            </Select>
-          </Field>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>双因素认证</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between rounded-lg border p-3">
-            <div className="flex items-center gap-2 text-sm">
-              <KeyRound className="h-4 w-4" />
-              认证状态
-            </div>
-            <Badge variant={user.twoFactorEnabled ? "default" : "secondary"}>{user.twoFactorEnabled ? "已启用" : "未启用"}</Badge>
-          </div>
-
-          {!user.twoFactorEnabled && !setupTwoFactor.data && (
-            <Button onClick={() => setupTwoFactor.mutate()} disabled={setupTwoFactor.isPending}>{setupTwoFactor.isPending ? "生成中..." : "启用双因素认证"}</Button>
-          )}
-
-          {!user.twoFactorEnabled && setupTwoFactor.data && (
-            <form ref={twoFactorFormRef} className="space-y-4" onSubmit={(e) => { e.preventDefault(); enableTwoFactor.mutate(new FormData(e.currentTarget)) }}>
-              <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
-                <div className="flex justify-center rounded-lg border bg-white p-4">
-                  <QRCodeSVG value={setupTwoFactor.data.otpauthUrl} size={184} level="M" />
-                </div>
-                <div className="space-y-4">
-                  <Field label="密钥">
-                    <div className="flex gap-2">
-                      <Input value={setupTwoFactor.data.secret} readOnly />
-                      <Button type="button" variant="outline" onClick={() => onCopy(setupTwoFactor.data!.secret)}><Copy className="h-4 w-4" />复制</Button>
-                    </div>
-                  </Field>
-                  <Field label="绑定地址">
-                    <div className="flex gap-2">
-                      <Input value={setupTwoFactor.data.otpauthUrl} readOnly />
-                      <Button type="button" variant="outline" onClick={() => onCopy(setupTwoFactor.data!.otpauthUrl)}><Copy className="h-4 w-4" />复制</Button>
-                    </div>
-                  </Field>
-                </div>
-              </div>
-              <Field label="验证码">
-                <Input name="code" inputMode="numeric" autoComplete="one-time-code" minLength={6} maxLength={6} required />
-              </Field>
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => setupTwoFactor.reset()}>取消</Button>
-                <Button disabled={enableTwoFactor.isPending}>{enableTwoFactor.isPending ? "启用中..." : "确认启用"}</Button>
-              </div>
-            </form>
-          )}
-
-          {user.twoFactorEnabled && (
-            <form ref={twoFactorFormRef} className="space-y-4" onSubmit={(e) => { e.preventDefault(); disableTwoFactor.mutate(new FormData(e.currentTarget)) }}>
-              <Field label="当前验证码">
-                <Input name="code" inputMode="numeric" autoComplete="one-time-code" minLength={6} maxLength={6} required />
-              </Field>
-              <div className="flex justify-end">
-                <Button variant="destructive" disabled={disableTwoFactor.isPending}>{disableTwoFactor.isPending ? "关闭中..." : "关闭双因素认证"}</Button>
-              </div>
-            </form>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>修改密码</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form ref={passwordFormRef} className="space-y-4" onSubmit={(e) => { e.preventDefault(); password.mutate(new FormData(e.currentTarget)) }}>
-            <Field label="当前密码">
-              <PasswordInput name="currentPassword" required />
-            </Field>
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field label="新密码">
-                <PasswordInput name="newPassword" minLength={8} required />
-              </Field>
-              <Field label="确认新密码">
-                <PasswordInput name="confirmPassword" minLength={8} required />
-              </Field>
-            </div>
-            <div className="flex justify-end">
-              <Button disabled={password.isPending}>{password.isPending ? "更新中..." : "更新密码"}</Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-
-    </div>
-  )
-}
-
-function LimitBadge({ label, value, unit }: { label: string; value?: number; unit: string }) {
-  return (
-    <div className="rounded-lg border p-3 text-center">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-1 text-lg font-semibold tabular-nums tracking-tight">
-        {value !== undefined && value > 0 ? value : "不限"}
-      </div>
-      {value !== undefined && value > 0 && <div className="text-xs text-muted-foreground">{unit}</div>}
-    </div>
-  )
-}
-
 function MailboxManagement({
   mailboxes,
   applyOptions,
@@ -1453,7 +1009,6 @@ function MailboxManagement({
   externalSyncRuns,
   onSelectExternalRunAccount,
   onSelect,
-  onCopy,
   onOpen,
   onApply,
   onCreateExternal,
@@ -1476,7 +1031,6 @@ function MailboxManagement({
   externalSyncRuns: ExternalImapSyncRun[]
   onSelectExternalRunAccount: (id: string) => void
   onSelect: (id: string) => void
-  onCopy: (text: string) => void
   onOpen: (id: string) => void
   onApply: (payload: { domainId: string; localPart: string; displayName: string }) => Promise<void>
   onCreateExternal: (payload: ExternalImapAccountPayload) => void
@@ -1493,16 +1047,12 @@ function MailboxManagement({
   const [domainId, setDomainId] = React.useState(() => applyOptions?.domains?.[0]?.id || "")
   const [localPart, setLocalPart] = React.useState("")
   const [mailboxSearch, setMailboxSearch] = React.useState("")
-  const [notes, setNotes] = React.useState<Record<string, string>>(() => readLocalRecord("lanqin:seek-mailbox-notes"))
-  const [editingNote, setEditingNote] = React.useState<Mailbox | null>(null)
-  const [noteDraft, setNoteDraft] = React.useState("")
   const [forwardingMailbox, setForwardingMailbox] = React.useState<Mailbox | null>(null)
   const [forwardDraft, setForwardDraft] = React.useState<string[]>([])
   const [accountForwardTargets, setAccountForwardTargets] = React.useState<string[]>([])
   const [verifiedDialogOpen, setVerifiedDialogOpen] = React.useState(false)
   const [verifiedEmailDraft, setVerifiedEmailDraft] = React.useState("")
-  const [logs, setLogs] = React.useState<MailboxActionLog[]>(() => readLocalLogs("lanqin:seek-mailbox-action-logs"))
-  const [pendingConfirm, setPendingConfirm] = React.useState<PendingConfirm | null>(null)
+  const [pendingExternalDelete, setPendingExternalDelete] = React.useState<ExternalImapAccount | null>(null)
   const forwarding = useQuery({ queryKey: ["forwarding-settings"], queryFn: api.forwardingSettings, enabled: mailboxes.length > 0 })
   const verifiedEmailItems = forwarding.data?.verifiedEmails || []
   const verifiedEmails = React.useMemo(() => verifiedEmailItems.filter((item) => item.verified).map((item) => item.email), [verifiedEmailItems])
@@ -1518,8 +1068,9 @@ function MailboxManagement({
   const normalizedMailboxSearch = mailboxSearch.trim().toLowerCase()
   const domainOptions = applyOptions?.domains || []
   const selectedDomain = domainOptions.find((domain) => domain.id === domainId) || domainOptions[0]
+  const selectedMailbox = mailboxes.find((mailbox) => mailbox.id === selectedMailboxId) || mailboxes[0]
   const filteredMailboxes = normalizedMailboxSearch
-    ? mailboxes.filter((mailbox) => `${mailbox.address} ${notes[mailbox.id] || ""}`.toLowerCase().includes(normalizedMailboxSearch))
+    ? mailboxes.filter((mailbox) => mailbox.address.toLowerCase().includes(normalizedMailboxSearch))
     : mailboxes
   const setForwardingCache = React.useCallback((settings: ForwardingSettings) => {
     qc.setQueryData(["forwarding-settings"], settings)
@@ -1534,7 +1085,6 @@ function MailboxManagement({
       refreshForwardingSettings()
       window.setTimeout(refreshForwardingSettings, 2500)
       window.setTimeout(refreshForwardingSettings, 7000)
-      addLog("添加验证邮箱", email)
       setVerifiedEmailDraft("")
       const item = settings.verifiedEmails.find((entry) => entry.email.toLowerCase() === email.trim().toLowerCase())
       toast({
@@ -1551,7 +1101,6 @@ function MailboxManagement({
       refreshForwardingSettings()
       window.setTimeout(refreshForwardingSettings, 2500)
       window.setTimeout(refreshForwardingSettings, 7000)
-      addLog("重发验证邮件", item.email)
       const next = settings.verifiedEmails.find((entry) => entry.id === item.id)
       toast({
         title: next?.deliveryStatus === "failed" ? "重发失败" : "验证邮件已重发",
@@ -1562,28 +1111,24 @@ function MailboxManagement({
   })
   const deleteVerifiedEmail = useMutation({
     mutationFn: ({ id }: { id: string; email: string }) => api.deleteForwardingVerifiedEmail(id),
-    onSuccess: (settings, item) => {
+    onSuccess: (settings) => {
       setForwardingCache(settings)
-      addLog("移除验证邮箱", item.email)
       toast({ title: "验证邮箱已移除" })
     },
     onError: (error) => toast({ title: "移除失败", description: error.message }),
   })
   const saveAccountForwarding = useMutation({
     mutationFn: api.updateAccountForwarding,
-    onSuccess: (settings, targets) => {
+    onSuccess: (settings) => {
       setForwardingCache(settings)
-      addLog("保存账号转发", forwardingTargetsLabel(Array.isArray(targets) ? targets : [targets].filter(Boolean)))
       toast({ title: "账号级转发已保存" })
     },
     onError: (error) => toast({ title: "保存失败", description: error.message }),
   })
   const saveMailboxForwarding = useMutation({
     mutationFn: ({ mailboxId, targetEmails }: { mailboxId: string; targetEmails: string[] }) => api.updateMailboxForwarding(mailboxId, targetEmails),
-    onSuccess: (settings, payload) => {
+    onSuccess: (settings) => {
       setForwardingCache(settings)
-      const mailbox = mailboxes.find((item) => item.id === payload.mailboxId)
-      addLog("保存邮箱转发", `${mailbox?.address || payload.mailboxId} -> ${forwardingTargetsLabel(payload.targetEmails)}`)
       setForwardingMailbox(null)
       setForwardDraft([])
       toast({ title: "邮箱转发已保存" })
@@ -1606,32 +1151,11 @@ function MailboxManagement({
     return () => window.clearInterval(timer)
   }, [forwarding, hasPendingVerifiedEmails, verifiedDialogOpen])
 
-  React.useEffect(() => { writeLocalRecord("lanqin:seek-mailbox-notes", notes) }, [notes])
-  React.useEffect(() => { writeLocalLogs("lanqin:seek-mailbox-action-logs", logs) }, [logs])
-
-  function addLog(action: string, target: string) {
-    setLogs((items) => [{ id: `log-${Date.now()}`, action, target, createdAt: new Date().toISOString() }, ...items].slice(0, 50))
-  }
-
   async function submitMailbox(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!selectedDomain || !localPart.trim()) return
     await onApply({ domainId: selectedDomain.id, localPart: localPart.trim(), displayName: "" })
-    addLog("创建邮箱", `${localPart.trim()}@${selectedDomain.name}`)
     setLocalPart("")
-  }
-
-  function saveMailboxNote() {
-    if (!editingNote) return
-    setNotes((items) => ({ ...items, [editingNote.id]: noteDraft.trim() }))
-    addLog("更新备注", editingNote.address)
-    setEditingNote(null)
-    setNoteDraft("")
-  }
-
-  function openMailboxNote(mailbox: Mailbox) {
-    setEditingNote(mailbox)
-    setNoteDraft(notes[mailbox.id] || "")
   }
 
   function openMailboxForward(mailbox: Mailbox) {
@@ -1659,19 +1183,6 @@ function MailboxManagement({
 
   function resendVerification(item: ForwardingVerifiedEmail) {
     resendVerifiedEmail.mutate({ id: item.id, email: item.email })
-  }
-
-  function confirmLocalAction(action: string, mailbox: Mailbox, destructive = false) {
-    setPendingConfirm({
-      title: `${action}？`,
-      description: `${mailbox.address} 的“${action}”入口已按参考站保留；当前后端暂无对应接口，本次只记录操作日志。`,
-      confirmText: action,
-      destructive,
-      onConfirm: () => {
-        addLog(action, mailbox.address)
-        setPendingConfirm(null)
-      },
-    })
   }
 
   return (
@@ -1707,12 +1218,11 @@ function MailboxManagement({
           <h2 className="text-lg font-semibold leading-7">我的邮箱 ({mailboxes.length})</h2>
           <div className="relative w-64 shrink-0">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input value={mailboxSearch} onChange={(event) => setMailboxSearch(event.target.value)} className="h-[34px] pl-9 text-sm shadow-none" placeholder="搜索邮箱地址或备注..." />
+            <Input value={mailboxSearch} onChange={(event) => setMailboxSearch(event.target.value)} className="h-[34px] pl-9 text-sm shadow-none" placeholder="搜索邮箱地址..." />
           </div>
         </div>
         <div className="divide-y">
           {filteredMailboxes.map((mailbox) => {
-            const note = notes[mailbox.id]?.trim()
             const forwardTargets = mailboxForwards[mailbox.id] || []
             const accountForwardTargetActive = forwardTargets.length === 0 && accountForwardTargets.length > 0
             const effectiveForwardTargets = forwardTargets.length > 0 ? forwardTargets : accountForwardTargetActive ? accountForwardTargets : []
@@ -1730,17 +1240,13 @@ function MailboxManagement({
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                       <span>创建于 {formatDateTime(mailbox.createdAt)}</span>
-                      {note && <span className="max-w-full truncate">备注：{note}</span>}
                       {forwardTargets.length > 0 && <span className="max-w-full truncate font-semibold text-foreground">转发：{forwardTargets.join("、")}</span>}
                       {accountForwardTargetActive && <span className="max-w-full truncate font-semibold text-foreground">转发：使用账号级 {accountForwardTargets.join("、")}</span>}
                     </div>
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-2">
-                  <Button type="button" variant="outline" size="sm" className="h-[30px] w-[72px] gap-1 px-0" onClick={() => openMailboxNote(mailbox)}><PencilLine className="h-3.5 w-3.5" />备注</Button>
                   <Button type="button" variant="outline" size="sm" className={cn("h-[30px] w-[72px] gap-1 px-0", forwardingActive && "border-foreground/20 bg-foreground text-background hover:bg-foreground/90 hover:text-background")} onClick={() => { onSelect(mailbox.id); openMailboxForward(mailbox) }}><SendHorizontal className="h-3.5 w-3.5" />{forwardingActive ? "转发中" : "转发"}</Button>
-                  <Button type="button" variant="outline" size="sm" className="h-[30px] w-[82px] px-0" onClick={() => confirmLocalAction("暂停收信", mailbox)}>暂停收信</Button>
-                  <Button type="button" variant="outline" size="sm" className="h-[30px] w-[54px] px-0 text-destructive hover:text-destructive" onClick={() => confirmLocalAction("释放邮箱", mailbox, true)}>释放</Button>
                 </div>
               </div>
             )
@@ -1779,33 +1285,51 @@ function MailboxManagement({
         <p className="mt-3 text-sm text-muted-foreground">提示：每个邮箱可单独设置多个转发目标（点击邮箱列表中的「转发」按钮），单独设置会覆盖账号级配置。</p>
       </section>
 
-      <section className="rounded-lg border bg-card">
-        <h2 className="px-6 py-4 text-lg font-semibold leading-7">操作日志</h2>
-        <div className="divide-y">
-          {logs.map((log) => (
-            <div key={log.id} className="grid gap-2 px-6 py-3 text-sm sm:grid-cols-[120px_minmax(0,1fr)_auto] sm:items-center">
-              <div className="font-medium">{log.action}</div>
-              <div className="min-w-0 truncate text-muted-foreground">{log.target}</div>
-              <div className="text-xs text-muted-foreground">{formatDateTime(log.createdAt)}</div>
+      {externalImapEnabled && (
+        <section className="rounded-lg border bg-card">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
+            <div>
+              <h2 className="text-lg font-semibold leading-7">外部邮箱</h2>
+              <p className="text-sm text-muted-foreground">{selectedMailbox ? `同步到 ${selectedMailbox.address}` : "请先选择邮箱"}</p>
             </div>
-          ))}
-          {logs.length === 0 && <div className="px-6 py-10 text-center text-sm text-muted-foreground">暂无操作记录</div>}
-        </div>
-      </section>
-
-      <Dialog open={!!editingNote} onOpenChange={(open) => { if (!open) setEditingNote(null) }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>邮箱备注</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-            <div className="truncate text-sm text-muted-foreground">{editingNote?.address}</div>
-            <Input value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} placeholder="输入备注" autoFocus />
+            <div className="flex flex-wrap gap-2">
+              <ExternalImapOAuthDialog provider="gmail" selectedMailbox={selectedMailbox} disabled={!selectedMailbox} pending={externalPending} onStart={onStartExternalOAuth} />
+              <ExternalImapOAuthDialog provider="outlook" selectedMailbox={selectedMailbox} disabled={!selectedMailbox} pending={externalPending} onStart={onStartExternalOAuth} />
+              <ExternalImapDialog mailboxId={selectedMailbox?.id || ""} disabled={!selectedMailbox || externalPending} pending={externalPending} onSubmit={onCreateExternal} />
+            </div>
           </div>
-          <DialogFooter className="gap-2 [&>button]:w-full sm:[&>button]:w-auto">
-            <Button type="button" variant="outline" onClick={() => setEditingNote(null)}>取消</Button>
-            <Button type="button" onClick={saveMailboxNote}>保存</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          <div className="divide-y border-t">
+            {externalAccounts.map((account) => {
+              const expanded = selectedExternalRunAccountId === account.id
+              return (
+                <div key={account.id} className="px-6 py-4">
+                  <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate font-semibold">{account.name || account.username}</span>
+                        <Badge variant={account.enabled ? "secondary" : "outline"}>{account.enabled ? "已启用" : "已停用"}</Badge>
+                        <Badge variant="outline">{account.authMode === "oauth2" ? externalOAuthProviderLabel(account.oauthProvider) : "IMAP"}</Badge>
+                        <Badge variant={account.lastStatus === "error" ? "destructive" : "outline"}>{externalStatusLabel(account.lastStatus)}</Badge>
+                      </div>
+                      <div className="mt-1 truncate text-sm text-muted-foreground">{account.username} · {account.host}:{account.port} · {account.storageMode === "local" ? "同步到本地" : "远端直连"}</div>
+                      {account.lastError && <div className="mt-1 truncate text-xs text-destructive">{account.lastError}</div>}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {account.authMode !== "oauth2" && <ExternalImapDialog account={account} mailboxId={account.mailboxId} disabled={externalPending} pending={externalPending} onSubmit={(payload) => onUpdateExternal(account.id, payload)} />}
+                      <Button type="button" variant="outline" size="sm" disabled={externalPending} onClick={() => onTestExternal(account.id)}>测试</Button>
+                      <Button type="button" variant="outline" size="sm" disabled={externalPending || !account.enabled} onClick={() => onSyncExternal(account.id)}><RefreshCcw className="h-4 w-4" />同步</Button>
+                      <Button type="button" variant="outline" size="sm" disabled={externalPending} onClick={() => onSelectExternalRunAccount(expanded ? "" : account.id)}>{expanded ? "收起" : "详情"}</Button>
+                      <Button type="button" variant="ghost" size="icon" className="size-8 text-destructive hover:text-destructive" disabled={externalPending} onClick={() => setPendingExternalDelete(account)} aria-label={`删除 ${account.name || account.username}`}><Trash2 className="h-4 w-4" /></Button>
+                    </div>
+                  </div>
+                  {expanded && <div className="mt-4"><ExternalImapSyncPanel account={account} folders={externalRunFolders} runs={externalSyncRuns} pending={externalPending} onSyncFolder={onSyncExternalFolder} /></div>}
+                </div>
+              )
+            })}
+            {externalAccounts.length === 0 && <div className="px-6 py-10 text-center text-sm text-muted-foreground">当前邮箱尚未添加外部账号</div>}
+          </div>
+        </section>
+      )}
 
       <Dialog open={!!forwardingMailbox} onOpenChange={(open) => { if (!open) setForwardingMailbox(null) }}>
         <DialogContent className="sm:max-w-lg">
@@ -1868,57 +1392,23 @@ function MailboxManagement({
         </DialogContent>
       </Dialog>
 
-      <ConfirmDialog open={!!pendingConfirm} title={pendingConfirm?.title || ""} description={pendingConfirm?.description} confirmText={pendingConfirm?.confirmText || "确认"} destructive={!!pendingConfirm?.destructive} pending={false} onOpenChange={(open) => { if (!open) setPendingConfirm(null) }} onConfirm={() => pendingConfirm?.onConfirm()} />
+      <ConfirmDialog
+        open={!!pendingExternalDelete}
+        title="删除外部邮箱？"
+        description={pendingExternalDelete ? `${pendingExternalDelete.name || pendingExternalDelete.username} 的连接配置和同步记录将被删除。` : undefined}
+        confirmText="删除"
+        destructive
+        pending={externalPending}
+        onOpenChange={(open) => { if (!open) setPendingExternalDelete(null) }}
+        onConfirm={() => {
+          if (!pendingExternalDelete) return
+          onDeleteExternal(pendingExternalDelete.id)
+          setPendingExternalDelete(null)
+        }}
+      />
     </div>
   )
 }
-
-function ApplyMailboxDialog({ options, pending, onApply }: { options: MailboxApplyOptions; pending: boolean; onApply: (payload: { domainId: string; localPart: string; displayName: string }) => Promise<void> }) {
-  const [open, setOpen] = React.useState(false)
-  const [domainId, setDomainId] = React.useState(options.domains[0]?.id || "")
-  React.useEffect(() => {
-    if (!open) return
-    setDomainId((current) => options.domains.some((domain) => domain.id === current) ? current : options.domains[0]?.id || "")
-  }, [open, options.domains])
-
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const form = new FormData(event.currentTarget)
-    try {
-      await onApply({
-        domainId,
-        localPart: String(form.get("localPart") || ""),
-        displayName: String(form.get("displayName") || ""),
-      })
-      event.currentTarget.reset()
-      setOpen(false)
-    } catch {}
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <Button type="button" onClick={() => setOpen(true)}><Plus className="h-4 w-4" />申请邮箱</Button>
-      <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader><DialogTitle>申请邮箱</DialogTitle></DialogHeader>
-        <form className="space-y-4" onSubmit={submit}>
-          <Field label="邮箱前缀"><Input name="localPart" autoFocus required placeholder="your-name" /></Field>
-          <Field label="域名后缀">
-            <Select value={domainId} onValueChange={setDomainId}>
-              <SelectTrigger><SelectValue placeholder="选择域名" /></SelectTrigger>
-              <SelectContent>{options.domains.map((domain) => <SelectItem key={domain.id} value={domain.id}>@{domain.name}</SelectItem>)}</SelectContent>
-            </Select>
-          </Field>
-          <Field label="显示名称"><Input name="displayName" placeholder="可选" /></Field>
-          <DialogFooter className="gap-2 [&>button]:w-full sm:[&>button]:w-auto">
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>取消</Button>
-            <Button disabled={pending || !domainId}>{pending ? "申请中..." : "申请"}</Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
 
 function ExternalImapOAuthDialog({ provider, selectedMailbox, disabled, pending, onStart }: { provider: ExternalImapOAuthProvider; selectedMailbox?: Mailbox; disabled?: boolean; pending: boolean; onStart: (provider: ExternalImapOAuthProvider, payload: { mailboxId: string; email: string; storageMode: ExternalImapStorageMode }) => void }) {
   const [open, setOpen] = React.useState(false)
@@ -2037,10 +1527,6 @@ function ExternalImapDialog({ account, mailboxId, disabled, pending, onSubmit }:
   )
 }
 
-function externalPayloadFromAccount(account: ExternalImapAccount): ExternalImapAccountPayload {
-  return { mailboxId: account.mailboxId, name: account.name, host: account.host, port: account.port, tlsMode: account.tlsMode, username: account.username, password: "", storageMode: account.storageMode, syncReadState: account.syncReadState, enabled: account.enabled }
-}
-
 function externalStatusLabel(status: string) {
   return ({ idle: "未同步", ok: "正常", partial: "部分成功", error: "错误", running: "同步中" } as Record<string, string>)[status] || status || "未知"
 }
@@ -2103,11 +1589,6 @@ function forwardingTargetsFromRule(rule: { targetEmail?: string; targetEmails?: 
 function forwardingTargetsFromSettings(settings?: ForwardingSettings) {
   const targets = settings?.accountTargetEmails?.length ? settings.accountTargetEmails : settings?.accountTargetEmail ? [settings.accountTargetEmail] : []
   return Array.from(new Set(targets.map((item) => item.trim()).filter(Boolean)))
-}
-
-function forwardingTargetsLabel(targets: string[]) {
-  const clean = Array.from(new Set(targets.map((item) => item.trim()).filter(Boolean)))
-  return clean.length ? clean.join("、") : "不转发"
 }
 
 function ForwardingTargetPicker({ emails, selected, onChange, disabled, placement = "bottom" }: { emails: string[]; selected: string[]; onChange: (targets: string[]) => void; disabled?: boolean; placement?: "bottom" | "top" }) {
@@ -2474,109 +1955,6 @@ function ApiTokensSection({ items, loading, pending, onCreate, onUpdate, onDelet
       </Dialog>
 
       <ConfirmDialog open={!!pendingConfirm} title={pendingConfirm?.title || ""} description={pendingConfirm?.description} confirmText={pendingConfirm?.confirmText || "撤销"} destructive={!!pendingConfirm?.destructive} pending={pending} onOpenChange={(open) => { if (!open) setPendingConfirm(null) }} onConfirm={() => pendingConfirm?.onConfirm()} />
-    </div>
-  )
-}
-
-function SignaturesSection({ items, mailboxes, loading, pending, onCreate, onUpdate, onSetDefault, onDelete }: { items: MailSignature[]; mailboxes: Mailbox[]; loading: boolean; pending: boolean; onCreate: (form: FormData) => void; onUpdate: (id: string, form: FormData) => void; onSetDefault: (id: string) => void; onDelete: (id: string) => void }) {
-  const [mailboxId, setMailboxId] = React.useState("all")
-  const [isDefault, setIsDefault] = React.useState(false)
-  const [editing, setEditing] = React.useState<MailSignature | null>(null)
-  const [pendingConfirm, setPendingConfirm] = React.useState<PendingConfirm | null>(null)
-  const editingMailboxId = editing?.mailboxId || "all"
-  const editingIsDefault = editing?.isDefault || false
-  function resetCreateForm(form: HTMLFormElement) {
-    form.reset()
-    setMailboxId("all")
-    setIsDefault(false)
-  }
-  return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <CardTitle>签名管理</CardTitle>
-              <div className="mt-1 text-sm text-muted-foreground">支持全局签名和按发件邮箱绑定的默认签名。</div>
-            </div>
-            <div className="text-sm text-muted-foreground">共 {items.length} 个签名</div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <form className="space-y-4 rounded-lg border p-4" onSubmit={(e) => { e.preventDefault(); const form = new FormData(e.currentTarget); form.set("mailboxId", mailboxId === "all" ? "" : mailboxId); form.set("isDefault", isDefault ? "on" : ""); onCreate(form); resetCreateForm(e.currentTarget) }}>
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field label="签名名称"><Input name="name" required placeholder="例如：默认签名" /></Field>
-              <Field label="绑定邮箱">
-                <MailboxSelect value={mailboxId} mailboxes={mailboxes} onChange={setMailboxId} />
-              </Field>
-            </div>
-            <Field label="签名内容">
-              <Textarea name="content" required className="min-h-40" placeholder="支持多行文本，写信时会自动转为 HTML" />
-            </Field>
-            <label className="flex items-center gap-3 text-sm font-medium">
-              <Checkbox checked={isDefault} onCheckedChange={(value) => setIsDefault(value === true)} />
-              <span>设为当前范围默认签名</span>
-            </label>
-            <Button disabled={pending}>{pending ? "保存中..." : "创建签名"}</Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader><CardTitle>签名列表</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
-          {items.map((item) => {
-            const mailbox = item.mailboxId ? mailboxes.find((m) => m.id === item.mailboxId)?.address || "未知邮箱" : "全局签名"
-            return (
-              <div key={item.id} className="rounded-lg border p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="font-medium">{item.name}</div>
-                      {item.isDefault && <Badge>默认</Badge>}
-                      <Badge variant="outline">{mailbox}</Badge>
-                    </div>
-                    <div className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{item.content}</div>
-                  </div>
-                  <div className="flex shrink-0 gap-1">
-                    {!item.isDefault && <Button variant="outline" size="sm" disabled={pending} onClick={() => onSetDefault(item.id)}>设为默认</Button>}
-                    <Button variant="ghost" size="icon" className="size-8" disabled={pending} onClick={() => setEditing(item)}><PencilLine className="h-4 w-4" /></Button>
-                    <Button variant="ghost" size="icon" className="size-8 text-destructive" disabled={pending} onClick={() => setPendingConfirm({ title: "删除签名？", description: `签名“${item.name}”将被删除。`, confirmText: "删除签名", onConfirm: () => { onDelete(item.id); setPendingConfirm(null) } })}><Trash2 className="h-4 w-4" /></Button>
-                  </div>
-                </div>
-              </div>
-            )
-          })}
-          {!loading && items.length === 0 && <EmptyState text="暂无签名" />}
-        </CardContent>
-      </Card>
-      <Dialog open={!!editing} onOpenChange={(open) => { if (!open) setEditing(null) }}>
-        <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-2xl">
-          <DialogHeader><DialogTitle>编辑签名</DialogTitle></DialogHeader>
-          {editing && (
-            <form key={editing.id} className="space-y-4" onSubmit={(e) => { e.preventDefault(); const form = new FormData(e.currentTarget); form.set("mailboxId", editingMailboxId === "all" ? "" : editingMailboxId); form.set("isDefault", editingIsDefault ? "on" : ""); onUpdate(editing.id, form); setEditing(null) }}>
-              <div className="grid gap-4 md:grid-cols-2">
-                <Field label="签名名称"><Input name="name" defaultValue={editing.name} required /></Field>
-                <Field label="绑定邮箱">
-                  <MailboxSelect value={editingMailboxId} mailboxes={mailboxes} onChange={(value) => setEditing((current) => current ? { ...current, mailboxId: value === "all" ? "" : value } : current)} />
-                </Field>
-              </div>
-              <Field label="签名内容">
-                <Textarea name="content" required className="min-h-44" defaultValue={editing.content} />
-              </Field>
-              <label className="flex items-center gap-3 text-sm font-medium">
-                <Checkbox checked={editingIsDefault} onCheckedChange={(value) => setEditing((current) => current ? { ...current, isDefault: value === true } : current)} />
-                <span>设为当前范围默认签名</span>
-              </label>
-              <DialogFooter className="gap-2 [&>button]:w-full sm:[&>button]:w-auto">
-                <Button type="button" variant="outline" onClick={() => setEditing(null)}>取消</Button>
-                <Button disabled={pending}>{pending ? "保存中..." : "保存修改"}</Button>
-              </DialogFooter>
-            </form>
-          )}
-        </DialogContent>
-      </Dialog>
-      <ConfirmDialog open={!!pendingConfirm} title={pendingConfirm?.title || ""} description={pendingConfirm?.description} confirmText={pendingConfirm?.confirmText || "删除"} destructive pending={pending} onOpenChange={(open) => { if (!open) setPendingConfirm(null) }} onConfirm={() => pendingConfirm?.onConfirm()} />
     </div>
   )
 }
@@ -3217,32 +2595,6 @@ function StatsSummary({ stats }: { stats?: MailStats }) {
           </CardContent>
         </Card>
       ))}
-    </div>
-  )
-}
-
-function FolderDistribution({ stats }: { stats?: MailStats }) {
-  const rows = stats?.byFolder || []
-  const maxCount = Math.max(...rows.map((row) => row.count), 1)
-  if (rows.length === 0) return <EmptyState text="暂无文件夹统计" />
-  return (
-    <div className="space-y-3">
-      {rows.map((row) => {
-        const width = Math.max(4, Math.round((row.count / maxCount) * 100))
-        return (
-          <div key={row.folder} className="grid gap-2 text-sm sm:grid-cols-[7rem_minmax(0,1fr)_auto] sm:items-center">
-            <div className="font-medium text-foreground">{folderLabel(row.folder)}</div>
-            <div className="h-2 overflow-hidden rounded-full bg-muted">
-              <div className="h-full rounded-full bg-primary/85" style={{ width: `${width}%` }} />
-            </div>
-            <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground sm:justify-end">
-              <Badge variant="secondary">{row.count} 封</Badge>
-              <span>未读 {row.unread}</span>
-              <span>{formatBytes(row.bytes)}</span>
-            </div>
-          </div>
-        )
-      })}
     </div>
   )
 }

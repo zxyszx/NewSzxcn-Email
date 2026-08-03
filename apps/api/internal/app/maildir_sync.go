@@ -45,13 +45,13 @@ type parsedMail struct {
 }
 
 func (a *App) maildirWorker(ctx context.Context) {
-	interval := time.Duration(a.cfg.MaildirScanSeconds) * time.Second
+	interval := time.Duration(a.config().MaildirScanSeconds) * time.Second
 	if interval <= 0 {
 		interval = 30 * time.Second
 	}
 	nextRunAt := a.now().UTC()
 	a.maildirHealth.markWorkerStarted(&nextRunAt)
-	a.log.Info("maildir sync worker started", "root", a.cfg.MaildirRoot, "interval", interval.String())
+	a.log.Info("maildir sync worker started", "root", a.config().MaildirRoot, "interval", interval.String())
 	if counts, err := a.syncMaildirOnceTracked(ctx, interval); err != nil {
 		a.log.Warn("initial maildir sync failed", "error", err)
 	} else if n := counts.total(); n > 0 {
@@ -98,7 +98,7 @@ func (a *App) syncMaildirOnce(ctx context.Context) (int, error) {
 }
 
 func (a *App) syncMaildirOnceDetailed(ctx context.Context) (maildirSyncCounts, error) {
-	root := strings.TrimSpace(a.cfg.MaildirRoot)
+	root := strings.TrimSpace(a.config().MaildirRoot)
 	if root == "" {
 		return maildirSyncCounts{}, nil
 	}
@@ -190,7 +190,7 @@ func (a *App) maildirMailboxes(ctx context.Context) ([]maildirMailbox, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	if a.cfg.CatchAllEnabled {
+	if a.config().CatchAllEnabled {
 		domainRows, err := a.db.QueryContext(ctx, `SELECT name FROM domains WHERE status='active' ORDER BY name`)
 		if err != nil {
 			return nil, err
@@ -216,13 +216,8 @@ func (a *App) maildirMailboxes(ctx context.Context) ([]maildirMailbox, error) {
 	return out, nil
 }
 
-func (a *App) syncUnregisteredMaildir(ctx context.Context, mb maildirMailbox) (int, error) {
-	counts, err := a.syncUnregisteredMaildirDetailed(ctx, mb)
-	return counts.Imported, err
-}
-
 func (a *App) syncUnregisteredMaildirDetailed(ctx context.Context, mb maildirMailbox) (maildirSyncCounts, error) {
-	base := filepath.Join(strings.TrimSpace(a.cfg.MaildirRoot), mb.Domain, mb.LocalPart, "Maildir")
+	base := filepath.Join(strings.TrimSpace(a.config().MaildirRoot), mb.Domain, mb.LocalPart, "Maildir")
 	counts := maildirSyncCounts{}
 	for _, sub := range []string{"new", "cur"} {
 		select {
@@ -394,16 +389,6 @@ func (a *App) unregisteredMaildirMessageExists(ctx context.Context, rawPath, mes
 	return count > 0, nil
 }
 
-func (a *App) attachMaildirRawPathToExisting(ctx context.Context, mailboxID, folderID, rawPath, messageID string) {
-	if strings.TrimSpace(messageID) == "" || strings.TrimSpace(rawPath) == "" {
-		return
-	}
-	if _, err := a.db.ExecContext(ctx, `UPDATE messages SET raw_path=?,updated_at=? WHERE mailbox_id=? AND folder_id=? AND message_id=? AND message_id <> '' AND raw_path=''`,
-		rawPath, a.now().UTC().Format(time.RFC3339Nano), mailboxID, folderID, messageID); err != nil {
-		a.log.Warn("failed to attach maildir raw path to existing message", "path", rawPath, "error", err)
-	}
-}
-
 func (a *App) syncExistingMaildirMessageState(ctx context.Context, mailboxID, folderID, rawPath, messageID string, read, starred bool) (bool, error) {
 	now := a.now().UTC().Format(time.RFC3339Nano)
 	var samePathID, oldFolderID string
@@ -514,7 +499,7 @@ func (a *App) removeDuplicateMaildirMessage(ctx context.Context, rawPath, mailbo
 }
 
 func (a *App) cleanupMissingMaildirMessages(ctx context.Context) (int, error) {
-	if strings.TrimSpace(a.cfg.MaildirRoot) == "" {
+	if strings.TrimSpace(a.config().MaildirRoot) == "" {
 		return 0, nil
 	}
 	cutoff := a.now().UTC().Add(-5 * time.Minute).Format(time.RFC3339Nano)

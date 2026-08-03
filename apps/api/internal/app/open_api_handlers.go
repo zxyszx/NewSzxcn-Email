@@ -923,15 +923,3 @@ func parseOpenAPILimit(r *http.Request, defaultLimit, maxLimit int) int {
 	}
 	return limit
 }
-
-func parseOpenAPIOffset(r *http.Request) int {
-	cursor := strings.TrimSpace(r.URL.Query().Get("cursor"))
-	if cursor == "" {
-		return 0
-	}
-	offset, err := strconv.Atoi(cursor)
-	if err != nil || offset < 0 {
-		return 0
-	}
-	return offset
-}

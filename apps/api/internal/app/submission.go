@@ -49,8 +49,8 @@ func (s *SubmissionServers) Shutdown(ctx context.Context) error {
 
 func (a *App) NewSubmissionServers(tlsConfig *tls.Config) *SubmissionServers {
 	return &SubmissionServers{
-		Plain: a.newSubmissionServer(a.cfg.SubmissionAddr, tlsConfig),
-		TLS:   a.newSubmissionServer(a.cfg.SubmissionTLSAddr, tlsConfig),
+		Plain: a.newSubmissionServer(a.config().SubmissionAddr, tlsConfig),
+		TLS:   a.newSubmissionServer(a.config().SubmissionTLSAddr, tlsConfig),
 	}
 }
 
@@ -61,11 +61,11 @@ func (a *App) newSubmissionServer(addr string, tlsConfig *tls.Config) *smtpserve
 	}
 	s := smtpserver.NewServer(submissionBackend{app: a})
 	s.Addr = addr
-	s.Domain = a.cfg.PublicHostname
+	s.Domain = a.config().PublicHostname
 	s.TLSConfig = tlsConfig
 	s.AllowInsecureAuth = false
 	s.MaxRecipients = defaultSubmissionMaxRecipients
-	s.MaxMessageBytes = int64(a.cfg.SubmissionMaxMessageMB) * 1024 * 1024
+	s.MaxMessageBytes = int64(a.config().SubmissionMaxMessageMB) * 1024 * 1024
 	s.ReadTimeout = smtpSessionTimeout
 	s.WriteTimeout = smtpSessionTimeout
 	s.ErrorLog = log.New(submissionLogWriter{log: a.log}, "smtp/submission ", 0)

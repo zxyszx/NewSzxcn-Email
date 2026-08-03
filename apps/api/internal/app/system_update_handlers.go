@@ -97,7 +97,7 @@ func (a *App) handleSystemUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) systemVersion(ctx context.Context) (systemVersionInfo, error) {
-	current := strings.TrimSpace(a.cfg.AppVersion)
+	current := strings.TrimSpace(a.config().AppVersion)
 	if current == "" {
 		current = BuildVersion
 	}
@@ -124,7 +124,7 @@ func (a *App) systemVersion(ctx context.Context) (systemVersionInfo, error) {
 }
 
 func (a *App) fetchLatestRelease(ctx context.Context) (githubRelease, error) {
-	endpoint := strings.TrimSpace(a.cfg.ReleaseAPIURL)
+	endpoint := strings.TrimSpace(a.config().ReleaseAPIURL)
 	parsed, err := url.Parse(endpoint)
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return githubRelease{}, errors.New("invalid release API URL")
@@ -134,7 +134,7 @@ func (a *App) fetchLatestRelease(ctx context.Context) (githubRelease, error) {
 		return githubRelease{}, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "NewSzxcn-Email/"+strings.TrimPrefix(a.cfg.AppVersion, "v"))
+	req.Header.Set("User-Agent", "NewSzxcn-Email/"+strings.TrimPrefix(a.config().AppVersion, "v"))
 	client := &http.Client{
 		Timeout: 8 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
@@ -161,11 +161,11 @@ func (a *App) fetchLatestRelease(ctx context.Context) (githubRelease, error) {
 }
 
 func (a *App) updateEnabled() bool {
-	return strings.TrimSpace(a.cfg.UpdateServiceURL) != "" && strings.TrimSpace(a.cfg.UpdateServiceToken) != ""
+	return strings.TrimSpace(a.config().UpdateServiceURL) != "" && strings.TrimSpace(a.config().UpdateServiceToken) != ""
 }
 
 func (a *App) triggerUpdateService(ctx context.Context) error {
-	parsed, err := url.Parse(strings.TrimSpace(a.cfg.UpdateServiceURL))
+	parsed, err := url.Parse(strings.TrimSpace(a.config().UpdateServiceURL))
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return errors.New("invalid update service URL")
 	}
@@ -173,7 +173,7 @@ func (a *App) triggerUpdateService(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(a.cfg.UpdateServiceToken))
+	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(a.config().UpdateServiceToken))
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
@@ -193,7 +193,7 @@ func (a *App) triggerUpdateService(ctx context.Context) error {
 }
 
 func (a *App) backupDatabaseBeforeUpdate(ctx context.Context) (string, error) {
-	backupDir := filepath.Join(a.cfg.DataDir, "backups")
+	backupDir := filepath.Join(a.config().DataDir, "backups")
 	if err := os.MkdirAll(backupDir, 0o700); err != nil {
 		return "", err
 	}

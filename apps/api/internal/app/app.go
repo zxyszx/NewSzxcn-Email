@@ -24,6 +24,7 @@ import (
 
 type App struct {
 	cfg           Config
+	cfgMu         sync.RWMutex
 	db            *sql.DB
 	log           *slog.Logger
 	now           func() time.Time
@@ -32,6 +33,24 @@ type App struct {
 	workerWG      sync.WaitGroup
 	maildirHealth *maildirSyncHealthTracker
 	externalIMAP  externalIMAPClientFactory
+}
+
+func (a *App) config() Config {
+	a.cfgMu.RLock()
+	defer a.cfgMu.RUnlock()
+	return a.cfg
+}
+
+func (a *App) setConfig(cfg Config) {
+	a.cfgMu.Lock()
+	a.cfg = cfg
+	a.cfgMu.Unlock()
+}
+
+func (a *App) updateConfig(update func(*Config)) {
+	a.cfgMu.Lock()
+	defer a.cfgMu.Unlock()
+	update(&a.cfg)
 }
 
 func New(cfg Config, logger *slog.Logger) (*App, error) {
@@ -76,7 +95,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	workerCtx, cancel := context.WithCancel(context.Background())
 	a.workerCancel = cancel
 	a.startWorker(func() { a.scheduledSendWorker(workerCtx) })
-	if strings.TrimSpace(a.cfg.MaildirRoot) != "" {
+	if strings.TrimSpace(a.config().MaildirRoot) != "" {
 		a.startWorker(func() { a.maildirWorker(workerCtx) })
 	}
 	a.startWorker(func() { a.sendQueueWorker(workerCtx) })
@@ -925,7 +944,7 @@ func (a *App) migratePermissionGroupLimits(ctx context.Context) error {
 // Current seed() creates mailboxes with display_name = admin email, so this migration
 // has no effect on fresh installs. It only cleans up after upgrades from pre-v1.0 schema.
 func (a *App) migrateLegacyBootstrapMailbox(ctx context.Context) error {
-	adminEmail := normalizeEmail(a.cfg.AdminEmail)
+	adminEmail := normalizeEmail(a.config().AdminEmail)
 	if adminEmail == "" || !strings.Contains(adminEmail, "@") {
 		return nil
 	}
@@ -1387,6 +1406,7 @@ func messageIndexes() []string {
 }
 
 func (a *App) seed(ctx context.Context) error {
+	cfg := a.config()
 	var count int
 	if err := a.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
 		return err
@@ -1395,7 +1415,7 @@ func (a *App) seed(ctx context.Context) error {
 		return a.ensureConfiguredAdminSuperAdmin(ctx)
 	}
 
-	adminPassword := a.cfg.AdminPassword
+	adminPassword := cfg.AdminPassword
 	if adminPassword == "" {
 		buf := make([]byte, 16)
 		if _, err := rand.Read(buf); err != nil {
@@ -1410,8 +1430,8 @@ func (a *App) seed(ctx context.Context) error {
 	}
 	now := a.now().UTC().Format(time.RFC3339Nano)
 	userID := newID("usr")
-	if strings.TrimSpace(a.cfg.AdminUsername) != "" {
-		adminUsername, err := cleanUsername(a.cfg.AdminUsername)
+	if strings.TrimSpace(cfg.AdminUsername) != "" {
+		adminUsername, err := cleanUsername(cfg.AdminUsername)
 		if err != nil {
 			return fmt.Errorf("invalid admin username: %w", err)
 		}
@@ -1422,7 +1442,7 @@ func (a *App) seed(ctx context.Context) error {
 		a.log.Warn("created default administrator; change LANQIN_ADMIN_PASSWORD in production", "username", adminUsername)
 		return nil
 	}
-	adminEmail := normalizeEmail(a.cfg.AdminEmail)
+	adminEmail := normalizeEmail(cfg.AdminEmail)
 	if adminEmail == "" || !strings.Contains(adminEmail, "@") {
 		return errors.New("invalid admin email")
 	}
@@ -1463,12 +1483,13 @@ func (a *App) seed(ctx context.Context) error {
 }
 
 func (a *App) ensureConfiguredAdminSuperAdmin(ctx context.Context) error {
-	if adminUsername := normalizeLoginName(a.cfg.AdminUsername); adminUsername != "" && !strings.Contains(adminUsername, "@") {
+	cfg := a.config()
+	if adminUsername := normalizeLoginName(cfg.AdminUsername); adminUsername != "" && !strings.Contains(adminUsername, "@") {
 		_, err := a.db.ExecContext(ctx, `UPDATE users SET role='admin', disabled=0, updated_at=? WHERE login_name=?`,
 			a.now().UTC().Format(time.RFC3339Nano), adminUsername)
 		return err
 	}
-	adminEmail := normalizeEmail(a.cfg.AdminEmail)
+	adminEmail := normalizeEmail(cfg.AdminEmail)
 	if adminEmail == "" || !strings.Contains(adminEmail, "@") {
 		return nil
 	}
@@ -1589,6 +1610,7 @@ func (a *App) createMailboxWithPasswordHashTx(ctx context.Context, tx *sql.Tx, u
 }
 
 func (a *App) seedWelcomeMessage(ctx context.Context, mailboxID string) error {
+	cfg := a.config()
 	folderID, err := a.ensureFolder(ctx, mailboxID, "Inbox")
 	if err != nil {
 		return err
@@ -1599,10 +1621,10 @@ func (a *App) seedWelcomeMessage(ctx context.Context, mailboxID string) error {
 	bodyHTML := "<p>你的自建邮箱 Webmail 已经初始化完成。</p><p>请尽快修改默认管理员密码，并配置 MX/SPF/DKIM/DMARC。</p>"
 	if tpl, err := a.mailTemplate(ctx, "welcome"); err == nil {
 		rendered := renderMailTemplate(tpl, templateRenderData{
-			To:             a.cfg.AdminEmail,
+			To:             cfg.AdminEmail,
 			From:           "system@lanqin.local",
-			PublicHostname: a.cfg.PublicHostname,
-			PublicBaseURL:  a.cfg.PublicBaseURL,
+			PublicHostname: cfg.PublicHostname,
+			PublicBaseURL:  cfg.PublicBaseURL,
 			Time:           now,
 		})
 		subject, bodyText, bodyHTML = rendered.Subject, rendered.Text, rendered.HTML
@@ -1615,7 +1637,7 @@ func (a *App) seedWelcomeMessage(ctx context.Context, mailboxID string) error {
 		Subject:    subject,
 		From:       "system@lanqin.local",
 		FromName:   "NewSzxcn 邮箱",
-		To:         []string{a.cfg.AdminEmail},
+		To:         []string{cfg.AdminEmail},
 		SentAt:     now,
 		ReceivedAt: now,
 		Snippet:    snippetFrom(bodyText, bodyHTML),

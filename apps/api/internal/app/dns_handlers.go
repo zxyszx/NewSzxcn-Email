@@ -34,7 +34,7 @@ func (a *App) handleDNSCheck(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) dnsRecordsFor(d *Domain) []DNSRecord {
 	name := strings.TrimSuffix(d.Name, ".")
-	host := strings.TrimSuffix(a.cfg.PublicHostname, ".") + "."
+	host := strings.TrimSuffix(a.config().PublicHostname, ".") + "."
 	return []DNSRecord{
 		{Type: "MX", Name: name, Value: fmt.Sprintf("10 %s", host), TTL: 300},
 		{Type: "TXT", Name: name, Value: "v=spf1 mx -all", TTL: 300},
@@ -58,7 +58,7 @@ func (a *App) checkDNS(ctx context.Context, d *Domain) DNSCheckResult {
 		for _, item := range mx {
 			entry := fmt.Sprintf("%d %s", item.Pref, strings.TrimSuffix(item.Host, "."))
 			found = append(found, entry)
-			if strings.EqualFold(strings.TrimSuffix(item.Host, "."), strings.TrimSuffix(a.cfg.PublicHostname, ".")) {
+			if strings.EqualFold(strings.TrimSuffix(item.Host, "."), strings.TrimSuffix(a.config().PublicHostname, ".")) {
 				ok = true
 			}
 		}
