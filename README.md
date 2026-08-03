@@ -36,8 +36,9 @@ bash <(curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/i
 ```
 
 空白服务器会进入防火墙、邮件域名、管理员账号和 Web 部署方式的引导。检测到
-`/opt/newszxcn-email/.env` 时，脚本会先询问是更新现有邮局、修复现有安装还是退出；
-不会再直接跳过引导并重启服务。更新会先备份数据库，并在启动失败时自动回滚。
+`/opt/newszxcn-email/.env` 时，脚本会先询问是更新现有邮局、修复现有安装、退出，
+还是完整备份旧目录后全新安装；不会再直接跳过引导并重启服务。更新会先备份数据库，
+并在启动失败时自动回滚。
 
 脚本会自动完成：
 

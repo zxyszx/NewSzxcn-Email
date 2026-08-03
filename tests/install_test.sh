@@ -122,8 +122,28 @@ test_existing_install_action() {
   assert_eq "2" "$(prompt_existing_install_action)" "existing install repair action"
   export LANQIN_EXISTING_ACTION=3
   assert_eq "3" "$(prompt_existing_install_action)" "existing install exit action"
+  export LANQIN_EXISTING_ACTION=4
+  assert_eq "4" "$(prompt_existing_install_action)" "existing install fresh action"
   unset LANQIN_EXISTING_ACTION
 }
+
+test_backup_reinstall_preserves_existing_directory() (
+  local temp_dir backup_dir
+  temp_dir="$(mktemp -d)"
+  INSTALL_DIR="${temp_dir}/newszxcn-email"
+  NGINX_CONFIG="${temp_dir}/newszxcn-email.conf"
+  mkdir -p "${INSTALL_DIR}"
+  printf 'existing-data\n' > "${INSTALL_DIR}/marker"
+
+  do_install() {
+    [[ ! -e "${INSTALL_DIR}" ]] || fail_test "fresh install started before old directory was moved"
+  }
+
+  do_backup_reinstall
+  backup_dir="$(find "${temp_dir}" -maxdepth 1 -type d -name 'newszxcn-email.backup-*' -print -quit)"
+  [[ -n "${backup_dir}" ]] || fail_test "existing install backup directory missing"
+  grep -Fq 'existing-data' "${backup_dir}/marker" || fail_test "existing install data was not preserved"
+)
 
 test_hostname_validation
 test_password_validation
@@ -134,5 +154,6 @@ test_nginx_configuration
 test_compose_configuration
 test_legacy_configuration_is_preserved
 test_existing_install_action
+test_backup_reinstall_preserves_existing_directory
 
 printf 'install.sh tests passed\n'

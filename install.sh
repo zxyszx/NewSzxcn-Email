@@ -146,20 +146,20 @@ prompt_value() {
 }
 
 prompt_choice() {
-  local variable="$1" prompt="$2" default_value="$3" value
+  local variable="$1" prompt="$2" default_value="$3" max_value="${4:-3}" value
   value="${!variable:-}"
   while true; do
     if [[ -z "${value}" ]] && has_tty; then
       read -r -p "${prompt}" value </dev/tty
     fi
     value="${value:-${default_value}}"
-    if [[ "${value}" =~ ^[123]$ ]]; then
+    if [[ "${value}" =~ ^[0-9]+$ ]] && (( value >= 1 && value <= max_value )); then
       printf '%s' "${value}"
       return
     fi
-    prompt_text "[提示] 请输入 1、2 或 3。\n"
+    prompt_text "[提示] 请输入 1 至 ${max_value}。\n"
     value=""
-    has_tty || fail "${variable} 必须设置为 1、2 或 3。"
+    has_tty || fail "${variable} 必须设置为 1 至 ${max_value}。"
   done
 }
 
@@ -170,11 +170,11 @@ prompt_existing_install_action() {
   if [[ -n "${public_url}" ]]; then
     prompt_text "[发现] 当前访问地址：${public_url}\n"
   fi
-  prompt_text '请选择操作 [1]：\n1. 更新现有邮局（推荐，自动备份并支持回滚）\n2. 修复现有安装（保留配置和数据）\n3. 退出，不做任何修改\n'
+  prompt_text '请选择操作 [1]：\n1. 更新现有邮局（推荐，自动备份并支持回滚）\n2. 修复现有安装（保留配置和数据）\n3. 退出，不做任何修改\n4. 备份现有安装并全新安装\n'
   if [[ -z "${LANQIN_EXISTING_ACTION:-}" ]] && ! has_tty; then
     fail "非交互环境不能选择已有安装操作；更新请执行 newszxcn-email update。"
   fi
-  action="$(prompt_choice LANQIN_EXISTING_ACTION "请选择 [1]: " "1")"
+  action="$(prompt_choice LANQIN_EXISTING_ACTION "请选择 [1]: " "1" "4")"
   printf '%s' "${action}"
 }
 
@@ -612,6 +612,7 @@ do_install() {
       1) do_update ;;
       2) do_repair_install ;;
       3) success "已退出，现有邮局未作修改。" ;;
+      4) do_backup_reinstall ;;
     esac
     return
   fi
@@ -721,6 +722,31 @@ do_uninstall() {
     fi
   fi
   success "容器和自动生成的 Nginx 配置已移除，${INSTALL_DIR} 中的邮件、证书、配置和数据库仍然保留。"
+}
+
+do_backup_reinstall() {
+  local backup_dir
+  backup_dir="${INSTALL_DIR}.backup-$(date -u +%Y%m%dT%H%M%SZ)"
+
+  if [[ -f "${INSTALL_DIR}/docker-compose.yml" ]] && command -v docker >/dev/null 2>&1; then
+    ensure_docker
+    compose down --remove-orphans
+  fi
+  if [[ -f "${NGINX_CONFIG}" ]]; then
+    rm -f "${NGINX_CONFIG}"
+    if command -v nginx >/dev/null 2>&1 && nginx -t >/dev/null 2>&1; then
+      if command -v systemctl >/dev/null 2>&1; then
+        systemctl reload nginx
+      else
+        nginx -s reload
+      fi
+    fi
+  fi
+
+  mv "${INSTALL_DIR}" "${backup_dir}"
+  success "旧安装已完整备份到 ${backup_dir}。"
+  log "现在开始全新安装。"
+  do_install
 }
 
 if [[ "${LANQIN_SOURCE_ONLY:-false}" == "true" ]]; then
