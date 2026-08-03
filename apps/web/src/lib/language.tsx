@@ -181,7 +181,7 @@ const exactTranslations: Record<string, Translation> = {
   "还没有可用邮箱": { "zh-TW": "還沒有可用信箱", en: "No mailbox available" },
   "请在个人中心申请邮箱，或联系管理员为当前账号分配邮箱。": { "zh-TW": "請在個人中心申請信箱，或聯絡管理員為目前帳號分配信箱。", en: "Apply for a mailbox in Profile, or contact an administrator to assign one to this account." },
   "前往个人中心": { "zh-TW": "前往個人中心", en: "Go to profile" },
-  "请前往邮箱管理，为当前账号创建或分配邮箱。": { "zh-TW": "請前往信箱管理，為目前帳號建立或分配信箱。", en: "Open mailbox management to create or assign a mailbox to this account." },
+  "请前往邮箱管理，创建、申请或联系管理员分配邮箱。": { "zh-TW": "請前往信箱管理，建立、申請或聯絡管理員分配信箱。", en: "Open mailbox management to create, request, or ask an administrator to assign a mailbox." },
   "前往邮箱管理": { "zh-TW": "前往信箱管理", en: "Go to mailbox management" },
   "无邮箱前台权限": { "zh-TW": "無信箱前台權限", en: "No mailbox access" },
   "当前账号未开启邮箱前台访问权限。": { "zh-TW": "目前帳號未開啟信箱前台存取權限。", en: "Mailbox access is not enabled for this account." },

@@ -1469,7 +1469,7 @@ export function MailPage() {
   ) : !canReadMail ? (
     <PermissionEmptyState title="无邮件查看权限" description="当前账号可以访问邮箱前台，但未开启邮件查看权限。" onOpenSettings={openSettings} />
   ) : !mailboxList.isLoading && !hasMailboxes && mailView !== "unknown" ? (
-    <NoMailboxState canManageMailboxes={canManageMailboxes} onOpenSettings={openSettings} onManageMailboxes={() => navigate("/admin?section=mailboxes")} />
+    <NoMailboxState onManageMailboxes={() => navigate(canManageMailboxes ? "/admin?section=mailboxes" : "/profile?tab=mailboxes")} />
   ) : mailView === "scheduled" && canScheduleMail ? (
     <ScheduledSendView
       compact={compactMailLayout}
@@ -2062,7 +2062,7 @@ function externalAccountSubtitle(account: ExternalImapAccount) {
   return [name, account.host, mode].filter(Boolean).join(" · ")
 }
 
-function NoMailboxState({ canManageMailboxes, onOpenSettings, onManageMailboxes }: { canManageMailboxes: boolean; onOpenSettings: () => void; onManageMailboxes: () => void }) {
+function NoMailboxState({ onManageMailboxes }: { onManageMailboxes: () => void }) {
   return (
     <div className="grid min-h-0 flex-1 place-items-center p-6">
       <div className="w-full max-w-md rounded-lg border border-dashed p-8 text-center">
@@ -2070,10 +2070,9 @@ function NoMailboxState({ canManageMailboxes, onOpenSettings, onManageMailboxes 
           <Mail className="h-5 w-5 text-muted-foreground" />
         </div>
         <div className="text-lg font-semibold">还没有可用邮箱</div>
-        <div className="mt-2 text-sm text-muted-foreground">{canManageMailboxes ? "请前往邮箱管理，为当前账号创建或分配邮箱。" : "请在个人中心申请邮箱，或联系管理员为当前账号分配邮箱。"}</div>
-        <Button className="mt-5" onClick={canManageMailboxes ? onManageMailboxes : onOpenSettings}>
-          {canManageMailboxes ? <MailboxIcon className="h-4 w-4" /> : <Settings className="h-4 w-4" />}
-          {canManageMailboxes ? "前往邮箱管理" : "前往个人中心"}
+        <div className="mt-2 text-sm text-muted-foreground">请前往邮箱管理，创建、申请或联系管理员分配邮箱。</div>
+        <Button className="mt-5" onClick={onManageMailboxes}>
+          <MailboxIcon className="h-4 w-4" />前往邮箱管理
         </Button>
       </div>
     </div>
