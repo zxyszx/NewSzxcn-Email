@@ -103,11 +103,15 @@ sudo newszxcn-email logs
 sudo newszxcn-email certificate
 sudo newszxcn-email rollback
 sudo newszxcn-email guide
+sudo newszxcn-email credentials
+sudo newszxcn-email reset-password
 ```
 
 命令行更新会创建完整回滚快照、校验 SQLite 数据库备份、拉取最新镜像并执行健康检查。`rollback` 命令会先备份当前数据库并要求确认，然后恢复上次更新前的镜像、数据库、Compose、环境、安装脚本和 Nginx 配置。回滚镜像会保持锁定，下一次执行更新时解除。
 
 `guide` 命令会读取当前安装地址、管理员用户名、证书到期时间和 acme.sh 续期状态，重新生成仅 root 可读的 `/root/newszxcn-email-guide.txt`。
+
+`credentials` 显示安装或最近一次命令行重置时记录的管理员登录信息。数据库只保存 bcrypt 密码哈希，无法反向查看真实密码；若管理员后来在网页修改过密码，记录值可能已经失效。忘记密码时执行 `reset-password`，脚本会先备份并校验数据库，然后重置配置管理员的统一登录密码，同时同步该管理员名下邮箱的 SMTP/IMAP 密码。该操作不会修改普通用户或其邮箱。
 
 超级管理员也可以点击管理后台侧栏中的版本号，在版本更新页面检查并安装新版本。
 

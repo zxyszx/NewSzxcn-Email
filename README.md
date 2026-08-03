@@ -83,12 +83,16 @@ sudo newszxcn-email rollback
 ```bash
 sudo ns
 sudo newszxcn-email guide
+sudo newszxcn-email credentials
+sudo newszxcn-email reset-password
 sudo newszxcn-email status
 sudo newszxcn-email logs
 sudo newszxcn-email restart
 sudo newszxcn-email certificate
 sudo newszxcn-email uninstall
 ```
+
+`credentials` 显示安装或最近一次命令行重置时记录的管理员登录信息。数据库中的密码采用 bcrypt 哈希，无法反向查看；如果管理员后来在网页修改过密码，记录值可能已经失效。`reset-password` 只重置配置管理员的统一登录密码，并同步该管理员名下邮箱的 SMTP/IMAP 密码，不会修改普通用户或其邮箱。重置前会先备份并校验数据库。
 
 `uninstall` 会移除容器和自动生成的 Nginx 配置，但不删除 `/opt/newszxcn-email` 中的配置、证书、数据库与邮件。卸载时可以单独停止当前域名的 acme.sh 自动续期，不会影响 acme.sh 管理的其他域名。
 

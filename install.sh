@@ -35,6 +35,8 @@ NewSzxcn Email 管理命令
   certificate 申请或续期自动模式的 SSL 证书
   rollback    回滚到上次更新前版本
   guide       显示并更新 NewSzxcn 邮箱指南
+  credentials 查看管理员登录信息和记录密码
+  reset-password 重置管理员统一登录密码（含名下邮箱）
   uninstall   停止并移除容器，保留邮件与配置
 EOF
 }
@@ -233,7 +235,7 @@ prompt_choice() {
 }
 
 prompt_menu_choice() {
-  local default_value="$1" max_value="${2:-10}" value="${LANQIN_MENU_ACTION:-}"
+  local default_value="$1" max_value="${2:-12}" value="${LANQIN_MENU_ACTION:-}"
   if [[ -z "${value}" ]] && ! has_tty; then
     fail "非交互环境请直接使用 install、update、status 等子命令。"
   fi
@@ -313,6 +315,50 @@ prompt_admin_password() {
     printf '\n' >/dev/tty
     if [[ "${password}" != "${confirm}" ]]; then
       prompt_text "[提示] 两次输入的密码不一致，请重新输入。\n"
+      continue
+    fi
+    printf '%s' "${password}"
+    return
+  done
+}
+
+prompt_reset_password() {
+  local password="${LANQIN_RESET_PASSWORD:-}" confirm=""
+  local safe_password_re='^[A-Za-z0-9][A-Za-z0-9._!@#%+,=:;?*/()^-]*$'
+  if [[ -n "${password}" ]]; then
+    [[ ${#password} -ge 6 ]] || fail "新密码至少需要 6 个字符。"
+    [[ "${password}" =~ ${safe_password_re} ]] || fail "新密码包含安装配置不支持的字符。"
+    printf '%s' "${password}"
+    return
+  fi
+  if ! has_tty; then
+    password="$(random_admin_password)"
+    prompt_text "[提示] 已自动生成 12 位新密码：${password}\n"
+    printf '%s' "${password}"
+    return
+  fi
+  while true; do
+    read -r -s -p "新密码（回车自动生成 12 位，或输入至少 6 位）: " password </dev/tty
+    printf '\n' >/dev/tty
+    if [[ -z "${password}" ]]; then
+      password="$(random_admin_password)"
+      prompt_text "[提示] 已自动生成 12 位新密码：${password}\n"
+      printf '%s' "${password}"
+      return
+    fi
+    if [[ ${#password} -lt 6 ]]; then
+      prompt_text "[提示] 新密码至少需要 6 个字符。\n"
+      continue
+    fi
+    if [[ ! "${password}" =~ ${safe_password_re} ]]; then
+      prompt_text "[提示] 密码必须以字母或数字开头，只能使用字母、数字和常用符号。\n"
+      continue
+    fi
+    read -r -s -p "再次输入新密码: " confirm </dev/tty
+    printf '\n' >/dev/tty
+    if [[ "${password}" != "${confirm}" ]]; then
+      prompt_text "[提示] 两次输入的密码不一致，请重新输入。\n"
+      password=""
       continue
     fi
     printf '%s' "${password}"
@@ -1030,6 +1076,8 @@ SSL 证书：有效期至 ${certificate_expiry}
 查看状态：newszxcn-email status
 查看日志：newszxcn-email logs
 恢复版本：newszxcn-email rollback
+查看管理员登录信息：newszxcn-email credentials
+重置管理员密码：newszxcn-email reset-password
 
 公开教程：
 https://github.com/zxyszx/NewSzxcn-Email/blob/main/docs/GUIDE.md
@@ -1042,6 +1090,77 @@ do_guide() {
   generate_guide || fail "尚未安装，无法生成邮箱指南。"
   cat "${GUIDE_FILE}"
   success "指南已更新并保存到 ${GUIDE_FILE}。"
+}
+
+do_show_admin_credentials() {
+  [[ -f "${INSTALL_DIR}/.env" ]] || fail "尚未安装。"
+  local username password public_url
+  username="$(env_value LANQIN_ADMIN_USERNAME || true)"
+  password="$(env_value LANQIN_ADMIN_PASSWORD || true)"
+  public_url="$(env_value LANQIN_PUBLIC_BASE_URL || true)"
+  cat <<EOF
+
+==================================================
+ NewSzxcn 管理员登录信息
+==================================================
+登录地址：${public_url:-未记录}
+管理员用户名：${username:-admin}
+记录密码：${password:-未记录}
+==================================================
+EOF
+  warn "当前密码采用 bcrypt 加密，无法从数据库反向查看。这里显示的是安装或最近一次命令行重置时记录的密码；如果之后在网页修改过密码，该记录可能已经失效。"
+}
+
+generate_admin_password_hash() {
+  local password="$1" hash
+  hash="$(compose exec -T lanqin-email doveadm pw -s BLF-CRYPT -r 10 -p "${password}" 2>/dev/null | tail -n 1)"
+  hash="${hash#\{BLF-CRYPT\}}"
+  [[ "${hash}" =~ ^\$2[aby]\$[0-9]{2}\$.{53}$ ]] || return 1
+  printf '%s' "${hash}"
+}
+
+do_reset_admin_password() {
+  [[ -f "${INSTALL_DIR}/.env" ]] || fail "尚未安装。"
+  local username password user_id hash image timestamp backup env_backup result user_changes mailbox_changes
+  ensure_docker
+  username="$(env_value LANQIN_ADMIN_USERNAME || true)"
+  username="${username:-admin}"
+  [[ "${username}" =~ ^[A-Za-z0-9][A-Za-z0-9._%+-]{1,79}$ ]] || fail "管理员用户名配置无效，无法安全重置。"
+  user_id="$(compose exec -T lanqin-email sqlite3 -batch -noheader /data/lanqin.db "SELECT id FROM users WHERE login_name='${username}' AND role='admin' LIMIT 1;" | tr -d '\r\n')"
+  [[ "${user_id}" =~ ^[A-Za-z0-9_-]+$ ]] || fail "没有找到管理员账号 ${username}。"
+  password="$(prompt_reset_password)"
+  hash="$(generate_admin_password_hash "${password}")" || fail "无法生成安全密码哈希，管理员密码未修改。"
+  image="$(current_image_id || true)"
+  [[ -n "${image}" ]] || fail "无法确定当前镜像，管理员密码未修改。"
+  timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  backup="${INSTALL_DIR}/data/backups/password-reset-${timestamp}.db"
+  backup_database "${backup}" "${image}" || fail "数据库备份失败，管理员密码未修改。"
+
+  env_backup="$(mktemp)"
+  install -m 0600 "${INSTALL_DIR}/.env" "${env_backup}"
+  if ! set_env LANQIN_ADMIN_PASSWORD "${password}"; then
+    rm -f "${env_backup}"
+    fail "管理员密码记录更新失败，数据库未修改。"
+  fi
+  chmod 0600 "${INSTALL_DIR}/.env"
+  if ! result="$(compose exec -T lanqin-email sqlite3 -batch -noheader /data/lanqin.db "BEGIN IMMEDIATE; UPDATE users SET password_hash='${hash}', updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id='${user_id}' AND role='admin'; SELECT 'user=' || changes(); UPDATE mailboxes SET password_hash='${hash}', updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE user_id='${user_id}' AND EXISTS (SELECT 1 FROM users WHERE id='${user_id}' AND role='admin'); SELECT 'mailboxes=' || changes(); COMMIT;" | tr -d '\r')"; then
+    install -m 0600 "${env_backup}" "${INSTALL_DIR}/.env"
+    rm -f "${env_backup}"
+    fail "管理员密码写入失败，已恢复原密码记录。"
+  fi
+  user_changes="$(printf '%s\n' "${result}" | sed -n 's/^user=//p' | tail -n 1)"
+  mailbox_changes="$(printf '%s\n' "${result}" | sed -n 's/^mailboxes=//p' | tail -n 1)"
+  if [[ "${user_changes}" != "1" || ! "${mailbox_changes}" =~ ^[0-9]+$ ]]; then
+    install -m 0600 "${env_backup}" "${INSTALL_DIR}/.env"
+    rm -f "${env_backup}"
+    fail "管理员账号不存在或身份已变化，密码未修改；已恢复原密码记录。"
+  fi
+  rm -f "${env_backup}"
+  success "管理员 ${username} 的统一登录密码已重置。"
+  printf '新密码：%s\n' "${password}"
+  log "重置前数据库备份：${backup}"
+  log "已同步 ${mailbox_changes} 个管理员邮箱的 SMTP/IMAP 密码。"
+  warn "此次操作只修改管理员账号及其名下邮箱，不会修改普通用户或其邮箱密码。"
 }
 
 do_status() {
@@ -1181,11 +1300,13 @@ do_menu() {
   prompt_text ' 7. 申请、检查或续期 SSL 证书\n'
   prompt_text ' 8. 回滚到上次更新前版本\n'
   prompt_text ' 9. NewSzxcn 邮箱指南\n'
-  prompt_text ' 10. 卸载服务（保留数据）\n'
+  prompt_text ' 10. 查看管理员登录信息\n'
+  prompt_text ' 11. 重置管理员统一登录密码\n'
+  prompt_text ' 12. 卸载服务（保留数据）\n'
   prompt_text ' 0. 退出\n'
   prompt_text '==================================================\n'
 
-  choice="$(prompt_menu_choice "${default_choice}" "10")"
+  choice="$(prompt_menu_choice "${default_choice}" "12")"
   if [[ "${choice}" != "0" && "${choice}" != "1" && "${installed}" != "true" ]]; then
     fail "尚未安装，请先选择 1。"
   fi
@@ -1201,7 +1322,9 @@ do_menu() {
     7) do_certificate ;;
     8) ensure_docker; do_rollback ;;
     9) do_guide ;;
-    10) ensure_docker; do_uninstall ;;
+    10) do_show_admin_credentials ;;
+    11) do_reset_admin_password ;;
+    12) ensure_docker; do_uninstall ;;
   esac
 }
 
@@ -1228,6 +1351,8 @@ case "${COMMAND}" in
   certificate) require_root; require_curl; do_certificate ;;
   rollback) require_root; require_curl; ensure_docker; do_rollback ;;
   guide) require_root; require_curl; do_guide ;;
+  credentials) require_root; require_curl; do_show_admin_credentials ;;
+  reset-password) require_root; require_curl; do_reset_admin_password ;;
   uninstall) require_root; require_curl; ensure_docker; do_uninstall ;;
   *) usage; fail "未知命令：${COMMAND}" ;;
 esac

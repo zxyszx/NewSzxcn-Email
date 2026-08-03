@@ -36,6 +36,11 @@ test_password_validation() {
   if (LANQIN_ADMIN_PASSWORD="#abc123" prompt_admin_password >/dev/null 2>&1); then
     fail_test "password beginning with an env-file comment marker accepted"
   fi
+  LANQIN_RESET_PASSWORD="reset1"
+  assert_eq "reset1" "$(prompt_reset_password)" "six-character reset password"
+  if (LANQIN_RESET_PASSWORD="reset" prompt_reset_password >/dev/null 2>&1); then
+    fail_test "five-character reset password accepted"
+  fi
 }
 
 test_install_configuration() {
@@ -114,13 +119,78 @@ test_menu_choice() {
   assert_eq "0" "$(prompt_menu_choice 1)" "menu exit action"
   export LANQIN_MENU_ACTION=1
   assert_eq "1" "$(prompt_menu_choice 2)" "menu install action"
-  export LANQIN_MENU_ACTION=10
-  assert_eq "10" "$(prompt_menu_choice 1 10)" "menu uninstall action"
-  if (has_tty() { return 1; }; LANQIN_MENU_ACTION=11 prompt_menu_choice 1 10 >/dev/null 2>&1); then
+  export LANQIN_MENU_ACTION=12
+  assert_eq "12" "$(prompt_menu_choice 1 12)" "menu uninstall action"
+  if (has_tty() { return 1; }; LANQIN_MENU_ACTION=13 prompt_menu_choice 1 12 >/dev/null 2>&1); then
     fail_test "out-of-range menu action accepted"
   fi
   unset LANQIN_MENU_ACTION
 }
+
+test_admin_credentials() (
+  local temp_dir output
+  temp_dir="$(mktemp -d)"
+  INSTALL_DIR="${temp_dir}/install"
+  mkdir -p "${INSTALL_DIR}"
+  cat > "${INSTALL_DIR}/.env" <<'EOF'
+LANQIN_PUBLIC_BASE_URL=https://mail.example.com
+LANQIN_ADMIN_USERNAME=admin
+LANQIN_ADMIN_PASSWORD=recorded-password
+EOF
+  output="$(do_show_admin_credentials 2>&1)"
+  [[ "${output}" == *'登录地址：https://mail.example.com'* ]] || fail_test "administrator login URL missing"
+  [[ "${output}" == *'管理员用户名：admin'* ]] || fail_test "administrator username missing"
+  [[ "${output}" == *'记录密码：recorded-password'* ]] || fail_test "recorded administrator password missing"
+  [[ "${output}" == *'无法从数据库反向查看'* ]] || fail_test "password hash warning missing"
+)
+
+test_admin_password_hash_parsing() (
+  compose() {
+    # shellcheck disable=SC2016
+    printf '{BLF-CRYPT}$2y$10$123456789012345678901u1234567890123456789012345678901\n'
+  }
+  # shellcheck disable=SC2016
+  assert_eq '$2y$10$123456789012345678901u1234567890123456789012345678901' "$(generate_admin_password_hash 'unused')" "Dovecot bcrypt hash parsing"
+)
+
+test_admin_password_reset_only_updates_admin_account() (
+  local temp_dir compose_calls backup_path
+  temp_dir="$(mktemp -d)"
+  INSTALL_DIR="${temp_dir}/install"
+  compose_calls="${temp_dir}/compose-calls"
+  mkdir -p "${INSTALL_DIR}/data/backups"
+  cat > "${INSTALL_DIR}/.env" <<'EOF'
+LANQIN_ADMIN_USERNAME=admin
+LANQIN_ADMIN_PASSWORD=old-password
+EOF
+  printf 'database\n' > "${INSTALL_DIR}/data/lanqin.db"
+
+  ensure_docker() { return 0; }
+  current_image_id() { printf 'sha256:test-image\n'; }
+  backup_database() {
+    backup_path="$1"
+    printf 'backup\n' > "${backup_path}"
+  }
+  prompt_reset_password() { printf 'new-password'; }
+  # shellcheck disable=SC2016
+  generate_admin_password_hash() { printf '$2y$10$123456789012345678901u1234567890123456789012345678901'; }
+  compose() {
+    printf '%s\n' "$*" >> "${compose_calls}"
+    if [[ "$*" == *'SELECT id FROM users'* ]]; then
+      printf 'admin-user-id\n'
+    elif [[ "$*" == *'UPDATE users SET password_hash'* ]]; then
+      printf 'user=1\nmailboxes=2\n'
+    fi
+  }
+
+  do_reset_admin_password >/dev/null
+  assert_eq "new-password" "$(env_value LANQIN_ADMIN_PASSWORD)" "recorded reset password"
+  [[ -s "${backup_path}" ]] || fail_test "password reset database backup missing"
+  grep -Fq "login_name='admin' AND role='admin'" "${compose_calls}" || fail_test "administrator lookup is not role restricted"
+  grep -Fq "UPDATE users SET password_hash=" "${compose_calls}" || fail_test "administrator user password was not updated"
+  grep -Fq "UPDATE mailboxes SET password_hash=" "${compose_calls}" || fail_test "administrator mailbox passwords were not synchronized"
+  grep -Fq "WHERE user_id='admin-user-id'" "${compose_calls}" || fail_test "mailbox password update is not restricted to the administrator"
+)
 
 test_offline_database_backup() (
   local temp_dir destination
@@ -439,6 +509,9 @@ test_nginx_configuration
 test_compose_configuration
 test_legacy_configuration_is_preserved
 test_menu_choice
+test_admin_credentials
+test_admin_password_hash_parsing
+test_admin_password_reset_only_updates_admin_account
 test_offline_database_backup
 test_guide_generation
 test_acme_cron_detection
