@@ -82,6 +82,7 @@ export function ProfilePage() {
   const canManageBlocked = hasPermission(user, "mail.blocked_senders.manage")
   const canViewStats = hasPermission(user, "mail.stats.view")
   const canApplyMailbox = hasPermission(user, "mail.mailboxes.apply")
+  const canConfigureMailboxApply = hasPermission(user, "admin.settings.update")
   const visibleTabKeys = tabKeys.filter((key) => {
     if (key === "profile") return true
     if (key === "mailboxes") return canAccessMail || canApplyMailbox
@@ -453,6 +454,7 @@ export function ProfilePage() {
         mailboxes={canAccessMail ? mailboxes.data?.items || [] : []}
         applyOptions={mailboxApplyOptions.data}
         applyPending={applyMailbox.isPending}
+        canConfigureApply={canConfigureMailboxApply}
         selectedMailboxId={mailboxId}
         externalImapEnabled={externalImapEnabled}
         externalAccounts={externalImapAccounts.data?.items || []}
@@ -464,6 +466,7 @@ export function ProfilePage() {
         onSelect={setMailboxId}
         onOpen={(id) => { if (!canAccessMail) return; setMailboxId(id); navigate("/") }}
         onApply={(payload) => applyMailbox.mutateAsync(payload).then(() => undefined)}
+        onConfigureApply={() => navigate("/admin?section=settings&settingsTab=mail")}
         onCreateExternal={(payload) => createExternalImap.mutate(payload)}
         onStartExternalOAuth={(provider, payload) => startExternalOAuth.mutate({ provider, ...payload })}
         onUpdateExternal={(id, payload) => updateExternalImap.mutate({ id, payload })}
@@ -1000,6 +1003,7 @@ function MailboxManagement({
   mailboxes,
   applyOptions,
   applyPending,
+  canConfigureApply,
   selectedMailboxId,
   externalImapEnabled,
   externalAccounts,
@@ -1011,6 +1015,7 @@ function MailboxManagement({
   onSelect,
   onOpen,
   onApply,
+  onConfigureApply,
   onCreateExternal,
   onStartExternalOAuth,
   onUpdateExternal,
@@ -1022,6 +1027,7 @@ function MailboxManagement({
   mailboxes: Mailbox[]
   applyOptions?: MailboxApplyOptions
   applyPending: boolean
+  canConfigureApply: boolean
   selectedMailboxId: string
   externalImapEnabled: boolean
   externalAccounts: ExternalImapAccount[]
@@ -1033,6 +1039,7 @@ function MailboxManagement({
   onSelect: (id: string) => void
   onOpen: (id: string) => void
   onApply: (payload: { domainId: string; localPart: string; displayName: string }) => Promise<void>
+  onConfigureApply: () => void
   onCreateExternal: (payload: ExternalImapAccountPayload) => void
   onStartExternalOAuth: (provider: ExternalImapOAuthProvider, payload: { mailboxId: string; email: string; storageMode: ExternalImapStorageMode }) => void
   onUpdateExternal: (id: string, payload: ExternalImapAccountPayload) => void
@@ -1208,9 +1215,16 @@ function MailboxManagement({
           </select>
           <Button className="h-[42px] px-0" disabled={!canApply || applyPending || !selectedDomain || !localPart.trim()}>{applyPending ? "创建中" : "创建"}</Button>
         </form>
-        <p className="mt-4 text-sm text-muted-foreground">
-          {canApply ? "提示：邮箱数量受账号配额限制，管理员可在后台为单个账号调整可创建数量。" : "提示：当前账号暂不可创建新邮箱。"}
-        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+          <span>{canApply
+            ? "提示：邮箱数量受账号配额限制，管理员可在后台为单个账号调整可创建数量。"
+            : canConfigureApply && applyOptions?.enabled
+              ? "提示：尚未选择开放域名。请在“后台管理 → 系统设置 → 邮件”中至少勾选一个已启用域名。"
+              : canConfigureApply
+                ? "提示：账号自助申请邮箱未开启。请在“后台管理 → 系统设置 → 邮件”中开启，并勾选开放域名。"
+                : "提示：当前账号暂不可创建新邮箱，请联系管理员开启账号自助申请邮箱。"}</span>
+          {!canApply && canConfigureApply && <Button type="button" variant="link" className="h-auto p-0 text-sm" onClick={onConfigureApply}>前往设置</Button>}
+        </div>
       </section>
 
       <section className="rounded-lg border bg-card">

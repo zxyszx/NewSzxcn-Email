@@ -27,6 +27,7 @@ import { hasAnyPermission, hasPermission } from "@/lib/permissions"
 import type { PermissionKey } from "@/lib/api-types"
 
 type Section = "overview" | "users" | "permissionGroups" | "domains" | "mailboxes" | "aliases" | "messages" | "sendAudit" | "settings"
+type SettingsTab = "base" | "smtp" | "storage" | "mail" | "externalImap" | "templates" | "security" | "about"
 type PendingConfirm = { title: string; description?: string; confirmText: string; onConfirm: () => void }
 
 const sectionMeta: Record<Section, { label: string; frontLabel: string; description: string }> = {
@@ -132,7 +133,7 @@ export function AdminPage() {
         {section === "aliases" && <AliasesSection aliases={aliasItems} domains={domainItems} />}
         {section === "messages" && <AdminMessagesSection mailboxes={mailboxItems} systemAdmin={user?.role === "admin"} />}
         {section === "sendAudit" && <AdminSendAuditSection mailboxes={mailboxItems} />}
-        {section === "settings" && <SystemSettingsSection settings={settings.data} domains={domainItems} />}
+        {section === "settings" && <SystemSettingsSection settings={settings.data} domains={domainItems} initialTab={params.get("settingsTab")} />}
       </main>
     </ScrollArea>
   )
@@ -1018,7 +1019,7 @@ function AdminSendAuditSection({ mailboxes }: { mailboxes: MailboxType[] }) {
   )
 }
 
-function SystemSettingsSection({ settings, domains }: { settings?: SystemSettings; domains: Domain[] }) {
+function SystemSettingsSection({ settings, domains, initialTab }: { settings?: SystemSettings; domains: Domain[]; initialTab?: string | null }) {
   const me = useMe()
   const user = me.data?.user
   const qc = useQueryClient()
@@ -1030,7 +1031,8 @@ function SystemSettingsSection({ settings, domains }: { settings?: SystemSetting
   const canUpdateTemplates = hasPermission(user, "admin.templates.update")
   const canResetTemplates = hasPermission(user, "admin.templates.reset")
   const templates = useQuery({ queryKey: ["admin", "mail-templates"], queryFn: api.mailTemplates, enabled: canViewTemplates })
-  const [settingsTab, setSettingsTab] = React.useState<"base" | "smtp" | "storage" | "mail" | "externalImap" | "templates" | "security" | "about">("base")
+  const requestedTab = initialTab as SettingsTab | undefined
+  const [settingsTab, setSettingsTab] = React.useState<SettingsTab>(() => requestedTab && ["base", "smtp", "storage", "mail", "externalImap", "templates", "security", "about"].includes(requestedTab) ? requestedTab : "base")
   const maildirHealth = useQuery({ queryKey: ["admin", "maildir-sync", "health"], queryFn: api.maildirSyncHealth, enabled: canSettingsView && settingsTab === "storage" })
   const [smtpRequireTls, setSmtpRequireTls] = React.useState(false)
   const [allowInsecureHttp, setAllowInsecureHttp] = React.useState(true)
