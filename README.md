@@ -7,7 +7,7 @@ NewSzxcn-Email 是一个可自建、可管理、带完整 Webmail 与管理后�
 [![CI](https://github.com/zxyszx/NewSzxcn-Email/actions/workflows/ci.yml/badge.svg)](https://github.com/zxyszx/NewSzxcn-Email/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/zxyszx/NewSzxcn-Email)](LICENSE)
 
-[版本发布](https://github.com/zxyszx/NewSzxcn-Email/releases) · [部署文档](deploy/README.md) · [English](README.en.md)
+[邮箱指南](docs/GUIDE.md) · [版本发布](https://github.com/zxyszx/NewSzxcn-Email/releases) · [部署文档](deploy/README.md) · [English](README.en.md)
 
 ## 主要功能
 
