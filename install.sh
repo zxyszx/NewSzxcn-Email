@@ -766,11 +766,15 @@ restore_update_snapshot() {
   fi
   [[ -d "${snapshot}" && -s "${snapshot}/database.db" && -s "${snapshot}/image" && -s "${snapshot}/docker-compose.yml" && -s "${snapshot}/.env" ]] \
     || { warn "回滚快照不完整。"; return 1; }
-  [[ -f "${snapshot}/.env.example" || -f "${snapshot}/env-example.absent" ]] \
-    && [[ -f "${snapshot}/newszxcn-email" || -f "${snapshot}/installer.absent" ]] \
-    && [[ -f "${snapshot}/nginx.conf" || -f "${snapshot}/nginx.absent" ]] \
-    && [[ -d "${snapshot}/certs" || -f "${snapshot}/certs.absent" ]] \
-    || { warn "回滚快照缺少文件状态标记。"; return 1; }
+  if ! {
+    [[ -f "${snapshot}/.env.example" || -f "${snapshot}/env-example.absent" ]] \
+      && [[ -f "${snapshot}/newszxcn-email" || -f "${snapshot}/installer.absent" ]] \
+      && [[ -f "${snapshot}/nginx.conf" || -f "${snapshot}/nginx.absent" ]] \
+      && [[ -d "${snapshot}/certs" || -f "${snapshot}/certs.absent" ]]
+  }; then
+    warn "回滚快照缺少文件状态标记。"
+    return 1
+  fi
   image="$(tr -d '\r\n' < "${snapshot}/image")"
   docker image inspect "${image}" >/dev/null 2>&1 || { warn "回滚镜像已不存在：${image}"; return 1; }
   sqlite_integrity_check "${snapshot}/database.db" "${image}" || { warn "回滚数据库完整性检查未通过。"; return 1; }
