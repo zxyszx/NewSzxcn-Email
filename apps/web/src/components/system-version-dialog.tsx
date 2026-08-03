@@ -69,11 +69,11 @@ export function SystemVersionDialog({ mode = "sidebar", className }: { mode?: "s
           </div>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="border-b pb-4 text-center">
-            <div className="text-sm text-muted-foreground">当前版本</div>
-            <div className="mt-2 text-4xl font-semibold tabular-nums">{currentVersion}</div>
-            {version.data?.latestVersion && <div className="mt-2 text-sm text-muted-foreground">最新版本：{version.data.latestVersion}</div>}
+        <div className="space-y-3">
+          <div className="border-b pb-3 text-center">
+            <div className="text-xs text-muted-foreground">当前版本</div>
+            <div className="mt-1 text-3xl font-semibold tabular-nums">{currentVersion}</div>
+            {version.data?.latestVersion && <div className="mt-1 text-xs text-muted-foreground">最新版本：{version.data.latestVersion}</div>}
           </div>
 
           {version.isLoading && <VersionState icon={<Loader2 className="animate-spin" />} title="正在检查更新" description="正在连接 GitHub Release。" />}
@@ -91,7 +91,7 @@ export function SystemVersionDialog({ mode = "sidebar", className }: { mode?: "s
           {version.data?.releaseNotes && (
             <div className="space-y-2">
               <div className="text-sm font-medium">更新日志</div>
-              <div className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-md border bg-muted/30 p-3 text-sm leading-6 text-muted-foreground">
+              <div className="h-[clamp(12rem,30svh,18rem)] overflow-y-auto whitespace-pre-wrap rounded-md border bg-muted/20 p-4 text-sm leading-6 text-foreground/80">
                 {version.data.releaseNotes}
               </div>
             </div>
