@@ -29,10 +29,19 @@ NewSzxcn-Email 是一个可自建、可管理、带完整 Webmail 与管理后�
 curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/install.sh | sudo bash
 ```
 
+已使用 `root` 登录时，也可以使用：
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/install.sh)
+```
+
 脚本会自动完成：
 
 - 安装或检查 Docker Engine 与 Docker Compose v2
-- 询问邮件域名、访问地址、管理员用户名和密码
+- 首先选择仅开放必要端口、保留现有防火墙或开放全部端口
+- 询问邮件域名、管理员用户名和密码；默认用户名为 `admin`，回车自动生成 12 位密码，自定义密码最少 6 位
+- 选择自动 Nginx + SSL、宝塔/已有 Nginx 反代或 HTTP 测试模式
+- 自动模式使用官方 `acme.sh` 签发和续期证书，不会强制停止占用 80 端口的进程
 - 创建 `/opt/newszxcn-email` 持久化目录
 - 拉取 GHCR 镜像并启动邮件服务
 - 生成后台在线更新所需的内部鉴权令牌
@@ -67,10 +76,12 @@ sudo newszxcn-email rollback
 ```bash
 sudo newszxcn-email status
 sudo newszxcn-email logs
+sudo newszxcn-email restart
+sudo newszxcn-email certificate
 sudo newszxcn-email uninstall
 ```
 
-`uninstall` 只移除容器，不删除 `/opt/newszxcn-email` 中的配置、数据库与邮件。
+`uninstall` 会移除容器和自动生成的 Nginx 配置，但不删除 `/opt/newszxcn-email` 中的配置、证书、数据库与邮件。
 
 ## DNS 与端口
 
@@ -104,10 +115,11 @@ sudo newszxcn-email uninstall
 |-- docker-compose.yml   # 邮箱主服务与内部更新服务
 |-- data/                # SQLite、附件和更新前备份
 |-- mail/                # Maildir 邮件原文
-`-- dkim/                # DKIM 私钥
+|-- dkim/                # DKIM 私钥
+`-- certs/               # Web、SMTP、IMAP、POP3 共用的 TLS 证书
 ```
 
-升级和重建容器不会删除这些目录。备份时应同时保存 `data`、`mail`、`dkim` 与 `.env`。
+升级和重建容器不会删除这些目录。备份时应同时保存 `data`、`mail`、`dkim`、`certs` 与 `.env`。
 
 ## 手动部署
 

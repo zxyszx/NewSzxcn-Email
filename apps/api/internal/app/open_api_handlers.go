@@ -196,8 +196,8 @@ func (a *App) handleOpenAPICreateMailbox(w http.ResponseWriter, r *http.Request)
 		badRequest(w, err)
 		return
 	}
-	if len(req.Password) < 8 {
-		badRequest(w, errors.New("password must be at least 8 characters"))
+	if !hasMinimumPasswordLength(req.Password) {
+		badRequest(w, errors.New("password must be at least 6 characters"))
 		return
 	}
 	domain, err := a.domainByID(r.Context(), req.DomainID)
@@ -371,8 +371,8 @@ func (a *App) handleOpenAPIResetMailboxPassword(w http.ResponseWriter, r *http.R
 		badRequest(w, err)
 		return
 	}
-	if len(req.Password) < 8 {
-		badRequest(w, errors.New("password must be at least 8 characters"))
+	if !hasMinimumPasswordLength(req.Password) {
+		badRequest(w, errors.New("password must be at least 6 characters"))
 		return
 	}
 	var userID string

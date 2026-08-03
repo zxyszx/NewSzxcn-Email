@@ -27,6 +27,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check installer
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          bash -n install.sh tests/install_test.sh
+          shellcheck -x install.sh tests/install_test.sh
+          bash tests/install_test.sh
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:

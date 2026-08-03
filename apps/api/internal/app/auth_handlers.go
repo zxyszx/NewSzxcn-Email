@@ -112,8 +112,8 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, errors.New("邮箱地址无效"))
 		return
 	}
-	if len(req.Password) < 8 {
-		badRequest(w, errors.New("密码至少需要 8 个字符"))
+	if !hasMinimumPasswordLength(req.Password) {
+		badRequest(w, errors.New("密码至少需要 6 个字符"))
 		return
 	}
 	displayName := strings.TrimSpace(req.DisplayName)
@@ -245,8 +245,8 @@ func (a *App) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, err)
 		return
 	}
-	if len(req.NewPassword) < 8 {
-		badRequest(w, errors.New("新密码至少需要 8 个字符"))
+	if !hasMinimumPasswordLength(req.NewPassword) {
+		badRequest(w, errors.New("新密码至少需要 6 个字符"))
 		return
 	}
 	row := a.db.QueryRowContext(r.Context(), `SELECT password_hash FROM users WHERE id=?`, user.ID)

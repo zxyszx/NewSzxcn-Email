@@ -14,11 +14,18 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/microcosm-cc/bluemonday"
 )
 
 type HTMLPolicy struct{ policy *bluemonday.Policy }
+
+const minimumPasswordLength = 6
+
+func hasMinimumPasswordLength(password string) bool {
+	return utf8.RuneCountInString(password) >= minimumPasswordLength
+}
 
 func NewHTMLPolicy() *HTMLPolicy {
 	p := bluemonday.UGCPolicy()

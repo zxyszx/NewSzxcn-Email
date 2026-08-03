@@ -113,11 +113,11 @@ export function RegisterPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password" className="text-sm font-medium">密码</Label>
-                <PasswordInput id="password" name="password" autoComplete="new-password" minLength={8} required className="h-11 text-base" />
+                <PasswordInput id="password" name="password" autoComplete="new-password" minLength={6} required className="h-11 text-base" />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="confirmPassword" className="text-sm font-medium">确认密码</Label>
-                <PasswordInput id="confirmPassword" name="confirmPassword" autoComplete="new-password" minLength={8} required className="h-11 text-base" />
+                <PasswordInput id="confirmPassword" name="confirmPassword" autoComplete="new-password" minLength={6} required className="h-11 text-base" />
               </div>
               {turnstileRequired && <TurnstileBox siteKey={publicSettings.data?.turnstileSiteKey || ""} onToken={setTurnstileToken} />}
               <Button className="h-11 w-full text-base" disabled={register.isPending || publicSettings.isLoading}>

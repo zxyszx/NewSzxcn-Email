@@ -19,6 +19,8 @@ sudo newszxcn-email rollback
 
 一键安装会把配置和数据放在 `/opt/newszxcn-email`，并部署内部 Watchtower 更新服务。该服务不映射公网端口，仅接受带随机令牌的容器内请求；后台“立即更新”也只允许超级管理员执行。
 
+首次安装会依次询问防火墙模式、邮件服务器域名、管理员用户名/密码和 Web 部署方式。自动 Web 模式会把容器绑定到 `127.0.0.1:8088`，配置宿主机 Nginx，并使用官方 `acme.sh` 申请和续期证书。自定义管理员密码最少 6 位，留空则生成 12 位密码。
+
 ## 最简单部署：单容器镜像版
 
 服务器上不需要源码构建，只要 `docker-compose.yml` 和 `.env` 即可。
@@ -158,10 +160,9 @@ Web 站点可以由宿主机 Nginx / 宝塔反代到容器 `80`，但 SMTP/IMAP/
 
 ```dotenv
 LANQIN_HTTP_BIND=127.0.0.1:8088
-LANQIN_HTTPS_BIND=127.0.0.1:8443
 ```
 
-宿主机 Nginx 再反向代理到 `http://127.0.0.1:8088`。不使用宿主机反向代理时保留默认的 `80` 与 `443` 即可。
+宿主机 Nginx 再反向代理到 `http://127.0.0.1:8088`。容器内 Web 服务只监听 HTTP，公网 HTTPS 由宿主机 Nginx 或宝塔终止。
 如果第三方客户端连接 `993/995` 时提示证书是 `localhost`，说明 Dovecot 仍在使用容器自带的测试证书。LanQin API 的 SMTP `465/587` submission 不会使用自签测试证书；启用前必须配置可读的真实证书。
 
 生产环境请把域名证书挂载进容器，并在 `.env` 指向证书文件：
@@ -182,7 +183,7 @@ services:
       - ./data:/data
       - ./mail:/var/mail/vhosts
       - ./dkim:/var/lib/rspamd/dkim
-      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - ./certs:/certs:ro
 ```
 
 证书域名必须覆盖 `LANQIN_PUBLIC_HOSTNAME`。更新后执行：

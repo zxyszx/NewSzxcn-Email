@@ -7,7 +7,6 @@ services:
       LANQIN_UPDATE_SERVICE_TOKEN: ${LANQIN_UPDATE_TOKEN:-}
     ports:
       - "${LANQIN_HTTP_BIND:-80}:80"
-      - "${LANQIN_HTTPS_BIND:-443}:443"
       - "${LANQIN_SMTP_BIND:-25}:25"
       - "${LANQIN_SMTPS_BIND:-465}:465"
       - "${LANQIN_SUBMISSION_BIND:-587}:587"
@@ -17,8 +16,7 @@ services:
       - ./data:/data
       - ./mail:/var/mail/vhosts
       - ./dkim:/var/lib/rspamd/dkim
-      # 生产环境如需第三方客户端校验证书，请取消下面挂载，并在 .env 配置：
-      # - /etc/letsencrypt:/etc/letsencrypt:ro
+      - ./certs:/certs:ro
     labels:
       com.centurylinklabs.watchtower.enable: "true"
       com.centurylinklabs.watchtower.scope: "newszxcn-email"

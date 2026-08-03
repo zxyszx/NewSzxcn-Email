@@ -143,8 +143,8 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	if role == "admin" {
 		mailboxLimitOverride = nil
 	}
-	if len(req.Password) < 8 {
-		badRequest(w, errors.New("password must be at least 8 characters"))
+	if !hasMinimumPasswordLength(req.Password) {
+		badRequest(w, errors.New("password must be at least 6 characters"))
 		return
 	}
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
@@ -344,8 +344,8 @@ func (a *App) handleResetUserPassword(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, err)
 		return
 	}
-	if len(req.Password) < 8 {
-		badRequest(w, errors.New("password must be at least 8 characters"))
+	if !hasMinimumPasswordLength(req.Password) {
+		badRequest(w, errors.New("password must be at least 6 characters"))
 		return
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
@@ -562,8 +562,8 @@ func (a *App) handleCreateMailbox(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, err)
 		return
 	}
-	if len(req.Password) < 8 {
-		badRequest(w, errors.New("password must be at least 8 characters"))
+	if !hasMinimumPasswordLength(req.Password) {
+		badRequest(w, errors.New("password must be at least 6 characters"))
 		return
 	}
 	role := req.Role

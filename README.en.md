@@ -23,6 +23,8 @@ curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/install.
 
 The installer configures `/opt/newszxcn-email`, starts the Docker services, and waits for the health check. DNS records and provider port restrictions must still be configured by the operator.
 
+During first installation it prompts for the firewall policy, mail hostname, administrator username/password, and Web mode. Automatic mode configures host Nginx and obtains a Let's Encrypt certificate with the official `acme.sh` client. The default username is `admin`; an empty password generates 12 characters, while a custom password requires at least 6 characters.
+
 ## Update
 
 System administrators can click the version badge in the admin sidebar to review and install a GitHub release. The updater is only reachable on the internal Docker network.
@@ -39,10 +41,12 @@ Useful commands:
 ```bash
 sudo newszxcn-email status
 sudo newszxcn-email logs
+sudo newszxcn-email restart
+sudo newszxcn-email certificate
 sudo newszxcn-email uninstall
 ```
 
-The uninstall command preserves configuration, messages, and the database under `/opt/newszxcn-email`.
+The uninstall command removes the containers and generated Nginx configuration while preserving certificates, configuration, messages, and the database under `/opt/newszxcn-email`.
 
 ## Required ports
 

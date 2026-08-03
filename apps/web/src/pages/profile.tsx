@@ -905,8 +905,8 @@ function SecuritySettingsSection({ user, password, passwordFormRef, twoFactorFor
       <SettingsCard title="密码管理">
         <form ref={passwordFormRef} className="space-y-4" onSubmit={(e) => { e.preventDefault(); password.mutate(new FormData(e.currentTarget)) }}>
           <Field label="当前密码"><PasswordInput name="currentPassword" required /></Field>
-          <Field label="新密码"><PasswordInput name="newPassword" minLength={8} required placeholder="输入新密码" /></Field>
-          <Field label="确认新密码"><PasswordInput name="confirmPassword" minLength={8} required placeholder="再次输入密码" /></Field>
+          <Field label="新密码"><PasswordInput name="newPassword" minLength={6} required placeholder="输入新密码" /></Field>
+          <Field label="确认新密码"><PasswordInput name="confirmPassword" minLength={6} required placeholder="再次输入密码" /></Field>
           <Button disabled={password.isPending}>{password.isPending ? "设置中..." : "设置密码"}</Button>
         </form>
       </SettingsCard>
