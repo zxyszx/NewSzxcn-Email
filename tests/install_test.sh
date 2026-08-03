@@ -150,7 +150,7 @@ test_guide_generation() (
   grep -Fq '邮箱前台：https://mail.example.com' "${GUIDE_FILE}" || fail_test "guide frontend URL missing"
   grep -Fq '管理后台：https://mail.example.com/admin' "${GUIDE_FILE}" || fail_test "guide admin URL missing"
   grep -Fq '管理员密码：仅在安装完成时显示' "${GUIDE_FILE}" || fail_test "guide password safety text missing"
-  [[ "$(stat -f '%Lp' "${GUIDE_FILE}" 2>/dev/null || stat -c '%a' "${GUIDE_FILE}")" == "600" ]] || fail_test "guide permissions are not 600"
+  [[ "$(stat -c '%a' "${GUIDE_FILE}" 2>/dev/null || stat -f '%Lp' "${GUIDE_FILE}")" == "600" ]] || fail_test "guide permissions are not 600"
 )
 
 test_acme_cron_detection() (
