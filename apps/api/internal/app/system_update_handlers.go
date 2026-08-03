@@ -81,12 +81,6 @@ func (a *App) handleSystemUpdate(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "failed to back up database")
 		return
 	}
-	if err := a.triggerUpdateService(r.Context()); err != nil {
-		a.log.Error("trigger system update", "error", err)
-		respondError(w, http.StatusBadGateway, "failed to start update")
-		return
-	}
-
 	a.log.Info("system update requested", "user", user.ID, "from", info.CurrentVersion, "to", info.LatestVersion, "backup", backupPath)
 	respondJSON(w, http.StatusAccepted, map[string]any{
 		"ok":             true,
@@ -94,6 +88,7 @@ func (a *App) handleSystemUpdate(w http.ResponseWriter, r *http.Request) {
 		"targetVersion":  info.LatestVersion,
 		"message":        "更新已启动，服务会在完成后自动恢复",
 	})
+	a.scheduleUpdateService(info.CurrentVersion, info.LatestVersion)
 }
 
 func (a *App) systemVersion(ctx context.Context) (systemVersionInfo, error) {
@@ -175,7 +170,7 @@ func (a *App) triggerUpdateService(ctx context.Context) error {
 	}
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(a.config().UpdateServiceToken))
 	client := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: 10 * time.Minute,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
@@ -190,6 +185,18 @@ func (a *App) triggerUpdateService(ctx context.Context) error {
 		return fmt.Errorf("update service returned %s", resp.Status)
 	}
 	return nil
+}
+
+func (a *App) scheduleUpdateService(currentVersion, targetVersion string) {
+	go func() {
+		// Let the accepted response reach the browser before Watchtower replaces this container.
+		time.Sleep(250 * time.Millisecond)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		if err := a.triggerUpdateService(ctx); err != nil {
+			a.log.Error("run scheduled system update", "error", err, "from", currentVersion, "to", targetVersion)
+		}
+	}()
 }
 
 func (a *App) backupDatabaseBeforeUpdate(ctx context.Context) (string, error) {

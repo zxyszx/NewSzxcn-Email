@@ -27,7 +27,19 @@ export function SystemVersionDialog({ mode = "sidebar", className }: { mode?: "s
   const update = useMutation({
     mutationFn: async () => {
       setUpdatePhase("starting")
-      const result = await api.updateSystem()
+      const targetVersion = version.data?.latestVersion
+      let result: Awaited<ReturnType<typeof api.updateSystem>>
+      try {
+        result = await api.updateSystem()
+      } catch (error) {
+        if (!targetVersion || !isUpdateConnectionInterruption(error)) throw error
+        result = {
+          ok: true,
+          currentVersion,
+          targetVersion,
+          message: "更新请求已发送，正在等待服务恢复",
+        }
+      }
       setUpdatePhase("restarting")
       await waitForUpdatedService(result.targetVersion)
       return result
@@ -175,4 +187,9 @@ async function waitForUpdatedService(targetVersion: string) {
 
 function delay(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+function isUpdateConnectionInterruption(error: unknown) {
+  if (!(error instanceof Error)) return false
+  return /(?:502|503|504|网络请求失败|请求超时|failed to fetch|networkerror)/i.test(error.message)
 }

@@ -10,8 +10,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestSystemVersionAndUpdate(t *testing.T) {
@@ -22,6 +24,11 @@ func TestSystemVersionAndUpdate(t *testing.T) {
 	defer releaseServer.Close()
 
 	var updateRequests atomic.Int32
+	updateStarted := make(chan struct{}, 1)
+	releaseUpdate := make(chan struct{})
+	var releaseUpdateOnce sync.Once
+	releaseBlockedUpdate := func() { releaseUpdateOnce.Do(func() { close(releaseUpdate) }) }
+	defer releaseBlockedUpdate()
 	updateServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("update method = %s", r.Method)
@@ -30,6 +37,8 @@ func TestSystemVersionAndUpdate(t *testing.T) {
 			t.Errorf("authorization = %q", got)
 		}
 		updateRequests.Add(1)
+		updateStarted <- struct{}{}
+		<-releaseUpdate
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer updateServer.Close()
@@ -66,12 +75,44 @@ func TestSystemVersionAndUpdate(t *testing.T) {
 		t.Fatalf("unexpected version response: %+v", version)
 	}
 
-	var update map[string]any
-	if code := admin.do("POST", "/api/admin/system/update", nil, &update); code != http.StatusAccepted {
-		t.Fatalf("update code=%d response=%v", code, update)
+	type updateResponse struct {
+		code int
+		err  error
 	}
-	if updateRequests.Load() != 1 {
-		t.Fatalf("update requests=%d", updateRequests.Load())
+	response := make(chan updateResponse, 1)
+	go func() {
+		req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/admin/system/update", nil)
+		if err != nil {
+			response <- updateResponse{err: err}
+			return
+		}
+		req.AddCookie(admin.cookie)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			response <- updateResponse{err: err}
+			return
+		}
+		defer resp.Body.Close()
+		_, _ = io.Copy(io.Discard, resp.Body)
+		response <- updateResponse{code: resp.StatusCode}
+	}()
+	select {
+	case result := <-response:
+		if result.err != nil || result.code != http.StatusAccepted {
+			t.Fatalf("update response=%+v", result)
+		}
+	case <-time.After(2 * time.Second):
+		releaseBlockedUpdate()
+		t.Fatal("update response waited for container replacement")
+	}
+	select {
+	case <-updateStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("scheduled update request did not start")
+	}
+	releaseBlockedUpdate()
+	if got := updateRequests.Load(); got != 1 {
+		t.Fatalf("update requests=%d", got)
 	}
 	backups, err := filepath.Glob(filepath.Join(dir, "backups", "pre-update-*.db"))
 	if err != nil || len(backups) != 1 {
