@@ -212,31 +212,35 @@ jobs:
           image_base="${image_base,,}"
           current_commit="$(git rev-list -n 1 "${tag}")"
           previous_tag="$(git describe --tags --abbrev=0 "${current_commit}^" 2>/dev/null || true)"
-          generate_args=(-f "tag_name=${tag}")
-          if [[ -n "${previous_tag}" ]]; then
-            generate_args+=(-f "previous_tag_name=${previous_tag}")
-          fi
+          version_notes=".github/release-notes/${tag}.md"
 
-          if ! gh api -X POST "repos/${repo}/releases/generate-notes" "${generate_args[@]}" --jq '.body' > generated-release-notes.md; then
-            {
-              echo "GitHub 自动生成更新日志失败，已回退到提交列表。"
-              echo
-              if [[ -n "${previous_tag}" ]]; then
-                git log --reverse --pretty=format:"- %s ([%h](${repo_url}/commit/%H))" "${previous_tag}..${tag}"
+          if [[ -f "${version_notes}" ]]; then
+            cp "${version_notes}" generated-release-notes.md
+          else
+            generate_args=(-f "tag_name=${tag}")
+            if [[ -n "${previous_tag}" ]]; then
+              generate_args+=(-f "previous_tag_name=${previous_tag}")
+            fi
+
+            if ! gh api -X POST "repos/${repo}/releases/generate-notes" "${generate_args[@]}" --jq '.body' > generated-release-notes.md; then
+              {
+                echo "GitHub 自动生成更新日志失败，已回退到提交列表。"
                 echo
-                echo
-                echo "完整更新日志: [${previous_tag}...${tag}](${repo_url}/compare/${previous_tag}...${tag})"
-              else
-                echo "- 首个公开版本。"
-                echo
-                echo "当前提交: [${GITHUB_SHA:0:7}](${repo_url}/commit/${GITHUB_SHA})"
-              fi
-            } > generated-release-notes.md
+                if [[ -n "${previous_tag}" ]]; then
+                  git log --reverse --pretty=format:"- %s ([%h](${repo_url}/commit/%H))" "${previous_tag}..${tag}"
+                  echo
+                  echo
+                  echo "完整更新日志: [${previous_tag}...${tag}](${repo_url}/compare/${previous_tag}...${tag})"
+                else
+                  echo "- 首个公开版本。"
+                  echo
+                  echo "当前提交: [${GITHUB_SHA:0:7}](${repo_url}/commit/${GITHUB_SHA})"
+                fi
+              } > generated-release-notes.md
+            fi
           fi
 
           cat > release-notes.md <<EOF
-          # NewSzxcn Email ${tag}
-
           自建邮箱 Webmail 全栈方案，包含 Web、API、Postfix、Dovecot、Rspamd 等组件。
 
           ## 注意
