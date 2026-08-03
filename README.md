@@ -37,13 +37,13 @@ bash <(curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/i
 
 脚本会先显示统一管理菜单。空白服务器默认选择安装，并进入防火墙、邮件域名、管理员
 账号和 Web 部署方式的引导；检测到已有安装时默认选择安全更新。选择重新安装会先将
-`/opt/newszxcn-email` 完整改名备份，再进入首次安装流程。更新会先备份数据库，并在
-启动失败时自动回滚。
+`/opt/newszxcn-email` 完整改名备份，失败时自动恢复原目录、Nginx 和旧容器。更新前会
+校验数据库备份并保存镜像、Compose、环境、安装脚本和 Nginx，失败时执行完整恢复。
 
 脚本会自动完成：
 
 - 安装或检查 Docker Engine 与 Docker Compose v2
-- 首先选择仅开放必要端口、保留现有防火墙或开放全部端口
+- 选择自动添加邮局必要端口规则，或保留现有防火墙由用户自行配置
 - 询问邮件域名、管理员用户名和密码；默认用户名为 `admin`，回车自动生成 12 位密码，自定义密码最少 6 位
 - 选择自动 Nginx + SSL、宝塔/已有 Nginx 反代或 HTTP 测试模式
 - 自动模式使用官方 `acme.sh` 签发和续期证书，不会强制停止占用 80 端口的进程
@@ -70,15 +70,19 @@ bash <(curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/i
 sudo newszxcn-email update
 ```
 
-命令行更新会保留当前镜像、备份数据库并执行健康检查。需要回滚时运行：
+命令行更新会创建完整回滚快照、校验数据库备份并执行健康检查。需要恢复上次更新前的镜像、数据库和配置时运行：
 
 ```bash
 sudo newszxcn-email rollback
 ```
 
+手动回滚会先要求确认，并额外备份当前数据库，再恢复更新前版本。回滚后的镜像会保持锁定，直到下一次明确执行更新。
+
 常用运维命令：
 
 ```bash
+sudo ns
+sudo newszxcn-email guide
 sudo newszxcn-email status
 sudo newszxcn-email logs
 sudo newszxcn-email restart
@@ -86,7 +90,7 @@ sudo newszxcn-email certificate
 sudo newszxcn-email uninstall
 ```
 
-`uninstall` 会移除容器和自动生成的 Nginx 配置，但不删除 `/opt/newszxcn-email` 中的配置、证书、数据库与邮件。
+`uninstall` 会移除容器和自动生成的 Nginx 配置，但不删除 `/opt/newszxcn-email` 中的配置、证书、数据库与邮件。卸载时可以单独停止当前域名的 acme.sh 自动续期，不会影响 acme.sh 管理的其他域名。
 
 ## DNS 与端口
 

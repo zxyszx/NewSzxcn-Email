@@ -30,7 +30,7 @@ jobs:
       - name: Check installer
         run: |
           sudo apt-get update
-          sudo apt-get install -y shellcheck
+          sudo apt-get install -y shellcheck sqlite3
           bash -n install.sh tests/install_test.sh
           shellcheck -x install.sh tests/install_test.sh
           bash tests/install_test.sh

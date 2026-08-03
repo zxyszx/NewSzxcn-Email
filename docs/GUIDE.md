@@ -88,8 +88,10 @@ sudo newszxcn-email certificate
 重新打开安装与运维菜单：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/install.sh)
+sudo ns
 ```
+
+也可以执行 `sudo newszxcn-email menu`，或重新运行一键安装命令。
 
 常用命令：
 
@@ -100,9 +102,12 @@ sudo newszxcn-email restart
 sudo newszxcn-email logs
 sudo newszxcn-email certificate
 sudo newszxcn-email rollback
+sudo newszxcn-email guide
 ```
 
-命令行更新会备份 SQLite 数据库、拉取最新镜像并执行健康检查。当前 `rollback` 命令用于恢复上次命令行更新前保存的 Docker 镜像。
+命令行更新会创建完整回滚快照、校验 SQLite 数据库备份、拉取最新镜像并执行健康检查。`rollback` 命令会先备份当前数据库并要求确认，然后恢复上次更新前的镜像、数据库、Compose、环境、安装脚本和 Nginx 配置。回滚镜像会保持锁定，下一次执行更新时解除。
+
+`guide` 命令会读取当前安装地址、管理员用户名、证书到期时间和 acme.sh 续期状态，重新生成仅 root 可读的 `/root/newszxcn-email-guide.txt`。
 
 超级管理员也可以点击管理后台侧栏中的版本号，在版本更新页面检查并安装新版本。
 

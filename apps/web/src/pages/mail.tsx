@@ -174,7 +174,6 @@ export function MailPage() {
   const canDownloadAttachments = hasPermission(user, "mail.attachments.download")
   const canManageSignatures = hasPermission(user, "mail.signatures.manage")
   const canViewUnknownMail = user?.role === "admin"
-  const canManageMailboxes = hasPermission(user, "admin.mailboxes.view")
   const publicSettings = useQuery({ queryKey: ["public-settings"], queryFn: api.publicSettings })
   const externalImapEnabled = publicSettings.data?.externalImapEnabled ?? false
 
@@ -1469,7 +1468,7 @@ export function MailPage() {
   ) : !canReadMail ? (
     <PermissionEmptyState title="无邮件查看权限" description="当前账号可以访问邮箱前台，但未开启邮件查看权限。" onOpenSettings={openSettings} />
   ) : !mailboxList.isLoading && !hasMailboxes && mailView !== "unknown" ? (
-    <NoMailboxState onManageMailboxes={() => navigate(canManageMailboxes ? "/admin?section=mailboxes" : "/profile?tab=mailboxes")} />
+    <NoMailboxState onManageMailboxes={() => navigate("/profile?tab=mailboxes")} />
   ) : mailView === "scheduled" && canScheduleMail ? (
     <ScheduledSendView
       compact={compactMailLayout}
