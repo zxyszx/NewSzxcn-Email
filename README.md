@@ -35,10 +35,10 @@ curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/install.
 bash <(curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/install.sh)
 ```
 
-空白服务器会进入防火墙、邮件域名、管理员账号和 Web 部署方式的引导。检测到
-`/opt/newszxcn-email/.env` 时，脚本会先询问是更新现有邮局、修复现有安装、退出，
-还是完整备份旧目录后全新安装；不会再直接跳过引导并重启服务。更新会先备份数据库，
-并在启动失败时自动回滚。
+脚本会先显示统一管理菜单。空白服务器默认选择安装，并进入防火墙、邮件域名、管理员
+账号和 Web 部署方式的引导；检测到已有安装时默认选择安全更新。选择重新安装会先将
+`/opt/newszxcn-email` 完整改名备份，再进入首次安装流程。更新会先备份数据库，并在
+启动失败时自动回滚。
 
 脚本会自动完成：
 

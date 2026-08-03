@@ -109,22 +109,14 @@ test_legacy_configuration_is_preserved() {
   assert_eq "127.0.0.1:9090" "$(env_value LANQIN_HTTP_BIND)" "legacy HTTP bind"
 }
 
-test_existing_install_action() {
-  local temp_dir
-  temp_dir="$(mktemp -d)"
-  cp "${ROOT_DIR}/deploy/.env.example" "${temp_dir}/.env"
-  export INSTALL_DIR="${temp_dir}"
-  set_env LANQIN_PUBLIC_BASE_URL "https://mail.example.com"
-
-  export LANQIN_EXISTING_ACTION=1
-  assert_eq "1" "$(prompt_existing_install_action)" "existing install update action"
-  export LANQIN_EXISTING_ACTION=2
-  assert_eq "2" "$(prompt_existing_install_action)" "existing install repair action"
-  export LANQIN_EXISTING_ACTION=3
-  assert_eq "3" "$(prompt_existing_install_action)" "existing install exit action"
-  export LANQIN_EXISTING_ACTION=4
-  assert_eq "4" "$(prompt_existing_install_action)" "existing install fresh action"
-  unset LANQIN_EXISTING_ACTION
+test_menu_choice() {
+  export LANQIN_MENU_ACTION=0
+  assert_eq "0" "$(prompt_menu_choice 1)" "menu exit action"
+  export LANQIN_MENU_ACTION=1
+  assert_eq "1" "$(prompt_menu_choice 2)" "menu install action"
+  export LANQIN_MENU_ACTION=9
+  assert_eq "9" "$(prompt_menu_choice 1)" "menu uninstall action"
+  unset LANQIN_MENU_ACTION
 }
 
 test_backup_reinstall_preserves_existing_directory() (
@@ -153,7 +145,7 @@ test_install_configuration 3 3 "80" "http://mail.example.com" "true"
 test_nginx_configuration
 test_compose_configuration
 test_legacy_configuration_is_preserved
-test_existing_install_action
+test_menu_choice
 test_backup_reinstall_preserves_existing_directory
 
 printf 'install.sh tests passed\n'
