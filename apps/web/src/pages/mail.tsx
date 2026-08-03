@@ -11,7 +11,7 @@ import TextAlign from "@tiptap/extension-text-align"
 import Placeholder from "@tiptap/extension-placeholder"
 import { BackgroundColor, Color, FontFamily, FontSize, TextStyle } from "@tiptap/extension-text-style"
 import { useNavigate } from "react-router-dom"
-import { AlignCenter, AlignLeft, AlignRight, Archive, ArrowLeft, Ban, Bold, Calendar, Check, ChevronDown, Clock3, Code2, Copy, Download, Ellipsis, Eraser, Eye, FileText, Folder, Forward, Highlighter, History, Image, Inbox, IndentDecrease, IndentIncrease, Italic, Link, List, ListOrdered, Mail, MailCheck, MailQuestion, Moon, PanelLeftOpen, Paperclip, PencilLine, Plus, Quote, Redo2, RefreshCcw, Reply, RotateCcw, Search, Send, Settings, ShieldCheck, Signature, SlidersHorizontal, Smile, Star, Strikethrough, Sun, Trash2, Type, Underline, Undo2, Upload, X } from "lucide-react"
+import { AlignCenter, AlignLeft, AlignRight, Archive, ArrowLeft, Ban, Bold, Calendar, Check, ChevronDown, Clock3, Code2, Copy, Download, Ellipsis, Eraser, Eye, FileText, Folder, Forward, Highlighter, History, Image, Inbox, IndentDecrease, IndentIncrease, Italic, Link, List, ListOrdered, Mail, Mailbox as MailboxIcon, MailCheck, MailQuestion, Moon, PanelLeftOpen, Paperclip, PencilLine, Plus, Quote, Redo2, RefreshCcw, Reply, RotateCcw, Search, Send, Settings, ShieldCheck, Signature, SlidersHorizontal, Smile, Star, Strikethrough, Sun, Trash2, Type, Underline, Undo2, Upload, X } from "lucide-react"
 import { api, ExternalImapAccount, ListResponse, Mailbox, MailFolder, MailLabel, MailMessage, MailSearchParams, SendPayload, DraftPayload, ScheduledSend, SendQueueItem, SendQueueAuditEvent, SendQueueStatus, PermissionLimits } from "@/lib/api"
 import { cn, decodeMimeHeader, formatBytes, formatDate, formatDateTime, generateLabelColor } from "@/lib/utils"
 import { applyTheme, getInitialTheme } from "@/lib/theme"
@@ -174,6 +174,7 @@ export function MailPage() {
   const canDownloadAttachments = hasPermission(user, "mail.attachments.download")
   const canManageSignatures = hasPermission(user, "mail.signatures.manage")
   const canViewUnknownMail = user?.role === "admin"
+  const canManageMailboxes = hasPermission(user, "admin.mailboxes.view")
   const publicSettings = useQuery({ queryKey: ["public-settings"], queryFn: api.publicSettings })
   const externalImapEnabled = publicSettings.data?.externalImapEnabled ?? false
 
@@ -1186,9 +1187,9 @@ export function MailPage() {
           <MailboxSwitcher
             collapsed={sidebarCollapsed}
             mailboxes={mailboxList.data?.items || []}
+            loading={mailboxList.isLoading}
             selectedMailboxId={selectedMailboxId}
             selectedMailbox={selectedMailbox}
-            fallbackAddress={selectedMailbox?.address || me.data?.user.email || ""}
             unreadCount={mailboxUnreadCount}
             onSelect={switchMailbox}
           />
@@ -1468,7 +1469,7 @@ export function MailPage() {
   ) : !canReadMail ? (
     <PermissionEmptyState title="无邮件查看权限" description="当前账号可以访问邮箱前台，但未开启邮件查看权限。" onOpenSettings={openSettings} />
   ) : !mailboxList.isLoading && !hasMailboxes && mailView !== "unknown" ? (
-    <NoMailboxState onOpenSettings={openSettings} />
+    <NoMailboxState canManageMailboxes={canManageMailboxes} onOpenSettings={openSettings} onManageMailboxes={() => navigate("/admin?section=mailboxes")} />
   ) : mailView === "scheduled" && canScheduleMail ? (
     <ScheduledSendView
       compact={compactMailLayout}
@@ -2061,7 +2062,7 @@ function externalAccountSubtitle(account: ExternalImapAccount) {
   return [name, account.host, mode].filter(Boolean).join(" · ")
 }
 
-function NoMailboxState({ onOpenSettings }: { onOpenSettings: () => void }) {
+function NoMailboxState({ canManageMailboxes, onOpenSettings, onManageMailboxes }: { canManageMailboxes: boolean; onOpenSettings: () => void; onManageMailboxes: () => void }) {
   return (
     <div className="grid min-h-0 flex-1 place-items-center p-6">
       <div className="w-full max-w-md rounded-lg border border-dashed p-8 text-center">
@@ -2069,9 +2070,10 @@ function NoMailboxState({ onOpenSettings }: { onOpenSettings: () => void }) {
           <Mail className="h-5 w-5 text-muted-foreground" />
         </div>
         <div className="text-lg font-semibold">还没有可用邮箱</div>
-        <div className="mt-2 text-sm text-muted-foreground">请在个人中心申请邮箱，或联系管理员为当前账号分配邮箱。</div>
-        <Button className="mt-5" onClick={onOpenSettings}>
-          <Settings className="h-4 w-4" />前往个人中心
+        <div className="mt-2 text-sm text-muted-foreground">{canManageMailboxes ? "请前往邮箱管理，为当前账号创建或分配邮箱。" : "请在个人中心申请邮箱，或联系管理员为当前账号分配邮箱。"}</div>
+        <Button className="mt-5" onClick={canManageMailboxes ? onManageMailboxes : onOpenSettings}>
+          {canManageMailboxes ? <MailboxIcon className="h-4 w-4" /> : <Settings className="h-4 w-4" />}
+          {canManageMailboxes ? "前往邮箱管理" : "前往个人中心"}
         </Button>
       </div>
     </div>
@@ -3215,10 +3217,11 @@ function UnreadBadge({ count, tone = "danger" }: { count?: number; tone?: "dange
   )
 }
 
-function MailboxSwitcher({ collapsed, mailboxes, selectedMailboxId, selectedMailbox, fallbackAddress, unreadCount, onSelect }: { collapsed: boolean; mailboxes: Mailbox[]; selectedMailboxId: string; selectedMailbox?: Mailbox; fallbackAddress?: string; unreadCount: number; onSelect: (mailboxId: string) => void }) {
+function MailboxSwitcher({ collapsed, mailboxes, loading, selectedMailboxId, selectedMailbox, unreadCount, onSelect }: { collapsed: boolean; mailboxes: Mailbox[]; loading: boolean; selectedMailboxId: string; selectedMailbox?: Mailbox; unreadCount: number; onSelect: (mailboxId: string) => void }) {
   const [mailboxQuery, setMailboxQuery] = React.useState("")
   const isAllSelected = selectedMailboxId === "all"
-  const displayAddress = isAllSelected ? "全部邮箱" : selectedMailbox?.address || fallbackAddress || "选择邮箱"
+  const mailboxUnavailable = loading || mailboxes.length === 0
+  const displayAddress = loading ? "加载邮箱..." : mailboxes.length === 0 ? "未创建邮箱" : isAllSelected ? "全部邮箱" : selectedMailbox?.address || "选择邮箱"
   const selectedUnreadCount = isAllSelected ? unreadCount : (selectedMailbox?.unreadCount ?? unreadCount)
   const normalizedQuery = mailboxQuery.trim().toLowerCase()
   const showAllMailboxOption = !normalizedQuery || "全部邮箱".includes(normalizedQuery) || "all".includes(normalizedQuery)
@@ -3232,13 +3235,13 @@ function MailboxSwitcher({ collapsed, mailboxes, selectedMailboxId, selectedMail
   return (
     <DropdownMenu onOpenChange={(open) => { if (!open) setMailboxQuery("") }}>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" className={cn("h-8 min-w-0 flex-1 justify-start gap-1.5 overflow-hidden rounded-md border-input bg-background px-2 text-left font-normal shadow-none hover:bg-background", collapsed && "w-8 flex-none justify-center px-0")} title={displayAddress}>
+        <Button disabled={mailboxUnavailable} variant="outline" className={cn("h-8 min-w-0 flex-1 justify-start gap-1.5 overflow-hidden rounded-md border-input bg-background px-2 text-left font-normal shadow-none hover:bg-background", collapsed && "w-8 flex-none justify-center px-0")} title={displayAddress}>
           <Mail className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           {!collapsed && (
             <>
               <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{displayAddress}</span>
               <UnreadBadge count={selectedUnreadCount} />
-              <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              {!mailboxUnavailable && <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
             </>
           )}
         </Button>
