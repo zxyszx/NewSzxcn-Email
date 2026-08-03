@@ -21,7 +21,7 @@ NewSzxcn Email 管理命令
 
 用法：newszxcn-email <command>
 
-  install     首次安装或修复部署
+  install     首次安装；检测到已有安装时显示操作菜单
   update      备份数据库并更新到最新版
   status      查看容器与健康状态
   logs        持续查看运行日志
@@ -161,6 +161,21 @@ prompt_choice() {
     value=""
     has_tty || fail "${variable} 必须设置为 1、2 或 3。"
   done
+}
+
+prompt_existing_install_action() {
+  local public_url action
+  public_url="$(env_value LANQIN_PUBLIC_BASE_URL || true)"
+  prompt_text "\n[发现] 检测到已有 NewSzxcn Email 安装：${INSTALL_DIR}\n"
+  if [[ -n "${public_url}" ]]; then
+    prompt_text "[发现] 当前访问地址：${public_url}\n"
+  fi
+  prompt_text '请选择操作 [1]：\n1. 更新现有邮局（推荐，自动备份并支持回滚）\n2. 修复现有安装（保留配置和数据）\n3. 退出，不做任何修改\n'
+  if [[ -z "${LANQIN_EXISTING_ACTION:-}" ]] && ! has_tty; then
+    fail "非交互环境不能选择已有安装操作；更新请执行 newszxcn-email update。"
+  fi
+  action="$(prompt_choice LANQIN_EXISTING_ACTION "请选择 [1]: " "1")"
+  printf '%s' "${action}"
 }
 
 has_tty() {
@@ -562,7 +577,45 @@ remember_current_image() {
   printf '%s\n' "${rollback_tag}" > "${ROLLBACK_FILE}"
 }
 
+do_repair_install() {
+  refresh_assets
+  ensure_update_token
+  configure_runtime_bindings
+  ensure_docker
+  backup_database
+  remember_current_image
+  configure_firewall
+  prepare_directories
+  log "正在拉取并修复 NewSzxcn Email 服务..."
+  compose pull
+  log "正在启动服务..."
+  if ! compose up -d --remove-orphans; then
+    warn "修复后容器启动失败，正在自动回滚。"
+    do_rollback
+    fail "修复失败，已回滚到原镜像。"
+  fi
+  if ! wait_for_health 90; then
+    warn "修复后健康检查失败，正在自动回滚。"
+    do_rollback
+    fail "修复失败，已回滚到原镜像。"
+  fi
+  configure_web_mode
+  success "安装完成：$(env_value LANQIN_PUBLIC_BASE_URL)"
+  warn "下一步请配置 MX、SPF、DKIM、DMARC，并确认 25/465/587/993/995 端口可访问。"
+}
+
 do_install() {
+  local action
+  if [[ -f "${INSTALL_DIR}/.env" ]]; then
+    action="$(prompt_existing_install_action)"
+    case "${action}" in
+      1) do_update ;;
+      2) do_repair_install ;;
+      3) success "已退出，现有邮局未作修改。" ;;
+    esac
+    return
+  fi
+
   refresh_assets
   configure_first_install
   ensure_update_token

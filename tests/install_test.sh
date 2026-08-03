@@ -109,6 +109,22 @@ test_legacy_configuration_is_preserved() {
   assert_eq "127.0.0.1:9090" "$(env_value LANQIN_HTTP_BIND)" "legacy HTTP bind"
 }
 
+test_existing_install_action() {
+  local temp_dir
+  temp_dir="$(mktemp -d)"
+  cp "${ROOT_DIR}/deploy/.env.example" "${temp_dir}/.env"
+  export INSTALL_DIR="${temp_dir}"
+  set_env LANQIN_PUBLIC_BASE_URL "https://mail.example.com"
+
+  export LANQIN_EXISTING_ACTION=1
+  assert_eq "1" "$(prompt_existing_install_action)" "existing install update action"
+  export LANQIN_EXISTING_ACTION=2
+  assert_eq "2" "$(prompt_existing_install_action)" "existing install repair action"
+  export LANQIN_EXISTING_ACTION=3
+  assert_eq "3" "$(prompt_existing_install_action)" "existing install exit action"
+  unset LANQIN_EXISTING_ACTION
+}
+
 test_hostname_validation
 test_password_validation
 test_install_configuration 1 1 "127.0.0.1:8088" "https://mail.example.com" "false"
@@ -117,5 +133,6 @@ test_install_configuration 3 3 "80" "http://mail.example.com" "true"
 test_nginx_configuration
 test_compose_configuration
 test_legacy_configuration_is_preserved
+test_existing_install_action
 
 printf 'install.sh tests passed\n'
