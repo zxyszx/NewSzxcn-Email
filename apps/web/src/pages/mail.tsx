@@ -88,8 +88,27 @@ const filterLabels: Record<MailFilter, string> = {
 
 const emptyAdvancedSearch: AdvancedMailSearch = { from: "", to: "", subject: "", startDate: "", endDate: "", hasAttachments: false, unread: false, starred: false }
 const emptyAdvancedSearchDraft: AdvancedMailSearchDraft = { ...emptyAdvancedSearch }
+const mailImportBatchBytes = 32 * 1024 * 1024
+const mailImportBatchFiles = 20
 const mailCompactBreakpoint = 768
 const mailDetailBreakpoint = 768
+
+function buildMailImportBatches(files: File[]) {
+  const batches: File[][] = []
+  let batch: File[] = []
+  let batchBytes = 0
+  for (const file of files) {
+    if (batch.length > 0 && (batch.length >= mailImportBatchFiles || batchBytes + file.size > mailImportBatchBytes)) {
+      batches.push(batch)
+      batch = []
+      batchBytes = 0
+    }
+    batch.push(file)
+    batchBytes += file.size
+  }
+  if (batch.length > 0) batches.push(batch)
+  return batches
+}
 
 function useMaxViewportWidth(maxWidth: number) {
   const [matches, setMatches] = React.useState(false)
@@ -1112,8 +1131,22 @@ export function MailPage() {
     if (files.length === 0 || !selectedMailbox) return
     setImportingMail(true)
     try {
-      const result = await api.importMail(files, { mailboxId: selectedMailbox.id, folder: mailView === "folder" ? folder : "Inbox" })
+      const batches = buildMailImportBatches(files)
+      const target = { mailboxId: selectedMailbox.id, folder: mailView === "folder" ? folder : "Inbox" }
+      const result = { imported: 0, skipped: 0, errors: [] as string[] }
+      for (const batch of batches) {
+        try {
+          const current = await api.importMail(batch, target)
+          result.imported += current.imported
+          result.skipped += current.skipped
+          result.errors.push(...current.errors)
+        } catch (error) {
+          result.skipped += batch.length
+          result.errors.push(error instanceof Error ? error.message : "导入请求失败")
+        }
+      }
       await refreshMailData()
+      if (result.imported === 0 && result.errors.length > 0) throw new Error(result.errors[0])
       toast({
         title: `已导入 ${result.imported} 封邮件`,
         description: result.skipped > 0 ? `${result.skipped} 封未能导入${result.errors[0] ? `：${result.errors[0]}` : ""}` : `已保存到 ${mailView === "folder" ? viewTitle : "收件箱"}`,

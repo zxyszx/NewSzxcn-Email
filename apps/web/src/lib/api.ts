@@ -85,6 +85,7 @@ async function uploadForm<T>(path: string, form: FormData): Promise<T> {
   try {
     const res = await fetch(path, { method: "POST", credentials: "include", body: form, signal: controller.signal })
     if (!res.ok) {
+      if (res.status === 413) throw new Error("导入文件过大，请减少单次导入数量后重试")
       let message = `${res.status} ${res.statusText}`
       try { const body = await res.json(); message = body.error || message } catch {}
       throw new Error(message)

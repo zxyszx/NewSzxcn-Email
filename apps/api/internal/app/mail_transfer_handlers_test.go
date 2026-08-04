@@ -65,20 +65,21 @@ func TestMailImportExportAndOwnership(t *testing.T) {
 		t.Fatalf("owner login=%d", code)
 	}
 
-	eml := []byte("From: sender@example.com\r\nTo: " + ownerMailbox.Address + "\r\nSubject: imported message\r\nMessage-ID: <imported@example.com>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nhello import")
+	eml := []byte("From: sender@example.com\r\nTo: " + ownerMailbox.Address + "\r\nSubject: imported message\r\nDate: Tue, 2 Jan 2024 12:00:00 +0000\r\nMessage-ID: <imported@example.com>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nhello import")
+	olderEML := []byte("From: sender@example.com\r\nTo: " + ownerMailbox.Address + "\r\nSubject: older imported message\r\nDate: Mon, 1 Jan 2024 12:00:00 +0000\r\nMessage-ID: <older-imported@example.com>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nolder import")
 	var imported struct {
 		Imported int      `json:"imported"`
 		Skipped  int      `json:"skipped"`
 		Errors   []string `json:"errors"`
 	}
-	if code := doMailImport(t, owner, ownerMailbox.ID, "Inbox", map[string][]byte{"message.eml": eml}, &imported); code != http.StatusOK || imported.Imported != 1 || imported.Skipped != 0 {
+	if code := doMailImport(t, owner, ownerMailbox.ID, "Inbox", map[string][]byte{"message.eml": eml, "older.eml": olderEML}, &imported); code != http.StatusOK || imported.Imported != 2 || imported.Skipped != 0 {
 		t.Fatalf("import code=%d response=%+v", code, imported)
 	}
 
 	var list struct {
 		Items []MailMessage `json:"items"`
 	}
-	if code := owner.do("GET", "/api/mail/messages?folder=Inbox&mailboxId="+ownerMailbox.ID, nil, &list); code != http.StatusOK || len(list.Items) != 1 || list.Items[0].Subject != "imported message" {
+	if code := owner.do("GET", "/api/mail/messages?folder=Inbox&mailboxId="+ownerMailbox.ID, nil, &list); code != http.StatusOK || len(list.Items) != 2 || list.Items[0].Subject != "imported message" || list.Items[1].Subject != "older imported message" {
 		t.Fatalf("list code=%d items=%+v", code, list.Items)
 	}
 
@@ -90,7 +91,7 @@ func TestMailImportExportAndOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(zr.File) != 1 {
+	if len(zr.File) != 2 {
 		t.Fatalf("zip entries=%d", len(zr.File))
 	}
 	entry, err := zr.File[0].Open()
