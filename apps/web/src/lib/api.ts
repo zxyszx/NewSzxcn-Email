@@ -69,16 +69,6 @@ async function request<T>(path: string, init: RequestInit & { timeoutMs?: number
   }
 }
 
-async function requestFile(path: string): Promise<Blob> {
-  const res = await fetch(path, { credentials: "include" })
-  if (!res.ok) {
-    let message = `${res.status} ${res.statusText}`
-    try { const body = await res.json(); message = body.error || message } catch {}
-    throw new Error(message)
-  }
-  return res.blob()
-}
-
 async function uploadForm<T>(path: string, form: FormData): Promise<T> {
   const controller = new AbortController()
   const timeout = window.setTimeout(() => controller.abort(), 5 * 60_000)
@@ -230,7 +220,13 @@ export const api = {
     const query = payload.mailboxId ? `?mailboxId=${encodeURIComponent(payload.mailboxId)}` : ""
     return request<{ ok: boolean }>(`/api/mail/folders/reorder${query}`, { method: "POST", body: JSON.stringify(payload.folders ? { folders: payload.folders } : { folderIds: payload.folderIds }) })
   },
-  deleteFolder: (id: string, mailboxId?: string) => request<{ ok: boolean; moved: number }>(`/api/mail/folders/${id}${mailboxId ? `?mailboxId=${encodeURIComponent(mailboxId)}` : ""}`, { method: "DELETE" }),
+  deleteFolder: (id: string, mailboxId?: string, folderName?: string) => {
+    const query = new URLSearchParams()
+    if (mailboxId) query.set("mailboxId", mailboxId)
+    if (folderName) query.set("folderName", folderName)
+    const suffix = query.toString()
+    return request<{ ok: boolean; moved: number }>(`/api/mail/folders/${id}${suffix ? `?${suffix}` : ""}`, { method: "DELETE" })
+  },
   labels: (mailboxId?: string) => request<ListResponse<MailLabel>>(`/api/mail/labels${mailboxId ? `?mailboxId=${encodeURIComponent(mailboxId)}` : ""}`),
   createLabel: (payload: { mailboxId?: string; name: string; color?: string }) => {
     const query = payload.mailboxId ? `?mailboxId=${encodeURIComponent(payload.mailboxId)}` : ""
@@ -255,12 +251,12 @@ export const api = {
     if (mailboxId) params.set("mailboxId", mailboxId)
     return request<ListResponse<MailMessage>>(`/api/mail/starred?${params.toString()}`)
   },
-  exportMail: (params: { view: "folder" | "starred" | "label" | "unknown"; mailboxId?: string; folder?: string; labelId?: string }) => {
+  exportMailUrl: (params: { view: "folder" | "starred" | "label" | "unknown"; mailboxId?: string; folder?: string; labelId?: string }) => {
     const query = new URLSearchParams({ view: params.view })
     if (params.mailboxId) query.set("mailboxId", params.mailboxId)
     if (params.folder) query.set("folder", params.folder)
     if (params.labelId) query.set("labelId", params.labelId)
-    return requestFile(`/api/mail/export?${query.toString()}`)
+    return `/api/mail/export?${query.toString()}`
   },
   importMail: (files: File[], payload: { mailboxId: string; folder: string }) => {
     const form = new FormData()

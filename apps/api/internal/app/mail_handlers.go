@@ -264,11 +264,6 @@ func (a *App) handleReorderMailFolders(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleCreateMailFolder(w http.ResponseWriter, r *http.Request) {
-	mb, err := a.mailboxForCurrentUser(r)
-	if err != nil {
-		respondError(w, http.StatusNotFound, "mailbox not found")
-		return
-	}
 	var req struct {
 		Name string `json:"name"`
 	}
@@ -285,6 +280,47 @@ func (a *App) handleCreateMailFolder(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, errors.New("system folder already exists"))
 		return
 	}
+	if isAllMailboxID(r.URL.Query().Get("mailboxId")) {
+		user := currentUser(r)
+		rows, err := a.db.QueryContext(r.Context(), `SELECT id FROM mailboxes WHERE user_id=? AND status='active' ORDER BY created_at,id`, user.ID)
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to load mailboxes")
+			return
+		}
+		mailboxIDs := []string{}
+		for rows.Next() {
+			var mailboxID string
+			if err := rows.Scan(&mailboxID); err != nil {
+				rows.Close()
+				respondError(w, http.StatusInternalServerError, "failed to scan mailboxes")
+				return
+			}
+			mailboxIDs = append(mailboxIDs, mailboxID)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			respondError(w, http.StatusInternalServerError, "failed to scan mailboxes")
+			return
+		}
+		rows.Close()
+		if len(mailboxIDs) == 0 {
+			respondError(w, http.StatusNotFound, "mailbox not found")
+			return
+		}
+		for _, mailboxID := range mailboxIDs {
+			if _, err := a.ensureCustomFolder(r.Context(), mailboxID, name); err != nil {
+				respondError(w, http.StatusInternalServerError, "failed to create folder")
+				return
+			}
+		}
+		respondJSON(w, http.StatusCreated, MailFolder{ID: "all-" + strings.ToLower(name), Name: name, Role: strings.ToLower(name), SortOrder: customFolderDefaultSortOrderBase})
+		return
+	}
+	mb, err := a.mailboxForCurrentUser(r)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "mailbox not found")
+		return
+	}
 	folderID, err := a.ensureCustomFolder(r.Context(), mb.ID, name)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to create folder")
@@ -299,14 +335,18 @@ func (a *App) handleCreateMailFolder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleDeleteMailFolder(w http.ResponseWriter, r *http.Request) {
-	mb, err := a.mailboxForCurrentUser(r)
-	if err != nil {
-		respondError(w, http.StatusNotFound, "mailbox not found")
-		return
-	}
 	folderID := strings.TrimSpace(chi.URLParam(r, "id"))
 	if folderID == "" {
 		badRequest(w, errors.New("folder id is required"))
+		return
+	}
+	if isAllMailboxID(r.URL.Query().Get("mailboxId")) {
+		a.handleDeleteAllMailFolders(w, r, folderID)
+		return
+	}
+	mb, err := a.mailboxForCurrentUser(r)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "mailbox not found")
 		return
 	}
 	var folderName string
@@ -376,6 +416,115 @@ func (a *App) handleDeleteMailFolder(w http.ResponseWriter, r *http.Request) {
 	}
 	_, _ = a.bumpFolderModSeq(r.Context(), inboxID)
 	respondJSON(w, http.StatusOK, map[string]any{"ok": true, "moved": len(messageIDs)})
+}
+
+func (a *App) handleDeleteAllMailFolders(w http.ResponseWriter, r *http.Request, folderID string) {
+	folderName := strings.TrimSpace(r.URL.Query().Get("folderName"))
+	if folderName == "" && strings.HasPrefix(strings.ToLower(folderID), "all-") {
+		folderName = strings.TrimSpace(folderID[4:])
+	}
+	name, err := normalizeCustomFolderName(folderName)
+	if err != nil {
+		badRequest(w, err)
+		return
+	}
+	if isSystemFolderName(name) {
+		badRequest(w, errors.New("system folders cannot be deleted"))
+		return
+	}
+	user := currentUser(r)
+	type folderTarget struct {
+		folderID  string
+		mailboxID string
+		inboxID   string
+	}
+	rows, err := a.db.QueryContext(r.Context(), `SELECT f.id,f.mailbox_id FROM folders f JOIN mailboxes mb ON mb.id=f.mailbox_id WHERE mb.user_id=? AND mb.status='active' AND lower(f.name)=lower(?)`, user.ID, name)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to load folders")
+		return
+	}
+	targets := []folderTarget{}
+	for rows.Next() {
+		var target folderTarget
+		if err := rows.Scan(&target.folderID, &target.mailboxID); err != nil {
+			rows.Close()
+			respondError(w, http.StatusInternalServerError, "failed to scan folders")
+			return
+		}
+		targets = append(targets, target)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		respondError(w, http.StatusInternalServerError, "failed to scan folders")
+		return
+	}
+	rows.Close()
+	if len(targets) == 0 {
+		respondError(w, http.StatusNotFound, "folder not found")
+		return
+	}
+	for i := range targets {
+		targets[i].inboxID, err = a.ensureFolder(r.Context(), targets[i].mailboxID, "Inbox")
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to load inbox")
+			return
+		}
+	}
+	tx, err := a.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to delete folder")
+		return
+	}
+	defer tx.Rollback()
+	now := a.now().UTC().Format(time.RFC3339Nano)
+	moved := 0
+	for _, target := range targets {
+		messageRows, err := tx.QueryContext(r.Context(), `SELECT id FROM messages WHERE mailbox_id=? AND folder_id=? ORDER BY received_at,id`, target.mailboxID, target.folderID)
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to load folder messages")
+			return
+		}
+		messageIDs := []string{}
+		for messageRows.Next() {
+			var messageID string
+			if err := messageRows.Scan(&messageID); err != nil {
+				messageRows.Close()
+				respondError(w, http.StatusInternalServerError, "failed to scan folder messages")
+				return
+			}
+			messageIDs = append(messageIDs, messageID)
+		}
+		if err := messageRows.Err(); err != nil {
+			messageRows.Close()
+			respondError(w, http.StatusInternalServerError, "failed to scan folder messages")
+			return
+		}
+		messageRows.Close()
+		for _, messageID := range messageIDs {
+			meta, err := a.nextIMAPMetadata(r.Context(), tx, target.inboxID)
+			if err != nil {
+				respondError(w, http.StatusInternalServerError, "failed to allocate message uid")
+				return
+			}
+			if _, err := tx.ExecContext(r.Context(), `UPDATE messages SET folder_id=?,imap_uid=?,imap_modseq=?,updated_at=? WHERE id=?`, target.inboxID, meta.UID, meta.ModSeq, now, messageID); err != nil {
+				respondError(w, http.StatusInternalServerError, "failed to move folder messages")
+				return
+			}
+			moved++
+		}
+		if _, err := tx.ExecContext(r.Context(), `DELETE FROM folders WHERE id=? AND mailbox_id=?`, target.folderID, target.mailboxID); err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to delete folder")
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to delete folder")
+		return
+	}
+	for _, target := range targets {
+		_, _ = a.bumpFolderModSeq(r.Context(), target.inboxID)
+	}
+	respondJSON(w, http.StatusOK, map[string]any{"ok": true, "moved": moved})
 }
 
 func (a *App) ensureCustomFolder(ctx context.Context, mailboxID, name string) (string, error) {

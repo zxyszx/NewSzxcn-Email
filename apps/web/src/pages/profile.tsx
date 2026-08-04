@@ -59,6 +59,7 @@ export function ProfilePage() {
   const passwordFormRef = React.useRef<HTMLFormElement>(null)
   const twoFactorFormRef = React.useRef<HTMLFormElement>(null)
   const [mailboxId, setMailboxId] = React.useState(() => localStorage.getItem("lanqin:selected-mailbox") || "")
+  const [statsMailboxId, setStatsMailboxId] = React.useState("all")
   const [statsRangeDays, setStatsRangeDays] = React.useState(30)
   const [darkMode, setDarkMode] = React.useState(getInitialTheme)
   const [displayMode, setDisplayMode] = useDisplayMode()
@@ -98,29 +99,32 @@ export function ProfilePage() {
   const tab: Tab = rawTab && visibleTabKeys.includes(rawTab) ? rawTab : "profile"
   const accountTab: AccountSettingsTab = rawAccountTab && accountSettingTabs.some((item) => item.key === rawAccountTab) ? rawAccountTab : "account"
   const mailboxes = useQuery({ queryKey: ["mailboxes", "mine"], queryFn: api.myMailboxes, enabled: canAccessMail })
-  const mailboxApplyOptions = useQuery({ queryKey: ["mailbox-apply-options"], queryFn: api.mailboxApplyOptions, enabled: canApplyMailbox })
-  const publicSettings = useQuery({ queryKey: ["public-settings"], queryFn: api.publicSettings })
-  const apiTokens = useQuery({ queryKey: ["api-tokens"], queryFn: api.apiTokens })
-  const contacts = useQuery({ queryKey: ["contacts"], queryFn: api.contacts, enabled: canManageContacts })
-  const signatures = useQuery({ queryKey: ["signatures"], queryFn: api.signatures, enabled: canManageSignatures })
-  const rules = useQuery({ queryKey: ["rules"], queryFn: api.rules, enabled: canManageRules })
-  const ruleForwarding = useQuery({ queryKey: ["forwarding-settings"], queryFn: api.forwardingSettings, enabled: canManageRules && canAccessMail })
+  const mailboxApplyOptions = useQuery({ queryKey: ["mailbox-apply-options"], queryFn: api.mailboxApplyOptions, enabled: canApplyMailbox && tab === "mailboxes" })
+  const publicSettings = useQuery({ queryKey: ["public-settings"], queryFn: api.publicSettings, enabled: tab === "mailboxes" || (tab === "profile" && accountTab === "clients") })
+  const apiTokens = useQuery({ queryKey: ["api-tokens"], queryFn: api.apiTokens, enabled: tab === "apiTokens" })
+  const contacts = useQuery({ queryKey: ["contacts"], queryFn: api.contacts, enabled: canManageContacts && tab === "contacts" })
+  const signatures = useQuery({ queryKey: ["signatures"], queryFn: api.signatures, enabled: canManageSignatures && tab === "profile" && accountTab === "mail" })
+  const rules = useQuery({ queryKey: ["rules"], queryFn: api.rules, enabled: canManageRules && tab === "rules" })
+  const ruleForwarding = useQuery({ queryKey: ["forwarding-settings"], queryFn: api.forwardingSettings, enabled: canManageRules && canAccessMail && tab === "rules" })
   const ruleVerifiedEmails = React.useMemo(() => ruleForwarding.data?.verifiedEmails.filter((item) => item.verified).map((item) => item.email) || [], [ruleForwarding.data?.verifiedEmails])
-  const blocked = useQuery({ queryKey: ["blocked-senders"], queryFn: api.blockedSenders, enabled: canManageBlocked })
+  const blocked = useQuery({ queryKey: ["blocked-senders"], queryFn: api.blockedSenders, enabled: canManageBlocked && tab === "blocked" })
   const selectedMailbox = React.useMemo(() => mailboxes.data?.items.find((m) => m.id === mailboxId), [mailboxes.data?.items, mailboxId])
   const activeMailboxId = selectedMailbox?.id || ""
   const externalImapEnabled = publicSettings.data?.externalImapEnabled ?? false
-  const externalImapAccounts = useQuery({ queryKey: ["external-imap-accounts", activeMailboxId], queryFn: () => api.externalImapAccounts(activeMailboxId), enabled: !!activeMailboxId && canAccessMail && externalImapEnabled })
+  const externalImapAccounts = useQuery({ queryKey: ["external-imap-accounts", activeMailboxId], queryFn: () => api.externalImapAccounts(activeMailboxId), enabled: tab === "mailboxes" && !!activeMailboxId && canAccessMail && externalImapEnabled })
   React.useEffect(() => {
     if (!externalRunAccountId) return
     if (externalImapAccounts.data?.items.some((item) => item.id === externalRunAccountId)) return
     setExternalRunAccountId("")
   }, [externalImapAccounts.data?.items, externalRunAccountId])
   const selectedExternalRunAccount = externalImapAccounts.data?.items.find((item) => item.id === externalRunAccountId)
-  const externalRunFolders = useQuery({ queryKey: ["external-imap-run-folders", externalRunAccountId], queryFn: () => api.externalFolders(externalRunAccountId), enabled: !!externalRunAccountId && !!selectedExternalRunAccount && canAccessMail && externalImapEnabled })
-  const externalSyncRuns = useQuery({ queryKey: ["external-imap-sync-runs", externalRunAccountId], queryFn: () => api.externalImapSyncRuns(externalRunAccountId), enabled: !!externalRunAccountId && !!selectedExternalRunAccount && canAccessMail && externalImapEnabled })
-  const labels = useQuery({ queryKey: ["labels", activeMailboxId], queryFn: () => api.labels(activeMailboxId), enabled: !!activeMailboxId && (canReadMail || canManageLabels || canManageRules) })
-  const stats = useQuery({ queryKey: ["mail-stats", activeMailboxId, statsRangeDays], queryFn: () => api.mailStats(activeMailboxId, statsRangeDays), enabled: !!activeMailboxId && canViewStats })
+  const externalRunFolders = useQuery({ queryKey: ["external-imap-run-folders", externalRunAccountId], queryFn: () => api.externalFolders(externalRunAccountId), enabled: tab === "mailboxes" && !!externalRunAccountId && !!selectedExternalRunAccount && canAccessMail && externalImapEnabled })
+  const externalSyncRuns = useQuery({ queryKey: ["external-imap-sync-runs", externalRunAccountId], queryFn: () => api.externalImapSyncRuns(externalRunAccountId), enabled: tab === "mailboxes" && !!externalRunAccountId && !!selectedExternalRunAccount && canAccessMail && externalImapEnabled })
+  const labels = useQuery({ queryKey: ["labels", activeMailboxId], queryFn: () => api.labels(activeMailboxId), enabled: !!activeMailboxId && ((tab === "profile" && accountTab === "mail" && (canReadMail || canManageLabels)) || (tab === "rules" && canManageRules)) })
+  const accountStats = useQuery({ queryKey: ["mail-stats", "all", 30], queryFn: () => api.mailStats("all", 30), enabled: canViewStats && tab === "profile" && accountTab === "account" })
+  const mailboxStats = useQuery({ queryKey: ["mail-stats", activeMailboxId, 30], queryFn: () => api.mailStats(activeMailboxId, 30), enabled: !!activeMailboxId && canViewStats && (tab === "cleanup" || tab === "cleanupQueue") })
+  const blockedStats = useQuery({ queryKey: ["mail-stats", blockedMailboxId, 30], queryFn: () => api.mailStats(blockedMailboxId, 30), enabled: canViewStats && tab === "blocked" })
+  const dashboardStats = useQuery({ queryKey: ["mail-stats", statsMailboxId, statsRangeDays], queryFn: () => api.mailStats(statsMailboxId, statsRangeDays), enabled: canViewStats && tab === "stats" })
 
   const profile = useMutation({
     mutationFn: (form: FormData) => api.updateProfile({ displayName: String(form.get("displayName") || "") }),
@@ -356,6 +360,16 @@ export function ProfilePage() {
               <span className="truncate">{tabs[key].label}</span>
             </button>
           ))}
+          {user.role === "admin" && (
+            <button
+              type="button"
+              className="flex h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+              onClick={() => navigate("/admin")}
+            >
+              <ShieldCheck className="h-4 w-4 stroke-[1.8]" />
+              <span className="truncate">后台管理</span>
+            </button>
+          )}
         </div>
       </nav>
       <div className="border-t p-2">
@@ -370,7 +384,10 @@ export function ProfilePage() {
   const pageTitle = tabs[tab].label
   const pageSubtitle = tab === "stats" ? "查看邮件收发趋势、分布情况和常用联系人。" : undefined
   const pageAction = tab === "stats"
-    ? <StatsRangeTabs rangeDays={statsRangeDays} onRangeChange={setStatsRangeDays} />
+    ? <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="w-full sm:w-[220px]"><MailboxSelect value={statsMailboxId} mailboxes={mailboxes.data?.items || []} onChange={setStatsMailboxId} /></div>
+        <StatsRangeTabs rangeDays={statsRangeDays} onRangeChange={setStatsRangeDays} />
+      </div>
     : tab === "apiTokens"
       ? <Button asChild variant="outline" size="sm" className="h-8 px-3 text-xs"><a href="https://github.com/zxyszx/NewSzxcn-Email/blob/main/docs/API.md" target="_blank" rel="noreferrer"><BookOpen className="h-4 w-4" />API 文档</a></Button>
       : undefined
@@ -420,7 +437,7 @@ export function ProfilePage() {
         profile={profile}
         password={password}
         passwordFormRef={passwordFormRef}
-        stats={canViewStats ? stats.data : undefined}
+        stats={canViewStats ? accountStats.data : undefined}
         showStats={canViewStats}
         displayMode={displayMode}
         onDisplayModeChange={setDisplayMode}
@@ -477,11 +494,11 @@ export function ProfilePage() {
       />
     )
     if (tab === "contacts") return <ContactsSection items={contacts.data?.items || []} loading={contacts.isLoading} pending={createContact.isPending} onCreate={(form) => createContact.mutate(form)} onDelete={(id) => deleteContact.mutate(id)} onCopy={copy} />
-    if (tab === "cleanup") return <CleanupSection mailbox={selectedMailbox} stats={canViewStats ? stats.data : undefined} showStats={canViewStats} pending={cleanup.isPending} onCleanup={(target) => cleanup.mutate(target)} />
-    if (tab === "cleanupQueue") return <CleanupQueueSection mailbox={selectedMailbox} stats={canViewStats ? stats.data : undefined} />
+    if (tab === "cleanup") return <CleanupSection mailbox={selectedMailbox} stats={canViewStats ? mailboxStats.data : undefined} showStats={canViewStats} pending={cleanup.isPending} onCleanup={(target) => cleanup.mutate(target)} />
+    if (tab === "cleanupQueue") return <CleanupQueueSection mailbox={selectedMailbox} stats={canViewStats ? mailboxStats.data : undefined} />
     if (tab === "rules") return <RulesSection items={rules.data?.items || []} mailboxes={mailboxes.data?.items || []} labels={labels.data?.items || []} verifiedEmails={ruleVerifiedEmails} open={ruleDialogOpen} onOpenChange={setRuleDialogOpen} onCreate={(payload) => createRule.mutate(payload)} onUpdate={(id, payload) => updateRule.mutate({ id, payload })} onToggle={(item) => updateRule.mutate({ id: item.id, payload: { enabled: !item.enabled } })} onMove={(id, direction) => moveRule.mutate({ id, direction })} onApply={(id) => applyRule.mutate(id)} onDelete={(id) => deleteRule.mutate(id)} pending={createRule.isPending || updateRule.isPending || moveRule.isPending || applyRule.isPending} />
-    if (tab === "blocked") return <BlockedSection items={blocked.data?.items || []} mailboxes={mailboxes.data?.items || []} mailboxId={blockedMailboxId} spamCount={canViewStats ? stats.data?.byFolder.find((f) => f.role === "spam")?.count || 0 : 0} onMailboxChange={setBlockedMailboxId} onCreate={(form) => createBlocked.mutate(form)} onDelete={(id) => deleteBlocked.mutate(id)} pending={createBlocked.isPending} />
-    if (tab === "stats") return <StatsSection stats={stats.data} mailbox={selectedMailbox} rangeDays={statsRangeDays} onRangeChange={setStatsRangeDays} onRefresh={() => stats.refetch()} />
+    if (tab === "blocked") return <BlockedSection items={blocked.data?.items || []} mailboxes={mailboxes.data?.items || []} mailboxId={blockedMailboxId} spamCount={canViewStats ? blockedStats.data?.byFolder.find((f) => f.role === "spam")?.count || 0 : 0} onMailboxChange={setBlockedMailboxId} onCreate={(form) => createBlocked.mutate(form)} onDelete={(id) => deleteBlocked.mutate(id)} pending={createBlocked.isPending} />
+    if (tab === "stats") return <StatsSection stats={dashboardStats.data} />
     if (tab === "apiTokens") return <ApiTokensSection items={apiTokens.data?.items || []} loading={apiTokens.isLoading} pending={createApiToken.isPending || updateApiToken.isPending || deleteApiToken.isPending} onCreate={(payload) => createApiToken.mutateAsync(payload)} onUpdate={(id, payload) => updateApiToken.mutate({ id, payload })} onDelete={(id) => deleteApiToken.mutate(id)} onCopy={copy} />
     return null
   }
@@ -2394,7 +2411,7 @@ function BlockedSection({ items, mailboxes, mailboxId, spamCount, onMailboxChang
   )
 }
 
-function StatsSection({ stats }: { stats?: MailStats; mailbox?: Mailbox; rangeDays: number; onRangeChange: (days: number) => void; onRefresh: () => void }) {
+function StatsSection({ stats }: { stats?: MailStats }) {
   const quotaLabel = stats?.quotaBytes ? `${formatBytes(stats.storageBytes || 0)} / ${formatBytes(stats.quotaBytes)}` : formatBytes(stats?.storageBytes || 0)
   const quotaPct = Math.min(stats?.quotaUsedPct || 0, 100)
   const primaryCards = [

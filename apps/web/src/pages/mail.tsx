@@ -192,6 +192,15 @@ export function MailPage() {
   const publicSettings = useQuery({ queryKey: ["public-settings"], queryFn: api.publicSettings })
   const externalImapEnabled = publicSettings.data?.externalImapEnabled ?? false
 
+  React.useEffect(() => {
+    if (!user) return
+    const timer = window.setTimeout(() => {
+      void import("@/pages/profile")
+      if (user.role === "admin") void import("@/pages/admin")
+    }, 400)
+    return () => window.clearTimeout(timer)
+  }, [user])
+
   const mailboxList = useQuery({ queryKey: ["mailboxes", "mine"], queryFn: api.myMailboxes, enabled: canAccessMail })
   const externalMailAccounts = useQuery({ queryKey: ["mail-external-accounts"], queryFn: api.externalMailAccounts, enabled: canAccessMail && canReadMail && externalImapEnabled })
   const selectedExternalAccount = React.useMemo(() => externalImapEnabled ? externalMailAccounts.data?.items.find((item) => item.id === selectedExternalAccountId) : undefined, [externalImapEnabled, externalMailAccounts.data?.items, selectedExternalAccountId])
@@ -205,6 +214,7 @@ export function MailPage() {
   const activeMailboxId = selectedMailboxId === "all" ? "all" : selectedMailbox?.id || ""
   const selectedComposeMailbox = selectedMailbox || (isAllMailboxSelected ? mailboxList.data?.items?.[0] : undefined)
   const hasMailboxes = (mailboxList.data?.items.length || 0) > 0
+  const canManageFolders = canOrganizeMail && hasMailboxes
   const showMailboxCopy = !!selectedMailbox && !isAllMailboxSelected
   const folders = useQuery({ queryKey: ["folders", activeMailboxId], queryFn: () => api.folders(activeMailboxId), enabled: !!activeMailboxId && canReadMail })
   const labels = useQuery({ queryKey: ["labels", activeMailboxId], queryFn: () => api.labels(activeMailboxId), enabled: !!activeMailboxId && (canReadMail || canManageLabels) })
@@ -460,7 +470,7 @@ export function MailPage() {
     onSettled: () => qc.invalidateQueries({ queryKey: ["folders", activeMailboxId] }),
   })
   const deleteFolder = useMutation({
-    mutationFn: (item: Extract<MailMenuItem, { type: "folder" }>) => api.deleteFolder(item.folderId, activeMailboxId),
+    mutationFn: (item: Extract<MailMenuItem, { type: "folder" }>) => api.deleteFolder(item.folderId, activeMailboxId, item.folderName),
     onSuccess: async (result, item) => {
       setPendingConfirm(null)
       if (mailView === "folder" && folder === item.folderName) {
@@ -967,7 +977,9 @@ export function MailPage() {
     if (item.type !== "folder" || !item.custom) return
     setPendingConfirm({
       title: `删除文件夹“${item.label}”？`,
-      description: "文件夹内的邮件会移回收件箱，不会被删除。",
+      description: isAllMailboxSelected
+        ? "所有邮箱中的同名文件夹都会删除，文件夹内邮件会移回各自的收件箱。"
+        : "文件夹内的邮件会移回收件箱，不会被删除。",
       confirmText: "删除文件夹",
       onConfirm: () => deleteFolder.mutate(item),
     })
@@ -1096,28 +1108,20 @@ export function MailPage() {
   async function exportCurrentMail() {
     if (!canExportCurrentView || exportingMail) return
     setExportingMail(true)
-    try {
-      const exportView = mailView === "unknown" ? "unknown" : mailView === "starred" ? "starred" : mailView === "label" ? "label" : "folder"
-      const blob = await api.exportMail({
-        view: exportView,
-        mailboxId: mailView === "unknown" ? undefined : activeMailboxId,
-        folder: exportView === "folder" ? folder : undefined,
-        labelId: exportView === "label" ? selectedLabelId : undefined,
-      })
-      const href = URL.createObjectURL(blob)
-      const anchor = document.createElement("a")
-      anchor.href = href
-      anchor.download = `${viewTitle.replace(/[\\/:*?"<>|]+/g, "-") || "邮件"}-${new Date().toISOString().slice(0, 10)}.zip`
-      document.body.appendChild(anchor)
-      anchor.click()
-      anchor.remove()
-      window.setTimeout(() => URL.revokeObjectURL(href), 1000)
-      toast({ title: "邮件已导出", description: `${viewTitle} 已打包为 ZIP` })
-    } catch (error) {
-      toast({ title: "导出失败", description: error instanceof Error ? error.message : "请稍后重试" })
-    } finally {
-      setExportingMail(false)
-    }
+    const exportView = mailView === "unknown" ? "unknown" : mailView === "starred" ? "starred" : mailView === "label" ? "label" : "folder"
+    const anchor = document.createElement("a")
+    anchor.href = api.exportMailUrl({
+      view: exportView,
+      mailboxId: mailView === "unknown" ? undefined : activeMailboxId,
+      folder: exportView === "folder" ? folder : undefined,
+      labelId: exportView === "label" ? selectedLabelId : undefined,
+    })
+    anchor.download = `${viewTitle.replace(/[\\/:*?"<>|]+/g, "-") || "邮件"}-${new Date().toISOString().slice(0, 10)}.zip`
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    toast({ title: "已开始下载", description: "邮件将打包为 ZIP，压缩包内为标准 EML 文件；邮件较多时请查看浏览器下载进度。" })
+    window.setTimeout(() => setExportingMail(false), 1000)
   }
   function chooseMailImport() {
     if (!canImportCurrentView || importingMail) {
@@ -1165,6 +1169,9 @@ export function MailPage() {
   }
   function openSettings() {
     navigate("/profile")
+  }
+  function openAdmin() {
+    navigate("/admin")
   }
   function toggleAdvancedSearch() {
     setAdvancedSearchDraft(advancedSearch)
@@ -1216,6 +1223,7 @@ export function MailPage() {
           language={language}
           onLanguageChange={setLanguage}
           onSettings={openSettings}
+          onAdmin={user?.role === "admin" ? openAdmin : undefined}
         />
         <div className={cn("mt-2 gap-1.5", sidebarCollapsed ? "flex justify-center" : showMailboxCopy ? "grid grid-cols-[minmax(0,1fr)_2rem]" : "grid grid-cols-1")}>
           <MailboxSwitcher
@@ -1352,12 +1360,12 @@ export function MailPage() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>}
-        {(customMailMenuItems.length > 0 || canOrganizeMail) && <SidebarGroup>
+        {(customMailMenuItems.length > 0 || canManageFolders) && <SidebarGroup>
           {!sidebarCollapsed && (
             <div className="flex items-center justify-between px-2 py-1">
               <SidebarGroupLabel className="m-0 h-auto gap-1 p-0 text-xs font-semibold text-muted-foreground"><ChevronDown className="h-3 w-3" />文件夹</SidebarGroupLabel>
-              {canOrganizeCurrentMailbox && (
-                <Button type="button" variant="ghost" size="icon" className="h-5 w-5 text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={() => setFolderDialogOpen(true)} disabled={!selectedMailbox}>
+              {canManageFolders && (
+                <Button type="button" variant="ghost" size="icon" className="h-5 w-5 text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={() => setFolderDialogOpen(true)}>
                   <Plus className="h-3.5 w-3.5" />
                 </Button>
               )}
@@ -1784,8 +1792,10 @@ export function MailPage() {
       />
       <SidebarContextMenu
         state={sidebarContextMenu}
-        canOrganize={canOrganizeMail}
-        pending={reorderFolders.isPending}
+        canCreate={canManageFolders}
+        canReorder={canOrganizeCurrentMailbox}
+        canDelete={canManageFolders}
+        pending={reorderFolders.isPending || deleteFolder.isPending}
         onClose={closeSidebarContextMenu}
         onOpen={(item) => {
           closeSidebarContextMenu()
@@ -2455,7 +2465,7 @@ function BulkActionToolbar({ pending, currentFolder, folders = [], readAction = 
   )
 }
 
-function SidebarContextMenu({ state, canOrganize, pending, onClose, onOpen, onRefresh, onCreateFolder, onMove, onDelete }: { state: SidebarContextMenuState | null; canOrganize: boolean; pending: boolean; onClose: () => void; onOpen: (item: MailMenuItem) => void; onRefresh: () => void; onCreateFolder: () => void; onMove: (item: MailMenuItem, action: "top" | "up" | "down" | "bottom") => void; onDelete: (item: MailMenuItem) => void }) {
+function SidebarContextMenu({ state, canCreate, canReorder, canDelete, pending, onClose, onOpen, onRefresh, onCreateFolder, onMove, onDelete }: { state: SidebarContextMenuState | null; canCreate: boolean; canReorder: boolean; canDelete: boolean; pending: boolean; onClose: () => void; onOpen: (item: MailMenuItem) => void; onRefresh: () => void; onCreateFolder: () => void; onMove: (item: MailMenuItem, action: "top" | "up" | "down" | "bottom") => void; onDelete: (item: MailMenuItem) => void }) {
   React.useEffect(() => {
     if (!state) return
     const close = () => onClose()
@@ -2493,30 +2503,32 @@ function SidebarContextMenu({ state, canOrganize, pending, onClose, onOpen, onRe
       <Button type="button" variant="ghost" className={itemClass} onClick={onRefresh}>
         <RefreshCcw className="h-4 w-4" />刷新
       </Button>
-      {canOrganize && (
+      {canCreate && (
         <Button type="button" variant="ghost" className={itemClass} onClick={onCreateFolder}>
           <Plus className="h-4 w-4" />新建文件夹
         </Button>
       )}
-      {canOrganize && customFolder && (
+      {customFolder && (canReorder || canDelete) && (
         <>
           <div className="my-1 h-px bg-border" />
-          <Button type="button" variant="ghost" className={itemClass} disabled={pending} onClick={() => onMove(item, "top")}>
-            <ArrowLeft className="h-4 w-4 rotate-90" />移到最上
-          </Button>
-          <Button type="button" variant="ghost" className={itemClass} disabled={pending} onClick={() => onMove(item, "up")}>
-            <ChevronDown className="h-4 w-4 rotate-180" />上移一位
-          </Button>
-          <Button type="button" variant="ghost" className={itemClass} disabled={pending} onClick={() => onMove(item, "down")}>
-            <ChevronDown className="h-4 w-4" />下移一位
-          </Button>
-          <Button type="button" variant="ghost" className={itemClass} disabled={pending} onClick={() => onMove(item, "bottom")}>
-            <ArrowLeft className="h-4 w-4 -rotate-90" />移到最下
-          </Button>
-          <div className="my-1 h-px bg-border" />
-          <Button type="button" variant="ghost" className={cn(itemClass, "text-destructive hover:bg-destructive/10 hover:text-destructive")} onClick={() => onDelete(item)}>
-            <Trash2 className="h-4 w-4" />删除文件夹
-          </Button>
+          {canReorder && <>
+            <Button type="button" variant="ghost" className={itemClass} disabled={pending} onClick={() => onMove(item, "top")}>
+              <ArrowLeft className="h-4 w-4 rotate-90" />移到最上
+            </Button>
+            <Button type="button" variant="ghost" className={itemClass} disabled={pending} onClick={() => onMove(item, "up")}>
+              <ChevronDown className="h-4 w-4 rotate-180" />上移一位
+            </Button>
+            <Button type="button" variant="ghost" className={itemClass} disabled={pending} onClick={() => onMove(item, "down")}>
+              <ChevronDown className="h-4 w-4" />下移一位
+            </Button>
+            <Button type="button" variant="ghost" className={itemClass} disabled={pending} onClick={() => onMove(item, "bottom")}>
+              <ArrowLeft className="h-4 w-4 -rotate-90" />移到最下
+            </Button>
+          </>}
+          {canReorder && canDelete && <div className="my-1 h-px bg-border" />}
+          {canDelete && <Button type="button" variant="ghost" className={cn(itemClass, "text-destructive hover:bg-destructive/10 hover:text-destructive")} disabled={pending} onClick={() => onDelete(item)}>
+              <Trash2 className="h-4 w-4" />删除文件夹
+          </Button>}
         </>
       )}
     </div>
@@ -3187,7 +3199,7 @@ function NewLabelButton({ collapsed, pending, onCreate, editing, onEditingChange
   )
 }
 
-function AccountHeader({ collapsed, name, email, darkMode, language, onToggleTheme, onLanguageChange, onSettings }: { collapsed: boolean; name: string; email?: string; darkMode: boolean; language: Language; onToggleTheme: () => void; onLanguageChange: (language: Language) => void; onSettings: () => void }) {
+function AccountHeader({ collapsed, name, email, darkMode, language, onToggleTheme, onLanguageChange, onSettings, onAdmin }: { collapsed: boolean; name: string; email?: string; darkMode: boolean; language: Language; onToggleTheme: () => void; onLanguageChange: (language: Language) => void; onSettings: () => void; onAdmin?: () => void }) {
   const displayName = cleanAccountName(name, email)
   const currentLanguage = languageOptions.find((item) => item.value === language) || languageOptions[0]
   if (collapsed) {
@@ -3210,6 +3222,9 @@ function AccountHeader({ collapsed, name, email, darkMode, language, onToggleThe
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1">
+        {onAdmin && <Button type="button" variant="ghost" size="icon" className="size-7 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={onAdmin} title="后台管理" aria-label="后台管理">
+          <ShieldCheck className="h-3.5 w-3.5" />
+        </Button>}
         <Button type="button" variant="ghost" size="icon" className="size-7 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={onToggleTheme}>
           {darkMode ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
         </Button>

@@ -1648,6 +1648,45 @@ func TestUserCanSelectMultipleMailboxes(t *testing.T) {
 		t.Fatalf("folders for selected mailbox code=%d", code)
 	}
 
+	var sharedFolder MailFolder
+	if code := userClient.do("POST", "/api/mail/folders?mailboxId=all", map[string]string{"name": "Shared Project"}, &sharedFolder); code != http.StatusCreated {
+		t.Fatalf("create shared folder code=%d folder=%+v", code, sharedFolder)
+	}
+	var primarySharedID, secondarySharedID string
+	if err := a.db.QueryRowContext(ctx, `SELECT id FROM folders WHERE mailbox_id=? AND name=?`, primary.ID, "Shared Project").Scan(&primarySharedID); err != nil {
+		t.Fatalf("primary shared folder: %v", err)
+	}
+	if err := a.db.QueryRowContext(ctx, `SELECT id FROM folders WHERE mailbox_id=? AND name=?`, secondary.ID, "Shared Project").Scan(&secondarySharedID); err != nil {
+		t.Fatalf("secondary shared folder: %v", err)
+	}
+	if _, err := a.db.ExecContext(ctx, `UPDATE messages SET folder_id=? WHERE id=?`, primarySharedID, "msg_multi_primary_read"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.db.ExecContext(ctx, `UPDATE messages SET folder_id=? WHERE id=?`, secondarySharedID, "msg_multi_secondary_unread"); err != nil {
+		t.Fatal(err)
+	}
+	var deleted struct {
+		Moved int `json:"moved"`
+	}
+	deletePath := "/api/mail/folders/" + url.PathEscape(sharedFolder.ID) + "?mailboxId=all&folderName=" + url.QueryEscape(sharedFolder.Name)
+	if code := userClient.do("DELETE", deletePath, nil, &deleted); code != http.StatusOK || deleted.Moved != 2 {
+		t.Fatalf("delete shared folders code=%d moved=%d", code, deleted.Moved)
+	}
+	var sharedCount int
+	if err := a.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM folders WHERE mailbox_id IN (?,?) AND name=?`, primary.ID, secondary.ID, "Shared Project").Scan(&sharedCount); err != nil || sharedCount != 0 {
+		t.Fatalf("shared folders remaining=%d err=%v", sharedCount, err)
+	}
+	var restoredPrimaryFolder, restoredSecondaryFolder string
+	if err := a.db.QueryRowContext(ctx, `SELECT folder_id FROM messages WHERE id=?`, "msg_multi_primary_read").Scan(&restoredPrimaryFolder); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.db.QueryRowContext(ctx, `SELECT folder_id FROM messages WHERE id=?`, "msg_multi_secondary_unread").Scan(&restoredSecondaryFolder); err != nil {
+		t.Fatal(err)
+	}
+	if restoredPrimaryFolder != primaryInboxID || restoredSecondaryFolder != secondaryInboxID {
+		t.Fatalf("restored folders primary=%s secondary=%s", restoredPrimaryFolder, restoredSecondaryFolder)
+	}
+
 	var sent MailMessage
 	payload := map[string]any{
 		"mailboxId": secondary.ID,
