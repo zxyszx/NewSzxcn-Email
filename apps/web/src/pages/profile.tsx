@@ -67,6 +67,7 @@ export function ProfilePage() {
   const [ruleDialogOpen, setRuleDialogOpen] = React.useState(false)
   const [mobileSidebarOpen, setMobileSidebarOpen] = React.useState(false)
   const [externalRunAccountId, setExternalRunAccountId] = React.useState("")
+  const [twoFactorRecoveryCodes, setTwoFactorRecoveryCodes] = React.useState<string[]>([])
   const isMobile = useIsMobile()
   const themeMountedRef = React.useRef(false)
 
@@ -142,17 +143,17 @@ export function ProfilePage() {
   })
   const setupTwoFactor = useMutation({
     mutationFn: api.setupTwoFactor,
-    onSuccess: () => toast({ title: "双因素密钥已生成" }),
+    onSuccess: () => { setTwoFactorRecoveryCodes([]); toast({ title: "双因素密钥已生成" }) },
     onError: (error) => toast({ title: "生成失败", description: error.message }),
   })
   const enableTwoFactor = useMutation({
     mutationFn: (form: FormData) => api.enableTwoFactor(String(form.get("code") || "")),
-    onSuccess: (data) => { qc.setQueryData(["me"], data); setupTwoFactor.reset(); twoFactorFormRef.current?.reset(); toast({ title: "双因素认证已启用" }) },
+    onSuccess: (data) => { qc.setQueryData(["me"], { user: data.user }); setTwoFactorRecoveryCodes(data.recoveryCodes || []); setupTwoFactor.reset(); twoFactorFormRef.current?.reset(); toast({ title: "双因素认证已启用" }) },
     onError: (error) => toast({ title: "启用失败", description: error.message }),
   })
   const disableTwoFactor = useMutation({
     mutationFn: (form: FormData) => api.disableTwoFactor(String(form.get("code") || "")),
-    onSuccess: (data) => { qc.setQueryData(["me"], data); twoFactorFormRef.current?.reset(); toast({ title: "双因素认证已关闭" }) },
+    onSuccess: (data) => { qc.setQueryData(["me"], data); setTwoFactorRecoveryCodes([]); twoFactorFormRef.current?.reset(); toast({ title: "双因素认证已关闭" }) },
     onError: (error) => toast({ title: "关闭失败", description: error.message }),
   })
   const createApiToken = useMutation({
@@ -339,9 +340,9 @@ export function ProfilePage() {
   if (me.isError || !user) return <div className="grid h-svh place-items-center text-muted-foreground">登录状态已失效</div>
 
   const sidebarContent = (
-    <div className="flex h-full w-[256px] shrink-0 flex-col border-r border-border bg-card">
+    <div className="flex h-full w-[var(--app-sidebar-width)] shrink-0 flex-col border-r border-border bg-card">
       <div className="h-[64px] border-b">
-        <AccountHeader name={user.displayName || selectedMailbox?.address || "NewSzxcn"} email={user.loginName || user.email || selectedMailbox?.address} darkMode={darkMode} onToggleTheme={() => setDarkMode((v) => !v)} onBack={() => navigate("/")} />
+        <AccountHeader name={user.displayName || selectedMailbox?.address || "NewSzxcn"} email={user.email || selectedMailbox?.address} darkMode={darkMode} onToggleTheme={() => setDarkMode((v) => !v)} onBack={() => navigate("/")} />
       </div>
       <nav className="min-h-0 flex-1 overflow-y-auto p-2">
         <div className="px-2 pb-2 pt-2 text-xs font-semibold text-muted-foreground">管理</div>
@@ -445,6 +446,7 @@ export function ProfilePage() {
         setupTwoFactor={setupTwoFactor}
         enableTwoFactor={enableTwoFactor}
         disableTwoFactor={disableTwoFactor}
+        twoFactorRecoveryCodes={twoFactorRecoveryCodes}
         mailboxes={mailboxes.data?.items || []}
         selectedMailboxId={mailboxId}
         selectedMailbox={selectedMailbox}
@@ -582,6 +584,7 @@ type AccountSettingsSectionProps = {
   setupTwoFactor: { data?: { secret: string; otpauthUrl: string }; mutate: () => void; reset: () => void; isPending: boolean }
   enableTwoFactor: { mutate: (form: FormData) => void; isPending: boolean }
   disableTwoFactor: { mutate: (form: FormData) => void; isPending: boolean }
+  twoFactorRecoveryCodes: string[]
   onCopy: (text: string) => void
   mailboxes: Mailbox[]
   selectedMailboxId: string
@@ -637,6 +640,7 @@ function AccountSettingsSection(props: AccountSettingsSectionProps) {
         setupTwoFactor={props.setupTwoFactor}
         enableTwoFactor={props.enableTwoFactor}
         disableTwoFactor={props.disableTwoFactor}
+        recoveryCodes={props.twoFactorRecoveryCodes}
         onCopy={props.onCopy}
       />
     )
@@ -672,7 +676,7 @@ function SettingsCard({ title, subtitle, action, children, className, contentCla
 }
 
 function AccountTabSection({ user, stats, selectedMailbox, mailboxes, onOpenCleanup }: { user: AccountSettingsSectionProps["user"]; profile: AccountSettingsSectionProps["profile"]; stats?: MailStats; showStats: boolean; displayMode: DisplayMode; onDisplayModeChange: (mode: DisplayMode) => void; selectedMailbox?: Mailbox; mailboxes: Mailbox[]; onOpenCleanup: () => void }) {
-  const accountName = user.loginName || user.email
+  const accountName = user.email
   const quotaBytes = stats?.quotaBytes || (selectedMailbox?.quotaMb ? selectedMailbox.quotaMb * 1024 * 1024 : 0)
   const storageBytes = stats?.storageBytes || 0
   const quotaPct = quotaBytes > 0 ? Math.min(100, Math.round((storageBytes / quotaBytes) * 100)) : 0
@@ -680,7 +684,7 @@ function AccountTabSection({ user, stats, selectedMailbox, mailboxes, onOpenClea
     <div className="space-y-6">
       <SettingsCard title="账号信息">
         <div className="space-y-5">
-          <InfoLine label="用户名" value={accountName} />
+          <InfoLine label="主登录邮箱" value={accountName} />
           <div className="grid gap-2 sm:grid-cols-[10rem_minmax(0,1fr)] sm:items-center">
             <Label className="text-base font-normal text-muted-foreground">时区</Label>
             <Select defaultValue="Asia/Shanghai">
@@ -909,14 +913,14 @@ function EditSignatureForm({ item, mailboxes, pending, onCancel, onSubmit }: { i
   )
 }
 
-function SecuritySettingsSection({ user, password, passwordFormRef, twoFactorFormRef, setupTwoFactor, enableTwoFactor, disableTwoFactor, onCopy }: { user: AccountSettingsSectionProps["user"]; password: AccountSettingsSectionProps["password"]; passwordFormRef: React.RefObject<HTMLFormElement>; twoFactorFormRef: React.RefObject<HTMLFormElement>; setupTwoFactor: AccountSettingsSectionProps["setupTwoFactor"]; enableTwoFactor: AccountSettingsSectionProps["enableTwoFactor"]; disableTwoFactor: AccountSettingsSectionProps["disableTwoFactor"]; onCopy: (text: string) => void }) {
+function SecuritySettingsSection({ user, password, passwordFormRef, twoFactorFormRef, setupTwoFactor, enableTwoFactor, disableTwoFactor, recoveryCodes, onCopy }: { user: AccountSettingsSectionProps["user"]; password: AccountSettingsSectionProps["password"]; passwordFormRef: React.RefObject<HTMLFormElement>; twoFactorFormRef: React.RefObject<HTMLFormElement>; setupTwoFactor: AccountSettingsSectionProps["setupTwoFactor"]; enableTwoFactor: AccountSettingsSectionProps["enableTwoFactor"]; disableTwoFactor: AccountSettingsSectionProps["disableTwoFactor"]; recoveryCodes: string[]; onCopy: (text: string) => void }) {
   return (
     <div className="space-y-6">
       <SettingsCard title="当前登录" contentClassName="border-t py-5">
         <div className="flex items-center gap-4">
           <div className="flex size-10 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><ShieldCheck className="h-5 w-5" /></div>
           <div>
-            <div className="font-semibold">{user.loginName || user.email}</div>
+            <div className="font-semibold">{user.email}</div>
             <div className="text-sm text-muted-foreground">上次登录：刚刚</div>
           </div>
         </div>
@@ -968,12 +972,28 @@ function SecuritySettingsSection({ user, password, passwordFormRef, twoFactorFor
           </form>
         )}
         {user.twoFactorEnabled && (
-          <form ref={twoFactorFormRef} className="space-y-4" onSubmit={(e) => { e.preventDefault(); disableTwoFactor.mutate(new FormData(e.currentTarget)) }}>
-            <Field label="当前验证码"><Input name="code" inputMode="numeric" autoComplete="one-time-code" minLength={6} maxLength={6} required /></Field>
-            <div className="flex justify-end">
-              <Button variant="destructive" disabled={disableTwoFactor.isPending}>{disableTwoFactor.isPending ? "关闭中..." : "关闭两步验证"}</Button>
-            </div>
-          </form>
+          <div className="space-y-4">
+            {recoveryCodes.length > 0 && (
+              <div className="rounded-lg border bg-muted/30 p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold">恢复码</div>
+                    <div className="text-xs text-muted-foreground">每个恢复码只能使用一次。</div>
+                  </div>
+                  <Button type="button" variant="outline" size="sm" onClick={() => onCopy(recoveryCodes.join("\n"))}><Copy className="h-4 w-4" />复制</Button>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {recoveryCodes.map((code) => <code key={code} className="rounded-md bg-background px-3 py-2 text-sm font-semibold">{code}</code>)}
+                </div>
+              </div>
+            )}
+            <form ref={twoFactorFormRef} className="space-y-4" onSubmit={(e) => { e.preventDefault(); disableTwoFactor.mutate(new FormData(e.currentTarget)) }}>
+              <Field label="当前验证码或恢复码"><Input name="code" autoComplete="one-time-code" minLength={6} required /></Field>
+              <div className="flex justify-end">
+                <Button variant="destructive" disabled={disableTwoFactor.isPending}>{disableTwoFactor.isPending ? "关闭中..." : "关闭两步验证"}</Button>
+              </div>
+            </form>
+          </div>
         )}
       </SettingsCard>
 

@@ -240,3 +240,5 @@ export type PublicSettings = { openRegistration: boolean; turnstileEnabled: bool
 export type LoginPayload = { loginName?: string; email?: string; password?: string; turnstileToken?: string; challengeToken?: string; twoFactorCode?: string }
 export type LoginResponse = { user?: User; twoFactorRequired?: boolean; challengeToken?: string }
 export type RegisterPayload = { email: string; displayName: string; password: string; turnstileToken?: string; domainId?: string; localPart?: string }
+export type TwoFactorEnableResponse = { user: User; recoveryCodes: string[] }
+export type BulkMoveResult = { ok: boolean; moved: number; failed: number; message: string; items: { id: string; mailboxId?: string; ok: boolean; message: string }[] }

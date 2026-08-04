@@ -737,6 +737,8 @@ export function MailPage() {
   async function runConfirmedBulkAction(action: BulkAction, ids: string[]) {
     setBulkPending(true)
     try {
+      let completionTitle = `已处理 ${ids.length} 封邮件`
+      let completionDescription: string | undefined
       if (action === "read" || action === "unread") {
         const read = action === "read"
         await Promise.all(ids.map((id) => api.markRead(id, read)))
@@ -747,13 +749,15 @@ export function MailPage() {
         await Promise.all(ids.map((id) => api.delete(id)))
       } else {
         const target = action === "archive" ? "Archive" : action === "inbox" ? "Inbox" : action === "trash" ? "Trash" : "Spam"
-        await Promise.all(ids.map((id) => api.move(id, target)))
+        const result = await api.bulkMove(ids, target)
+        completionTitle = result.ok ? result.message : "批量移动部分失败"
+        completionDescription = result.ok ? undefined : result.message
       }
       if (selectedId && ids.includes(selectedId)) setSelectedId(null)
       setCompactSelectedIds([])
       setPendingConfirm(null)
       await refreshMailData()
-      toast({ title: `已处理 ${ids.length} 封邮件` })
+      toast({ title: completionTitle, description: completionDescription })
     } catch (error) {
       toast({ title: "批量操作失败", description: error instanceof Error ? error.message : "请稍后重试" })
     } finally {
@@ -766,11 +770,11 @@ export function MailPage() {
     if (ids.length === 0) return
     setBulkPending(true)
     try {
-      await Promise.all(ids.map((id) => api.move(id, folderName)))
+      const result = await api.bulkMove(ids, folderName)
       if (selectedId && ids.includes(selectedId)) setSelectedId(null)
       setCompactSelectedIds([])
       await refreshMailData()
-      toast({ title: folderName === "Inbox" ? `已将 ${ids.length} 封邮件移回收件箱` : `已移动 ${ids.length} 封邮件` })
+      toast({ title: result.ok ? (folderName === "Inbox" ? `已将 ${result.moved} 封邮件移回收件箱` : `已移动 ${result.moved} 封邮件`) : "批量移动部分失败", description: result.ok ? undefined : result.message })
     } catch (error) {
       toast({ title: "批量移动失败", description: error instanceof Error ? error.message : "请稍后重试" })
     } finally {
@@ -1219,7 +1223,7 @@ export function MailPage() {
           onLanguageChange={setLanguage}
           onSettings={openSettings}
         />
-        <div className={cn("mt-2 gap-1.5", sidebarCollapsed ? "flex justify-center" : showMailboxCopy ? "grid grid-cols-[minmax(0,1fr)_2rem]" : "grid grid-cols-1")}>
+        <div className={cn("mt-2 gap-1.5", sidebarCollapsed ? "flex justify-center" : "grid grid-cols-[minmax(0,1fr)_2rem]")}>
           <MailboxSwitcher
             collapsed={sidebarCollapsed}
             mailboxes={mailboxList.data?.items || []}
@@ -1229,12 +1233,12 @@ export function MailPage() {
             unreadCount={mailboxUnreadCount}
             onSelect={switchMailbox}
           />
-          {!sidebarCollapsed && showMailboxCopy && (
+          {!sidebarCollapsed && (
             <Button
               type="button"
               variant="outline"
               size="icon"
-              className="h-8 w-8 shrink-0 rounded-md bg-background shadow-none hover:bg-background"
+              className={cn("h-8 w-8 shrink-0 rounded-md bg-background shadow-none hover:bg-background", !showMailboxCopy && "pointer-events-none invisible")}
               onClick={copyCurrentMailbox}
               disabled={!selectedMailbox}
               aria-label="复制邮箱地址"
@@ -3287,7 +3291,7 @@ function MailboxSwitcher({ collapsed, mailboxes, loading, selectedMailboxId, sel
         align="start"
         className={cn(
           "max-w-[calc(100vw-32px)] p-1",
-          collapsed ? "w-[204px]" : "w-[var(--radix-dropdown-menu-trigger-width)] min-w-[var(--radix-dropdown-menu-trigger-width)]"
+          collapsed ? "w-[204px]" : "w-[21rem] min-w-[var(--radix-dropdown-menu-trigger-width)]"
         )}
       >
         {mailboxes.length > 0 && (

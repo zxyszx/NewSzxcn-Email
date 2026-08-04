@@ -52,7 +52,7 @@ func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.QueryContext(r.Context(), `SELECT u.id,u.login_name,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.mailbox_limit_override,u.created_at,COUNT(mb.id),COALESCE(GROUP_CONCAT(mb.address), '')
 		FROM users u LEFT JOIN mailboxes mb ON mb.user_id=u.id
 		GROUP BY u.id,u.login_name,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.mailbox_limit_override,u.created_at
-		ORDER BY u.created_at DESC`)
+		ORDER BY CASE WHEN u.role='admin' THEN 0 ELSE 1 END, lower(COALESCE(NULLIF(u.email,''),u.login_name)), lower(u.display_name), u.created_at`)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to list users")
 		return
@@ -108,20 +108,19 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actor := currentUser(r)
-	var loginName string
-	var err error
-	if strings.TrimSpace(req.LoginName) != "" {
-		loginName, err = cleanUsername(req.LoginName)
-	} else {
-		loginName, err = cleanLoginName(req.Email)
+	emailInput := req.Email
+	if strings.TrimSpace(emailInput) == "" && strings.Contains(strings.TrimSpace(req.LoginName), "@") {
+		emailInput = req.LoginName
 	}
+	primaryEmail, err := cleanPrimaryEmail(emailInput)
 	if err != nil {
 		badRequest(w, err)
 		return
 	}
 	displayName := strings.TrimSpace(req.DisplayName)
 	if displayName == "" {
-		displayName = loginName
+		badRequest(w, errors.New("displayName is required"))
+		return
 	}
 	role := strings.TrimSpace(req.Role)
 	if role == "" {
@@ -131,8 +130,8 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, errors.New("invalid role"))
 		return
 	}
-	if role == "admin" && (actor == nil || actor.Role != "admin") {
-		respondError(w, http.StatusForbidden, "only administrators can create administrator users")
+	if role == "admin" {
+		respondError(w, http.StatusForbidden, "管理员只能由安装流程创建")
 		return
 	}
 	mailboxLimitOverride, err := normalizeMailboxLimitOverride(req.MailboxLimitOverride)
@@ -161,7 +160,7 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 	if _, err = tx.ExecContext(r.Context(), `INSERT INTO users(id,login_name,email,display_name,role,password_hash,disabled,mailbox_limit_override,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?)`, id, loginName, loginName, displayName, role, string(passwordHash), boolInt(req.Disabled), nullableInt(mailboxLimitOverride), now, now); err != nil {
+		VALUES(?,?,?,?,?,?,?,?,?,?)`, id, primaryEmail, primaryEmail, displayName, role, string(passwordHash), boolInt(req.Disabled), nullableInt(mailboxLimitOverride), now, now); err != nil {
 		badRequest(w, err)
 		return
 	}
@@ -190,6 +189,7 @@ func (a *App) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	current := currentUser(r)
 	var req struct {
 		LoginName            string    `json:"loginName"`
+		Email                string    `json:"email"`
 		DisplayName          string    `json:"displayName"`
 		Role                 string    `json:"role"`
 		Disabled             *bool     `json:"disabled"`
@@ -218,16 +218,29 @@ func (a *App) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusNotFound, "user not found")
 		return
 	}
-	requestedLoginName := strings.TrimSpace(req.LoginName)
+	if existing.Role == "admin" && role != "admin" {
+		badRequest(w, errors.New("唯一管理员不能降级"))
+		return
+	}
+	if existing.Role != "admin" && role == "admin" {
+		respondError(w, http.StatusForbidden, "管理员只能由安装流程创建")
+		return
+	}
+	emailInput := req.Email
+	if strings.TrimSpace(emailInput) == "" && strings.Contains(strings.TrimSpace(req.LoginName), "@") {
+		emailInput = req.LoginName
+	}
+	primaryEmail := existing.Email
 	loginName := existing.LoginName
-	if requestedLoginName != "" {
-		loginName, err = cleanUsername(requestedLoginName)
+	if strings.TrimSpace(emailInput) != "" {
+		primaryEmail, err = cleanPrimaryEmail(emailInput)
 		if err != nil {
 			badRequest(w, err)
 			return
 		}
+		loginName = primaryEmail
 	}
-	if current == nil || (current.Role != "admin" && (existing.Role == "admin" || role == "admin")) {
+	if current == nil || (current.Role != "admin" && existing.Role == "admin") {
 		respondError(w, http.StatusForbidden, "only administrators can modify administrator users")
 		return
 	}
@@ -237,6 +250,10 @@ func (a *App) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.isDefaultAdminUser(existing) && (role != "admin" || disabled) {
 		badRequest(w, errors.New("default administrator must remain an active super administrator"))
+		return
+	}
+	if existing.Role == "admin" && disabled {
+		badRequest(w, errors.New("唯一管理员不能停用"))
 		return
 	}
 	mailboxLimitOverride := existing.MailboxLimitOverride
@@ -294,14 +311,10 @@ func (a *App) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
-	emailIdentity := existing.Email
-	if normalizeLoginName(existing.Email) == normalizeLoginName(existing.LoginName) {
-		emailIdentity = loginName
-	}
 	if _, err := tx.ExecContext(r.Context(), `UPDATE users SET login_name=?, email=?, display_name=?, role=?, disabled=?, mailbox_limit_override=?, updated_at=? WHERE id=?`,
-		loginName, emailIdentity, displayName, role, boolInt(disabled), nullableInt(mailboxLimitOverride), a.now().UTC().Format(time.RFC3339Nano), id); err != nil {
+		loginName, primaryEmail, displayName, role, boolInt(disabled), nullableInt(mailboxLimitOverride), a.now().UTC().Format(time.RFC3339Nano), id); err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "unique") {
-			badRequest(w, errors.New("登录名已被使用"))
+			badRequest(w, errors.New("主登录邮箱已被使用"))
 			return
 		}
 		respondError(w, http.StatusInternalServerError, "failed to update user")
@@ -316,6 +329,11 @@ func (a *App) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	if err := tx.Commit(); err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to update user")
 		return
+	}
+	if existing.Role == "admin" {
+		a.updateConfig(func(cfg *Config) {
+			cfg.AdminEmail = primaryEmail
+		})
 	}
 	user, err := a.adminUserByID(r.Context(), id)
 	if err != nil {
@@ -575,11 +593,8 @@ func (a *App) handleCreateMailbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if role == "admin" {
-		current := currentUser(r)
-		if current == nil || current.Role != "admin" {
-			respondError(w, http.StatusForbidden, "only administrators can create administrator users")
-			return
-		}
+		respondError(w, http.StatusForbidden, "管理员只能由安装流程创建")
+		return
 	}
 
 	domain, err := a.domainByID(r.Context(), req.DomainID)
@@ -617,12 +632,16 @@ func (a *App) handleCreateMailbox(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		ownerLoginName, err := cleanLoginName(req.OwnerLoginName, req.OwnerEmail, address)
+		ownerEmailInput := req.OwnerEmail
+		if strings.TrimSpace(ownerEmailInput) == "" && strings.Contains(strings.TrimSpace(req.OwnerLoginName), "@") {
+			ownerEmailInput = req.OwnerLoginName
+		}
+		ownerEmail, err := cleanPrimaryEmail(firstNonEmpty(ownerEmailInput, address))
 		if err != nil {
 			badRequest(w, err)
 			return
 		}
-		err = tx.QueryRowContext(r.Context(), `SELECT id FROM users WHERE (login_name=? OR email=?) AND disabled=0`, ownerLoginName, ownerLoginName).Scan(&userID)
+		err = tx.QueryRowContext(r.Context(), `SELECT id FROM users WHERE email=? AND disabled=0`, ownerEmail).Scan(&userID)
 		if errors.Is(err, sql.ErrNoRows) {
 			passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 			if err != nil {
@@ -631,11 +650,11 @@ func (a *App) handleCreateMailbox(w http.ResponseWriter, r *http.Request) {
 			}
 			userID = newID("usr")
 			ownerDisplayName := displayName
-			if !strings.EqualFold(ownerLoginName, address) {
-				ownerDisplayName = ownerLoginName
+			if !strings.EqualFold(ownerEmail, address) {
+				ownerDisplayName = ownerEmail
 			}
 			_, err = tx.ExecContext(r.Context(), `INSERT INTO users(id,login_name,email,display_name,role,password_hash,disabled,created_at,updated_at)
-				VALUES(?,?,?,?,?,?,?,?,?)`, userID, ownerLoginName, ownerLoginName, ownerDisplayName, role, string(passwordHash), 0, now, now)
+				VALUES(?,?,?,?,?,?,?,?,?)`, userID, ownerEmail, ownerEmail, ownerDisplayName, role, string(passwordHash), 0, now, now)
 			if err != nil {
 				badRequest(w, err)
 				return

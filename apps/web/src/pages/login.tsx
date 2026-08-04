@@ -21,7 +21,7 @@ export function LoginPage() {
   const login = useMutation({
     mutationFn: (form: FormData) => challengeToken
       ? api.login({ challengeToken, twoFactorCode: String(form.get("twoFactorCode") || "") })
-      : api.login({ loginName: String(form.get("loginName") || ""), password: String(form.get("password") || ""), turnstileToken }),
+      : api.login({ email: String(form.get("email") || ""), password: String(form.get("password") || ""), turnstileToken }),
     onSuccess: async (data) => {
       if (data.twoFactorRequired && data.challengeToken) {
         setChallengeToken(data.challengeToken)
@@ -49,8 +49,8 @@ export function LoginPage() {
             {!challengeToken ? (
               <>
                 <div className="space-y-2">
-                  <Label htmlFor="loginName" className="text-sm font-medium">登录名</Label>
-                  <Input id="loginName" name="loginName" type="text" autoComplete="username" required className="h-11 text-base" />
+                  <Label htmlFor="email" className="text-sm font-medium">邮箱地址</Label>
+                  <Input id="email" name="email" type="email" autoComplete="username" required className="h-11 text-base" />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="password" className="text-sm font-medium">密码</Label>
@@ -59,8 +59,8 @@ export function LoginPage() {
               </>
             ) : (
               <div className="space-y-2">
-                <Label htmlFor="twoFactorCode" className="text-sm font-medium">双因素验证码</Label>
-                <Input id="twoFactorCode" name="twoFactorCode" inputMode="numeric" autoComplete="one-time-code" minLength={6} maxLength={6} required className="h-11 text-center text-lg tracking-[0.35em]" />
+                <Label htmlFor="twoFactorCode" className="text-sm font-medium">双因素验证码或恢复码</Label>
+                <Input id="twoFactorCode" name="twoFactorCode" autoComplete="one-time-code" minLength={6} required className="h-11 text-center text-lg" />
               </div>
             )}
             {!challengeToken && turnstileRequired && (

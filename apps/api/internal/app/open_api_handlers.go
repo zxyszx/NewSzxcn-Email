@@ -809,7 +809,7 @@ func (a *App) resolveMailboxOwnerTx(ctx context.Context, tx *sql.Tx, userID, own
 		return "", errors.New("invalid owner email")
 	}
 	var existing string
-	err := tx.QueryRowContext(ctx, `SELECT id FROM users WHERE (login_name=? OR email=?) AND disabled=0`, email, email).Scan(&existing)
+	err := tx.QueryRowContext(ctx, `SELECT id FROM users WHERE email=? AND disabled=0`, email).Scan(&existing)
 	if err == nil {
 		return existing, nil
 	}

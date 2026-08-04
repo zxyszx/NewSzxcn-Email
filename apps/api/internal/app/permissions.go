@@ -316,15 +316,15 @@ var permissionCatalogItems = []PermissionInfo{
 	{Key: PermissionAdminOverview, Label: "查看概览", Description: "查看后台统计和首次配置检查。", Category: "概览"},
 
 	{Key: PermissionUsersView, Label: "查看账号", Description: "查看账号列表、状态、邮箱数量上限和绑定邮箱。", Category: "账号管理"},
-	{Key: PermissionUsersCreate, Label: "创建账号", Description: "创建普通账号并分配权限配额。", Category: "账号管理"},
-	{Key: PermissionUsersUpdate, Label: "编辑账号", Description: "修改账号显示名称、状态、邮箱数量上限和权限配额。", Category: "账号管理"},
+	{Key: PermissionUsersCreate, Label: "创建账号", Description: "创建普通账号并设置主登录邮箱、显示名称和状态。", Category: "账号管理"},
+	{Key: PermissionUsersUpdate, Label: "编辑账号", Description: "修改账号主登录邮箱、显示名称、状态、邮箱数量上限和自定义权限配置。", Category: "账号管理"},
 	{Key: PermissionUsersDelete, Label: "删除账号", Description: "删除非受保护账号。", Category: "账号管理"},
 	{Key: PermissionUsersResetPassword, Label: "重置账号密码", Description: "为账号重置登录密码。", Category: "账号管理"},
 
-	{Key: PermissionGroupsView, Label: "查看权限配额", Description: "查看权限配额、权限目录和使用人数。", Category: "权限配额"},
-	{Key: PermissionGroupsCreate, Label: "创建权限配额", Description: "创建自定义权限配额。", Category: "权限配额"},
-	{Key: PermissionGroupsUpdate, Label: "编辑权限配额", Description: "修改自定义权限配额名称、说明、功能权限和额度。", Category: "权限配额"},
-	{Key: PermissionGroupsDelete, Label: "删除权限配额", Description: "删除未被账号使用的自定义权限配额。", Category: "权限配额"},
+	{Key: PermissionGroupsView, Label: "查看权限配置", Description: "查看内置和自定义权限配置、权限目录和使用人数。", Category: "权限配置"},
+	{Key: PermissionGroupsCreate, Label: "创建权限配置", Description: "创建自定义权限配置。", Category: "权限配置"},
+	{Key: PermissionGroupsUpdate, Label: "编辑权限配置", Description: "修改自定义权限配置名称、说明、功能权限和额度。", Category: "权限配置"},
+	{Key: PermissionGroupsDelete, Label: "删除权限配置", Description: "删除未被账号使用的自定义权限配置。", Category: "权限配置"},
 
 	{Key: PermissionDomainsView, Label: "查看域名", Description: "查看邮件域名和 DKIM 配置。", Category: "域名"},
 	{Key: PermissionDomainsCreate, Label: "添加域名", Description: "添加新的邮件域名。", Category: "域名"},
@@ -455,7 +455,7 @@ func defaultPermissionGroups() []PermissionGroup {
 		{
 			ID:          PermissionGroupSuperAdmin,
 			Name:        "管理员",
-			Description: "拥有全部后台权限，由账号身份决定，不通过权限配额分配。",
+			Description: "拥有全部后台权限，由账号身份决定，不通过自定义权限配置分配。",
 			Permissions: allPermissionKeys(),
 			Limits:      PermissionLimits{},
 			System:      true,
@@ -1031,14 +1031,7 @@ func (a *App) permissionGroupByID(ctx context.Context, id string) (*PermissionGr
 }
 
 func (a *App) isDefaultAdminUser(u *User) bool {
-	if u == nil {
-		return false
-	}
-	if adminUsername := normalizeLoginName(a.config().AdminUsername); adminUsername != "" && !strings.Contains(adminUsername, "@") {
-		return strings.EqualFold(normalizeLoginName(u.LoginName), adminUsername)
-	}
-	adminEmail := normalizeEmail(a.config().AdminEmail)
-	return adminEmail != "" && strings.EqualFold(normalizeEmail(u.Email), adminEmail)
+	return u != nil && u.Role == "admin"
 }
 
 func sortPermissionGroups(items []PermissionGroup) {

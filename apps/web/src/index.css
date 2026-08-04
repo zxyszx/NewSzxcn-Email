@@ -24,6 +24,7 @@
     --input: 214.3 31.8% 91.4%;
     --ring: 216 22% 42%;
     --radius: 0.5rem;
+    --app-sidebar-width: 18rem;
     --sidebar-background: 0 0% 100%;
     --sidebar-foreground: 222.2 84% 4.9%;
     --sidebar-primary: 224 44% 12%;
@@ -85,7 +86,7 @@
 @layer components {
   .mail-shell-grid {
     display: grid;
-    grid-template-columns: clamp(236px, 17vw, 344px) minmax(0, 1fr);
+    grid-template-columns: var(--app-sidebar-width, 18rem) minmax(0, 1fr);
   }
 
   .mail-content-grid {

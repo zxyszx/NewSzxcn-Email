@@ -24,32 +24,28 @@ export function RegisterPage() {
   const [domainId, setDomainId] = React.useState("")
   const domains: PublicDomain[] = publicSettings.data?.mailboxDomains || []
   const selectedDomain = domains.find((d) => d.id === domainId)
+  React.useEffect(() => {
+    if (!domainId && domains[0]) setDomainId(domains[0].id)
+    if (domainId && !domains.some((domain) => domain.id === domainId)) setDomainId(domains[0]?.id || "")
+  }, [domainId, domains])
 
   const register = useMutation({
     mutationFn: (form: FormData) => {
       const password = String(form.get("password") || "")
       const confirmPassword = String(form.get("confirmPassword") || "")
       validatePasswordConfirm(password, confirmPassword)
-
-      if (domainId && selectedDomain) {
-        const localPart = String(form.get("localPart") || "").trim()
-        if (!localPart) throw new Error("请输入邮箱前缀")
-        return api.register({
-          email: `${localPart}@${selectedDomain.name}`,
-          displayName: String(form.get("displayName") || ""),
-          password,
-          turnstileToken,
-          domainId,
-          localPart,
-        })
-      }
-
-      // Fallback: no domains available, use email directly
+      const displayName = String(form.get("displayName") || "").trim()
+      if (!displayName) throw new Error("请输入显示名称")
+      const localPart = String(form.get("localPart") || "").trim()
+      if (!localPart) throw new Error("请输入邮箱前缀")
+      if (!domainId || !selectedDomain) throw new Error("请选择邮箱域名")
       return api.register({
-        email: String(form.get("email") || ""),
-        displayName: String(form.get("displayName") || ""),
+        email: `${localPart}@${selectedDomain.name}`,
+        displayName,
         password,
         turnstileToken,
+        domainId,
+        localPart,
       })
     },
     onSuccess: async () => {
@@ -102,14 +98,12 @@ export function RegisterPage() {
                   </div>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  <Label htmlFor="email" className="text-sm font-medium">邮箱</Label>
-                  <Input id="email" name="email" type="email" autoComplete="username" required className="h-11 text-base" />
-                </div>
+                <div className="rounded-md bg-muted/40 px-4 py-3 text-center text-sm text-muted-foreground">当前没有可注册的邮箱域名</div>
               )}
               <div className="space-y-2">
                 <Label htmlFor="displayName" className="text-sm font-medium">显示名称</Label>
-                <Input id="displayName" name="displayName" autoComplete="name" className="h-11 text-base" />
+                <Input id="displayName" name="displayName" autoComplete="name" required className="h-11 text-base" />
+                <p className="text-xs leading-5 text-muted-foreground">显示名称注册后不可自行修改，如需更换请联系管理员。</p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password" className="text-sm font-medium">密码</Label>
@@ -120,7 +114,7 @@ export function RegisterPage() {
                 <PasswordInput id="confirmPassword" name="confirmPassword" autoComplete="new-password" minLength={6} required className="h-11 text-base" />
               </div>
               {turnstileRequired && <TurnstileBox siteKey={publicSettings.data?.turnstileSiteKey || ""} onToken={setTurnstileToken} />}
-              <Button className="h-11 w-full text-base" disabled={register.isPending || publicSettings.isLoading}>
+              <Button className="h-11 w-full text-base" disabled={register.isPending || publicSettings.isLoading || domains.length === 0}>
                 {register.isPending ? "注册中..." : "注册"}
                 {!register.isPending && <ArrowRight className="h-4 w-4" />}
               </Button>

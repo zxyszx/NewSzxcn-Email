@@ -30,7 +30,7 @@ import {
 const adminSections: { key: string; label: string; icon: React.ReactNode; permissions: PermissionKey[] }[] = [
   { key: "overview", label: "数据总览", icon: <BarChart3 />, permissions: ["admin.overview.view"] },
   { key: "users", label: "账号管理", icon: <UserCog />, permissions: ["admin.users.view"] },
-  { key: "permissionGroups", label: "权限配额", icon: <ShieldCheck />, permissions: ["admin.permission_groups.view"] },
+  { key: "permissionGroups", label: "权限配置", icon: <ShieldCheck />, permissions: ["admin.permission_groups.view"] },
   { key: "domains", label: "域名管理", icon: <Globe2 />, permissions: ["admin.domains.view", "admin.dns.view"] },
   { key: "mailboxes", label: "邮箱管理", icon: <Mailbox />, permissions: ["admin.mailboxes.view"] },
   { key: "aliases", label: "邮件转发", icon: <Forward />, permissions: ["admin.aliases.view"] },
@@ -108,7 +108,7 @@ function ProtectedContent() {
                   </Avatar>
                   <div className="grid flex-1 text-left text-sm leading-tight">
                     <span className="truncate font-semibold">{user.displayName}</span>
-                    <span className="truncate text-xs text-muted-foreground">{user.loginName || user.email}</span>
+                    <span className="truncate text-xs text-muted-foreground">{user.email}</span>
                   </div>
                   <Badge variant={user.role === "admin" ? "default" : "secondary"} className="ml-auto text-[10px]">
                     {user.role === "admin" ? "管理员" : "普通用户"}

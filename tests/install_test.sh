@@ -43,6 +43,22 @@ test_password_validation() {
   fi
 }
 
+test_mail_domain_and_admin_email_validation() {
+  assert_eq "example.com" "$(suggest_mail_domain "mail.example.com")" "mail host domain suggestion"
+  assert_eq "example.co.uk" "$(suggest_mail_domain "mail.example.co.uk")" "multi-label mail host domain suggestion"
+  LANQIN_MAIL_DOMAIN="example.com"
+  LANQIN_ADMIN_EMAIL="admin@example.com"
+  assert_eq "example.com" "$(prompt_mail_domain "mail.example.com")" "explicit mail domain"
+  assert_eq "admin@example.com" "$(prompt_admin_email "example.com")" "explicit administrator email"
+  if (LANQIN_ADMIN_EMAIL="admin@other.example.com" prompt_admin_email "example.com" >/dev/null 2>&1); then
+    fail_test "administrator email outside mail domain accepted"
+  fi
+  if (has_tty() { return 1; }; unset LANQIN_MAIL_DOMAIN LANQIN_ADMIN_EMAIL; prompt_mail_domain "mail.example.com" >/dev/null 2>&1); then
+    fail_test "noninteractive mail domain guessed without explicit input"
+  fi
+  unset LANQIN_MAIL_DOMAIN LANQIN_ADMIN_EMAIL
+}
+
 test_install_configuration() {
   local firewall_mode="$1" web_mode="$2" want_bind="$3" want_url="$4" want_insecure="$5"
   local temp_dir
@@ -52,7 +68,8 @@ test_install_configuration() {
   export INSTALL_DIR="${temp_dir}"
   export LANQIN_INSTALL_FIREWALL_MODE="${firewall_mode}"
   export LANQIN_PUBLIC_HOSTNAME="mail.example.com"
-  export LANQIN_ADMIN_USERNAME="admin"
+  export LANQIN_MAIL_DOMAIN="example.com"
+  export LANQIN_ADMIN_EMAIL="admin@example.com"
   export LANQIN_ADMIN_PASSWORD="abc123"
   export LANQIN_INSTALL_WEB_MODE="${web_mode}"
   configure_first_install
@@ -63,6 +80,9 @@ test_install_configuration() {
   assert_eq "${want_bind}" "$(env_value LANQIN_HTTP_BIND)" "HTTP bind"
   assert_eq "${want_url}" "$(env_value LANQIN_PUBLIC_BASE_URL)" "public URL"
   assert_eq "${want_insecure}" "$(env_value LANQIN_ALLOW_INSECURE_HTTP)" "insecure HTTP flag"
+  assert_eq "example.com" "$(env_value LANQIN_MAIL_DOMAIN)" "mail address domain"
+  assert_eq "admin@example.com" "$(env_value LANQIN_ADMIN_EMAIL)" "administrator email"
+  assert_eq "admin" "$(env_value LANQIN_ADMIN_USERNAME)" "legacy administrator username prefix"
   assert_eq "abc123" "$(env_value LANQIN_ADMIN_PASSWORD)" "administrator password"
 }
 
@@ -134,12 +154,13 @@ test_admin_credentials() (
   mkdir -p "${INSTALL_DIR}"
   cat > "${INSTALL_DIR}/.env" <<'EOF'
 LANQIN_PUBLIC_BASE_URL=https://mail.example.com
-LANQIN_ADMIN_USERNAME=admin
+LANQIN_MAIL_DOMAIN=example.com
+LANQIN_ADMIN_EMAIL=admin@example.com
 LANQIN_ADMIN_PASSWORD=recorded-password
 EOF
   output="$(do_show_admin_credentials 2>&1)"
   [[ "${output}" == *'登录地址：https://mail.example.com'* ]] || fail_test "administrator login URL missing"
-  [[ "${output}" == *'管理员用户名：admin'* ]] || fail_test "administrator username missing"
+  [[ "${output}" == *'管理员邮箱：admin@example.com'* ]] || fail_test "administrator email missing"
   [[ "${output}" == *'记录密码：recorded-password'* ]] || fail_test "recorded administrator password missing"
   [[ "${output}" == *'无法从数据库反向查看'* ]] || fail_test "password hash warning missing"
 )
@@ -160,7 +181,9 @@ test_admin_password_reset_only_updates_admin_account() (
   compose_calls="${temp_dir}/compose-calls"
   mkdir -p "${INSTALL_DIR}/data/backups"
   cat > "${INSTALL_DIR}/.env" <<'EOF'
-LANQIN_ADMIN_USERNAME=admin
+LANQIN_PUBLIC_HOSTNAME=mail.example.com
+LANQIN_MAIL_DOMAIN=example.com
+LANQIN_ADMIN_EMAIL=admin@example.com
 LANQIN_ADMIN_PASSWORD=old-password
 EOF
   printf 'database\n' > "${INSTALL_DIR}/data/lanqin.db"
@@ -186,10 +209,46 @@ EOF
   do_reset_admin_password >/dev/null
   assert_eq "new-password" "$(env_value LANQIN_ADMIN_PASSWORD)" "recorded reset password"
   [[ -s "${backup_path}" ]] || fail_test "password reset database backup missing"
-  grep -Fq "login_name='admin' AND role='admin'" "${compose_calls}" || fail_test "administrator lookup is not role restricted"
+  grep -Fq "email='admin@example.com' AND role='admin'" "${compose_calls}" || fail_test "administrator lookup is not email and role restricted"
   grep -Fq "UPDATE users SET password_hash=" "${compose_calls}" || fail_test "administrator user password was not updated"
   grep -Fq "UPDATE mailboxes SET password_hash=" "${compose_calls}" || fail_test "administrator mailbox passwords were not synchronized"
   grep -Fq "WHERE user_id='admin-user-id'" "${compose_calls}" || fail_test "mailbox password update is not restricted to the administrator"
+)
+
+test_admin_two_factor_reset_only_updates_admin_account() (
+  local temp_dir compose_calls backup_path
+  temp_dir="$(mktemp -d)"
+  INSTALL_DIR="${temp_dir}/install"
+  compose_calls="${temp_dir}/compose-calls"
+  mkdir -p "${INSTALL_DIR}/data/backups"
+  cat > "${INSTALL_DIR}/.env" <<'EOF'
+LANQIN_PUBLIC_HOSTNAME=mail.example.com
+LANQIN_MAIL_DOMAIN=example.com
+LANQIN_ADMIN_EMAIL=admin@example.com
+EOF
+  printf 'database\n' > "${INSTALL_DIR}/data/lanqin.db"
+
+  ensure_docker() { return 0; }
+  current_image_id() { printf 'sha256:test-image\n'; }
+  backup_database() {
+    backup_path="$1"
+    printf 'backup\n' > "${backup_path}"
+  }
+  compose() {
+    printf '%s\n' "$*" >> "${compose_calls}"
+    if [[ "$*" == *'SELECT id FROM users'* ]]; then
+      printf 'admin-user-id\n'
+    elif [[ "$*" == *"UPDATE users SET two_factor_secret=''"* ]]; then
+      printf 'user=1\nrecovery=2\nchallenges=1\n'
+    fi
+  }
+
+  do_reset_admin_two_factor >/dev/null
+  [[ -s "${backup_path}" ]] || fail_test "2FA reset database backup missing"
+  grep -Fq "email='admin@example.com' AND role='admin'" "${compose_calls}" || fail_test "2FA administrator lookup is not email and role restricted"
+  grep -Fq "UPDATE users SET two_factor_secret=''" "${compose_calls}" || fail_test "administrator 2FA flag was not cleared"
+  grep -Fq "DELETE FROM two_factor_recovery_codes WHERE user_id='admin-user-id'" "${compose_calls}" || fail_test "administrator recovery codes were not deleted"
+  grep -Fq "DELETE FROM login_challenges WHERE user_id='admin-user-id'" "${compose_calls}" || fail_test "administrator login challenges were not deleted"
 )
 
 test_offline_database_backup() (
@@ -215,10 +274,12 @@ test_guide_generation() (
   cp "${ROOT_DIR}/deploy/.env.example" "${INSTALL_DIR}/.env"
   set_env LANQIN_PUBLIC_HOSTNAME "mail.example.com"
   set_env LANQIN_PUBLIC_BASE_URL "https://mail.example.com"
-  set_env LANQIN_ADMIN_USERNAME "admin"
+  set_env LANQIN_MAIL_DOMAIN "example.com"
+  set_env LANQIN_ADMIN_EMAIL "admin@example.com"
   generate_guide
   grep -Fq '邮箱前台：https://mail.example.com' "${GUIDE_FILE}" || fail_test "guide frontend URL missing"
   grep -Fq '管理后台：https://mail.example.com/admin' "${GUIDE_FILE}" || fail_test "guide admin URL missing"
+  grep -Fq '管理员邮箱：admin@example.com' "${GUIDE_FILE}" || fail_test "guide administrator email missing"
   grep -Fq '管理员密码：仅在安装完成时显示' "${GUIDE_FILE}" || fail_test "guide password safety text missing"
   [[ "$(stat -c '%a' "${GUIDE_FILE}" 2>/dev/null || stat -f '%Lp' "${GUIDE_FILE}")" == "600" ]] || fail_test "guide permissions are not 600"
 )
@@ -503,6 +564,7 @@ test_backup_reinstall_recovers_from_nginx_reload_failure() (
 
 test_hostname_validation
 test_password_validation
+test_mail_domain_and_admin_email_validation
 test_install_configuration 1 1 "127.0.0.1:8088" "https://mail.example.com" "false"
 test_install_configuration 2 2 "127.0.0.1:8088" "https://mail.example.com" "false"
 test_nginx_configuration
@@ -512,6 +574,7 @@ test_menu_choice
 test_admin_credentials
 test_admin_password_hash_parsing
 test_admin_password_reset_only_updates_admin_account
+test_admin_two_factor_reset_only_updates_admin_account
 test_offline_database_backup
 test_guide_generation
 test_acme_cron_detection

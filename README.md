@@ -16,7 +16,7 @@ NewSzxcn-Email 是一个可自建、可管理、带完整 Webmail 与管理后�
 | Webmail | 收发邮件、草稿、附件、搜索、星标、标签、自定义文件夹、稍后提醒、导入与导出 |
 | 邮箱管理 | 多邮箱切换、邮箱申请、暂停收信、账号级与邮箱级转发、外部 IMAP |
 | 收信规则 | 多条件匹配、移动、标记、删除、转发、规则排序与应用到已有邮件 |
-| 管理后台 | 账号、权限配额、域名、邮箱、转发、全部邮件、发送队列、系统设置 |
+| 管理后台 | 账号、权限配置、域名、邮箱、转发、全部邮件、发送队列、系统设置 |
 | 邮件服务 | Postfix、Dovecot、Rspamd、DKIM、IMAP、POP3、SMTP Submission |
 | 安全 | 2FA、Turnstile、权限组、API Token、转发邮箱验证、SSRF 防护 |
 | 运维 | Docker 单镜像部署、在线检查更新、页面一键更新、自动备份、命令行回滚 |
@@ -35,8 +35,8 @@ curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/install.
 bash <(curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/install.sh)
 ```
 
-脚本会先显示统一管理菜单。空白服务器默认选择安装，并进入防火墙、邮件域名、管理员
-账号和 Web 部署方式的引导；检测到已有安装时默认选择安全更新。选择重新安装会先将
+脚本会先显示统一管理菜单。空白服务器默认选择安装，并进入防火墙、邮件服务器域名、邮箱地址域名、管理员
+邮箱和 Web 部署方式的引导；检测到已有安装时默认选择安全更新。选择重新安装会先将
 `/opt/newszxcn-email` 完整改名备份，失败时自动恢复原目录、Nginx 和旧容器。更新前会
 校验数据库备份并保存镜像、Compose、环境、安装脚本和 Nginx，失败时执行完整恢复。
 
@@ -44,7 +44,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/i
 
 - 安装或检查 Docker Engine 与 Docker Compose v2
 - 选择自动添加邮局必要端口规则，或保留现有防火墙由用户自行配置
-- 询问邮件域名、管理员用户名和密码；默认用户名为 `admin`，回车自动生成 12 位密码，自定义密码最少 6 位
+- 分开确认邮件服务器域名和邮箱地址域名，创建唯一管理员邮箱；默认 `admin@邮箱地址域名`，回车自动生成 12 位密码，自定义密码最少 6 位
 - 选择自动 Nginx + SSL、宝塔/已有 Nginx 反代或 HTTP 测试模式
 - 自动模式使用官方 `acme.sh` 签发和续期证书，不会强制停止占用 80 端口的进程
 - 创建 `/opt/newszxcn-email` 持久化目录

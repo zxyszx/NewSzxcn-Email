@@ -413,6 +413,20 @@ func updateRegularPermissionGroupWithLimits(t *testing.T, admin *testClient, per
 	return group
 }
 
+func setRegularPermissionGroupForTest(t *testing.T, a *App, permissions []string, limits PermissionLimits) PermissionGroup {
+	t.Helper()
+	now := a.now().UTC().Format(time.RFC3339Nano)
+	if _, err := a.db.ExecContext(context.Background(), `UPDATE permission_groups SET permissions_json=?, limits_json=?, updated_at=? WHERE id=?`,
+		encodePermissions(permissions), encodePermissionLimits(limits), now, PermissionGroupRegular); err != nil {
+		t.Fatalf("set regular permission group fixture: %v", err)
+	}
+	group, err := a.permissionGroupByID(context.Background(), PermissionGroupRegular)
+	if err != nil {
+		t.Fatalf("load regular permission group fixture: %v", err)
+	}
+	return *group
+}
+
 func systemSettingsPayload(settings SystemSettings) map[string]any {
 	return map[string]any{
 		"publicHostname":                  settings.PublicHostname,
@@ -1279,7 +1293,7 @@ func TestPermissionGroupMailLimits(t *testing.T) {
 	if code := admin.do("POST", "/api/auth/login", map[string]string{"email": "admin@lanqin.local", "password": "ChangeMe123!"}, &login); code != http.StatusOK {
 		t.Fatalf("admin login code=%d body=%v", code, login)
 	}
-	updateRegularPermissionGroupWithLimits(t, admin, regularUserDefaultPermissions(), PermissionLimits{MaxAttachmentMB: 1, MaxMailboxCount: 9, SMTPDailyLimit: 10, SMTPMinuteLimit: 1, IMAPMinuteLimit: 1, POP3MinuteLimit: 1})
+	setRegularPermissionGroupForTest(t, a, regularUserDefaultPermissions(), PermissionLimits{MaxAttachmentMB: 1, MaxMailboxCount: 9, SMTPDailyLimit: 10, SMTPMinuteLimit: 1, IMAPMinuteLimit: 1, POP3MinuteLimit: 1})
 
 	domainID := mustDefaultDomainID(t, a)
 	sender := createTestMailbox(t, admin, domainID, "limited-sender", "Limited Sender", "Password123!", nil)
@@ -1333,7 +1347,7 @@ func TestPermissionGroupMailLimits(t *testing.T) {
 	}
 }
 
-func TestOpenRegistrationCreatesLoginUserOnly(t *testing.T) {
+func TestOpenRegistrationAtomicallyCreatesLoginUserAndMailbox(t *testing.T) {
 	a := newTestApp(t)
 	ts := httptest.NewServer(a.Router())
 	defer ts.Close()
@@ -1345,32 +1359,92 @@ func TestOpenRegistrationCreatesLoginUserOnly(t *testing.T) {
 	}
 
 	a.updateConfig(func(cfg *Config) { cfg.OpenRegistration = true })
+	domainID := mustDefaultDomainID(t, a)
+	registration := map[string]string{
+		"email":       "newuser@lanqin.local",
+		"displayName": "New User",
+		"password":    "Password123!",
+		"domainId":    domainID,
+		"localPart":   "newuser",
+	}
 	var registered struct {
 		User User `json:"user"`
 	}
-	if code := client.do("POST", "/api/auth/register", map[string]string{"email": "newuser@example.com", "displayName": "New User", "password": "Password123!"}, &registered); code != http.StatusCreated || registered.User.Email != "newuser@example.com" || registered.User.Role != "user" {
+	if code := client.do("POST", "/api/auth/register", registration, &registered); code != http.StatusCreated || registered.User.Email != "newuser@lanqin.local" || registered.User.Role != "user" {
 		t.Fatalf("register code=%d user=%+v", code, registered.User)
 	}
 	var me struct {
 		User User `json:"user"`
 	}
-	if code := client.do("GET", "/api/me", nil, &me); code != http.StatusOK || me.User.Email != "newuser@example.com" {
+	if code := client.do("GET", "/api/me", nil, &me); code != http.StatusOK || me.User.Email != "newuser@lanqin.local" {
 		t.Fatalf("me code=%d user=%+v", code, me.User)
 	}
 	var mine struct {
 		Items []Mailbox `json:"items"`
 	}
-	if code := client.do("GET", "/api/mail/mailboxes", nil, &mine); code != http.StatusOK || len(mine.Items) != 1 {
+	if code := client.do("GET", "/api/mail/mailboxes", nil, &mine); code != http.StatusOK || len(mine.Items) != 1 || mine.Items[0].Address != "newuser@lanqin.local" {
 		t.Fatalf("registered user should get auto-created mailbox: code=%d items=%+v", code, mine.Items)
 	}
 
 	another := &testClient{t: t, server: ts}
-	if code := another.do("POST", "/api/auth/login", map[string]string{"email": "newuser@example.com", "password": "Password123!"}, &out); code != http.StatusOK {
+	if code := another.do("POST", "/api/auth/login", map[string]string{"email": "newuser@lanqin.local", "password": "Password123!"}, &out); code != http.StatusOK {
 		t.Fatalf("login registered user code=%d body=%v", code, out)
 	}
 }
 
-func TestLegacyBootstrapMailboxMigrationRemovesImplicitAdminMailbox(t *testing.T) {
+func TestTurnstileRetainedForLoginAndRegistration(t *testing.T) {
+	a := newTestApp(t)
+	verifyCalls := 0
+	verifyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		verifyCalls++
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		if r.Form.Get("secret") != "secret-key" || r.Form.Get("response") == "" {
+			t.Fatalf("turnstile form secret=%q response=%q", r.Form.Get("secret"), r.Form.Get("response"))
+		}
+		respondJSON(w, http.StatusOK, map[string]any{"success": r.Form.Get("response") == "valid-token"})
+	}))
+	defer verifyServer.Close()
+	a.turnstileURL = verifyServer.URL
+	a.updateConfig(func(cfg *Config) {
+		cfg.OpenRegistration = true
+		cfg.TurnstileEnabled = true
+		cfg.TurnstileSiteKey = "site-key"
+		cfg.TurnstileSecretKey = "secret-key"
+	})
+	ts := httptest.NewServer(a.Router())
+	defer ts.Close()
+	client := &testClient{t: t, server: ts}
+
+	var public PublicSettings
+	if code := client.do("GET", "/api/public/settings", nil, &public); code != http.StatusOK || !public.TurnstileEnabled || public.TurnstileSiteKey != "site-key" {
+		t.Fatalf("public turnstile settings code=%d settings=%+v", code, public)
+	}
+	if code := client.do("POST", "/api/auth/login", map[string]string{"email": "admin@lanqin.local", "password": "ChangeMe123!"}, nil); code != http.StatusUnauthorized {
+		t.Fatalf("login without turnstile code=%d", code)
+	}
+	var login map[string]any
+	if code := client.do("POST", "/api/auth/login", map[string]string{"email": "admin@lanqin.local", "password": "ChangeMe123!", "turnstileToken": "valid-token"}, &login); code != http.StatusOK {
+		t.Fatalf("login with turnstile code=%d body=%v", code, login)
+	}
+	domainID := mustDefaultDomainID(t, a)
+	registerClient := &testClient{t: t, server: ts}
+	registerPayload := map[string]string{"email": "turnstile-user@lanqin.local", "displayName": "Turnstile User", "password": "Password123!", "domainId": domainID, "localPart": "turnstile-user"}
+	if code := registerClient.do("POST", "/api/auth/register", registerPayload, nil); code != http.StatusUnauthorized {
+		t.Fatalf("register without turnstile code=%d", code)
+	}
+	registerPayload["turnstileToken"] = "valid-token"
+	var registered map[string]any
+	if code := registerClient.do("POST", "/api/auth/register", registerPayload, &registered); code != http.StatusCreated {
+		t.Fatalf("register with turnstile code=%d body=%v", code, registered)
+	}
+	if verifyCalls != 2 {
+		t.Fatalf("turnstile verifier calls=%d, want 2", verifyCalls)
+	}
+}
+
+func TestLegacyBootstrapMailboxMigrationKeepsAdminMailbox(t *testing.T) {
 	dir := t.TempDir()
 	cfg := Config{
 		Addr:              ":0",
@@ -1413,15 +1487,15 @@ func TestLegacyBootstrapMailboxMigrationRemovesImplicitAdminMailbox(t *testing.T
 	if err := a.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE email=? AND role='admin'`, cfg.AdminEmail).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("admin user count=%d err=%v", count, err)
 	}
-	if err := a.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mailboxes WHERE address=?`, cfg.AdminEmail).Scan(&count); err != nil || count != 0 {
-		t.Fatalf("legacy mailbox count=%d err=%v", count, err)
+	if err := a.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mailboxes WHERE address=?`, cfg.AdminEmail).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("admin mailbox count=%d err=%v", count, err)
 	}
-	if err := a.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM domains WHERE id=?`, domainID).Scan(&count); err != nil || count != 0 {
-		t.Fatalf("legacy domain count=%d err=%v", count, err)
+	if err := a.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM domains WHERE id=?`, domainID).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("admin domain count=%d err=%v", count, err)
 	}
 }
 
-func TestUsernameBootstrapDoesNotCreateMailboxAndCanBeRenamed(t *testing.T) {
+func TestConfiguredAdminEmailCreatesMailboxAndRejectsUsernameLogin(t *testing.T) {
 	dir := t.TempDir()
 	cfg := Config{
 		Addr:              ":0",
@@ -1430,6 +1504,7 @@ func TestUsernameBootstrapDoesNotCreateMailboxAndCanBeRenamed(t *testing.T) {
 		CookieName:        "lanqin_test",
 		SessionTTLHours:   24,
 		AdminUsername:     "admin",
+		AdminEmail:        "root@example.test",
 		AdminPassword:     "ChangeMe123!",
 		PublicHostname:    "mail.example.test",
 		PublicBaseURL:     "http://localhost:5173",
@@ -1444,8 +1519,15 @@ func TestUsernameBootstrapDoesNotCreateMailboxAndCanBeRenamed(t *testing.T) {
 	if err := a.db.QueryRow(`SELECT COUNT(*) FROM mailboxes`).Scan(&mailboxes); err != nil {
 		t.Fatal(err)
 	}
-	if domains != 0 || mailboxes != 0 {
-		t.Fatalf("username bootstrap created domains=%d mailboxes=%d", domains, mailboxes)
+	if domains != 1 || mailboxes != 1 {
+		t.Fatalf("admin email bootstrap domains=%d mailboxes=%d", domains, mailboxes)
+	}
+	var welcomeFrom, welcomeMessageID string
+	if err := a.db.QueryRow(`SELECT from_addr,message_id FROM messages ORDER BY created_at LIMIT 1`).Scan(&welcomeFrom, &welcomeMessageID); err != nil {
+		t.Fatal(err)
+	}
+	if welcomeFrom != "system@example.test" || !strings.HasSuffix(welcomeMessageID, "@example.test>") {
+		t.Fatalf("welcome message retained placeholder domain: from=%q messageId=%q", welcomeFrom, welcomeMessageID)
 	}
 
 	ts := httptest.NewServer(a.Router())
@@ -1454,33 +1536,339 @@ func TestUsernameBootstrapDoesNotCreateMailboxAndCanBeRenamed(t *testing.T) {
 	var login struct {
 		User User `json:"user"`
 	}
-	if code := admin.do("POST", "/api/auth/login", map[string]string{"loginName": "admin", "password": "ChangeMe123!"}, &login); code != http.StatusOK {
-		t.Fatalf("username login code=%d", code)
+	if code := admin.do("POST", "/api/auth/login", map[string]string{"loginName": "admin", "password": "ChangeMe123!"}, nil); code != http.StatusUnauthorized {
+		t.Fatalf("legacy username login code=%d", code)
+	}
+	if code := admin.do("POST", "/api/auth/login", map[string]string{"email": "root@example.test", "password": "ChangeMe123!"}, &login); code != http.StatusOK {
+		t.Fatalf("admin email login code=%d", code)
 	}
 	if code := admin.do("POST", "/api/admin/users/"+login.User.ID, map[string]any{
-		"loginName":   "rootadmin",
+		"email":       "root@example.test",
 		"displayName": "Administrator",
 		"role":        "admin",
 		"disabled":    false,
 	}, nil); code != http.StatusOK {
-		t.Fatalf("rename administrator code=%d", code)
+		t.Fatalf("admin display update code=%d", code)
 	}
 	if code := admin.do("POST", "/api/admin/users/"+login.User.ID, map[string]any{
-		"loginName":   "root@example.test",
+		"email":       "not-an-email",
 		"displayName": "Administrator",
 		"role":        "admin",
 		"disabled":    false,
 	}, nil); code != http.StatusBadRequest {
-		t.Fatalf("email-shaped login name code=%d", code)
+		t.Fatalf("invalid primary email update code=%d", code)
+	}
+}
+
+func TestAdministratorPrimaryEmailPersistsAcrossRestart(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Config{
+		Addr:              ":0",
+		DBPath:            filepath.Join(dir, "lanqin.db"),
+		DataDir:           filepath.Join(dir, "data"),
+		CookieName:        "lanqin_test",
+		SessionTTLHours:   24,
+		AdminEmail:        "root@example.test",
+		AdminPassword:     "ChangeMe123!",
+		PublicHostname:    "mail.example.test",
+		PublicBaseURL:     "http://localhost:5173",
+		AllowInsecureHTTP: true,
+	}
+	a, err := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(a.Router())
+	admin := &testClient{t: t, server: ts}
+	var login struct {
+		User User `json:"user"`
+	}
+	if code := admin.do("POST", "/api/auth/login", map[string]string{"email": "root@example.test", "password": "ChangeMe123!"}, &login); code != http.StatusOK {
+		t.Fatalf("admin login code=%d", code)
+	}
+	if code := admin.do("POST", "/api/admin/users/"+login.User.ID, map[string]any{
+		"email":       "owner@example.test",
+		"displayName": "Administrator",
+		"role":        "admin",
+		"disabled":    false,
+	}, nil); code != http.StatusOK {
+		t.Fatalf("admin email update code=%d", code)
+	}
+	if a.config().AdminEmail != "owner@example.test" {
+		t.Fatalf("runtime admin email=%q", a.config().AdminEmail)
+	}
+	ts.Close()
+	if err := a.Close(); err != nil {
+		t.Fatal(err)
 	}
 
-	oldLogin := &testClient{t: t, server: ts}
-	if code := oldLogin.do("POST", "/api/auth/login", map[string]string{"loginName": "admin", "password": "ChangeMe123!"}, nil); code != http.StatusUnauthorized {
-		t.Fatalf("old username login code=%d", code)
+	restarted, err := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
 	}
-	newLogin := &testClient{t: t, server: ts}
-	if code := newLogin.do("POST", "/api/auth/login", map[string]string{"loginName": "rootadmin", "password": "ChangeMe123!"}, nil); code != http.StatusOK {
-		t.Fatalf("renamed username login code=%d", code)
+	t.Cleanup(func() { _ = restarted.Close() })
+	var email, loginName string
+	if err := restarted.db.QueryRow(`SELECT email,login_name FROM users WHERE role='admin'`).Scan(&email, &loginName); err != nil {
+		t.Fatal(err)
+	}
+	if email != "owner@example.test" || loginName != "owner@example.test" || restarted.config().AdminEmail != "owner@example.test" {
+		t.Fatalf("administrator identity reverted after restart: email=%q login=%q config=%q", email, loginName, restarted.config().AdminEmail)
+	}
+}
+
+func TestLegacyAdminIdentityMigrationKeepsEarliestAdminAndRecordsResult(t *testing.T) {
+	a := newTestApp(t)
+	ctx := context.Background()
+	a.updateConfig(func(cfg *Config) {
+		cfg.AdminUsername = "admin"
+		cfg.AdminEmail = "admin@example.test"
+	})
+	keeperHash, err := bcrypt.GenerateFromPassword([]byte("OriginalPass123!"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	demotedHash, err := bcrypt.GenerateFromPassword([]byte("OtherPass123!"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.db.ExecContext(ctx, `DROP INDEX IF EXISTS idx_users_single_admin`); err != nil {
+		t.Fatal(err)
+	}
+	now := a.now().UTC()
+	if _, err := a.db.ExecContext(ctx, `UPDATE users SET login_name='admin', email='admin', password_hash=?, two_factor_secret='legacy-secret', two_factor_enabled=1, created_at=?, updated_at=? WHERE role='admin'`,
+		string(keeperHash), now.Add(-2*time.Hour).Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.db.ExecContext(ctx, `INSERT INTO users(id,login_name,email,display_name,role,password_hash,disabled,created_at,updated_at)
+		VALUES('usr_second_admin','second','second@example.test','Second Admin','admin',?,0,?,?)`, string(demotedHash), now.Add(-time.Hour).Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := a.migrateConfiguredAdministratorIdentity(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.enforceSingleAdministratorIndex(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	var adminCount int
+	if err := a.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE role='admin'`).Scan(&adminCount); err != nil || adminCount != 1 {
+		t.Fatalf("admin count=%d err=%v", adminCount, err)
+	}
+	var email, loginName, passwordHash, twoFactorSecret string
+	var enabled int
+	if err := a.db.QueryRowContext(ctx, `SELECT email,login_name,password_hash,two_factor_secret,two_factor_enabled FROM users WHERE role='admin'`).Scan(&email, &loginName, &passwordHash, &twoFactorSecret, &enabled); err != nil {
+		t.Fatal(err)
+	}
+	if email != "admin@example.test" || loginName != "admin@example.test" || twoFactorSecret != "legacy-secret" || enabled != 1 {
+		t.Fatalf("admin identity not migrated safely email=%q login=%q secret=%q enabled=%d", email, loginName, twoFactorSecret, enabled)
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte("OriginalPass123!")); err != nil {
+		t.Fatalf("admin password hash was not preserved: %v", err)
+	}
+	var secondRole string
+	if err := a.db.QueryRowContext(ctx, `SELECT role FROM users WHERE id='usr_second_admin'`).Scan(&secondRole); err != nil || secondRole != "user" {
+		t.Fatalf("second admin role=%q err=%v", secondRole, err)
+	}
+	var mailboxCount int
+	if err := a.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mailboxes WHERE address='admin@example.test'`).Scan(&mailboxCount); err != nil || mailboxCount != 1 {
+		t.Fatalf("admin mailbox count=%d err=%v", mailboxCount, err)
+	}
+	var rawResult string
+	if err := a.db.QueryRowContext(ctx, `SELECT value FROM system_settings WHERE key='adminIdentityMigrationResult'`).Scan(&rawResult); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rawResult, `"adminEmail":"admin@example.test"`) || !strings.Contains(rawResult, `"id":"usr_second_admin"`) {
+		t.Fatalf("migration result not recorded: %s", rawResult)
+	}
+}
+
+func TestLegacyWebUpdateResolvesAdminEmailFromExistingMailbox(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Config{
+		Addr:              ":0",
+		DBPath:            filepath.Join(dir, "lanqin.db"),
+		DataDir:           filepath.Join(dir, "data"),
+		CookieName:        "lanqin_test",
+		SessionTTLHours:   24,
+		AdminEmail:        "bootstrap@lanqin.local",
+		AdminPassword:     "ChangeMe123!",
+		PublicHostname:    "mail.example.test",
+		PublicBaseURL:     "http://localhost:5173",
+		AllowInsecureHTTP: true,
+	}
+	a, err := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stopTestWorkers(a)
+	ctx := context.Background()
+	var adminID, passwordHash string
+	if err := a.db.QueryRowContext(ctx, `SELECT id,password_hash FROM users WHERE role='admin'`).Scan(&adminID, &passwordHash); err != nil {
+		t.Fatal(err)
+	}
+	domainID, err := a.createDomainTx(ctx, nil, "example.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.createMailboxWithPasswordHash(ctx, adminID, domainID, "admin", "admin@example.test", passwordHash, 1024, "active"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.db.ExecContext(ctx, `DELETE FROM mailboxes WHERE address='bootstrap@lanqin.local'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.db.ExecContext(ctx, `UPDATE users SET login_name='admin', email='admin' WHERE id=?`, adminID); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Old installations had only LANQIN_ADMIN_USERNAME. A webpage update starts
+	// the new image directly, without running the interactive installer first.
+	cfg.AdminUsername = "admin"
+	cfg.AdminEmail = ""
+	cfg.MailDomain = ""
+	updated, err := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = updated.Close() })
+	var email, loginName string
+	if err := updated.db.QueryRowContext(ctx, `SELECT email,login_name FROM users WHERE role='admin'`).Scan(&email, &loginName); err != nil {
+		t.Fatal(err)
+	}
+	if email != "admin@example.test" || loginName != "admin@example.test" {
+		t.Fatalf("legacy administrator resolved incorrectly: email=%q login=%q", email, loginName)
+	}
+	if updated.config().AdminEmail != "admin@example.test" {
+		t.Fatalf("runtime administrator email was not synchronized: %q", updated.config().AdminEmail)
+	}
+	var wrongDomainCount int
+	if err := updated.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE email LIKE '%@lanqin.local'`).Scan(&wrongDomainCount); err != nil {
+		t.Fatal(err)
+	}
+	if wrongDomainCount != 0 {
+		t.Fatalf("web update created a lanqin.local administrator: %d", wrongDomainCount)
+	}
+	var migrationResult string
+	if err := updated.db.QueryRowContext(ctx, `SELECT value FROM system_settings WHERE key='adminIdentityMigrationResult'`).Scan(&migrationResult); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(migrationResult, `"emailSource":"existing_admin_mailbox"`) {
+		t.Fatalf("unexpected administrator email source: %s", migrationResult)
+	}
+}
+
+func TestOnlyPrimaryEmailCanLoginSecondaryMailboxCannot(t *testing.T) {
+	a := newTestApp(t)
+	ts := httptest.NewServer(a.Router())
+	defer ts.Close()
+	admin := &testClient{t: t, server: ts}
+
+	var login map[string]any
+	if code := admin.do("POST", "/api/auth/login", map[string]string{"email": "admin@lanqin.local", "password": "ChangeMe123!"}, &login); code != http.StatusOK {
+		t.Fatalf("admin login code=%d body=%v", code, login)
+	}
+	domainID := mustDefaultDomainID(t, a)
+	primary := createTestMailbox(t, admin, domainID, "primary-login", "Primary Login", "Password123!", nil)
+	secondary := createTestMailbox(t, admin, domainID, "secondary-login", "Secondary Login", "MailboxOnly123!", map[string]any{"ownerEmail": primary.Address})
+
+	user := &testClient{t: t, server: ts}
+	if code := user.do("POST", "/api/auth/login", map[string]string{"email": primary.Address, "password": "Password123!"}, &login); code != http.StatusOK {
+		t.Fatalf("primary email login code=%d", code)
+	}
+	secondaryLogin := &testClient{t: t, server: ts}
+	if code := secondaryLogin.do("POST", "/api/auth/login", map[string]string{"email": secondary.Address, "password": "MailboxOnly123!"}, nil); code != http.StatusUnauthorized {
+		t.Fatalf("secondary mailbox should not login code=%d", code)
+	}
+}
+
+func TestAdminUserAPICannotCreateOrPromoteAdministrator(t *testing.T) {
+	a := newTestApp(t)
+	ts := httptest.NewServer(a.Router())
+	defer ts.Close()
+	admin := &testClient{t: t, server: ts}
+
+	var login map[string]any
+	if code := admin.do("POST", "/api/auth/login", map[string]string{"email": "admin@lanqin.local", "password": "ChangeMe123!"}, &login); code != http.StatusOK {
+		t.Fatalf("admin login code=%d body=%v", code, login)
+	}
+	var errBody map[string]any
+	if code := admin.do("POST", "/api/admin/users", map[string]any{
+		"email":       "new-admin@lanqin.local",
+		"displayName": "New Admin",
+		"role":        "admin",
+		"password":    "Password123!",
+		"disabled":    false,
+	}, &errBody); code != http.StatusForbidden {
+		t.Fatalf("create admin code=%d body=%v", code, errBody)
+	}
+	var user AdminUser
+	if code := admin.do("POST", "/api/admin/users", map[string]any{
+		"email":       "regular@lanqin.local",
+		"displayName": "Regular",
+		"role":        "user",
+		"password":    "Password123!",
+		"disabled":    false,
+	}, &user); code != http.StatusCreated {
+		t.Fatalf("create user code=%d user=%+v", code, user)
+	}
+	if code := admin.do("POST", "/api/admin/users/"+user.ID, map[string]any{
+		"email":       user.Email,
+		"displayName": user.DisplayName,
+		"role":        "admin",
+		"disabled":    false,
+	}, &errBody); code != http.StatusForbidden {
+		t.Fatalf("promote admin code=%d body=%v", code, errBody)
+	}
+}
+
+func TestAdminUsersListOrdersAdministratorThenAZPrimaryEmail(t *testing.T) {
+	a := newTestApp(t)
+	ts := httptest.NewServer(a.Router())
+	defer ts.Close()
+	admin := &testClient{t: t, server: ts}
+
+	var login map[string]any
+	if code := admin.do("POST", "/api/auth/login", map[string]string{"email": "admin@lanqin.local", "password": "ChangeMe123!"}, &login); code != http.StatusOK {
+		t.Fatalf("admin login code=%d body=%v", code, login)
+	}
+	for _, user := range []struct {
+		email       string
+		displayName string
+	}{
+		{"zeta@lanqin.local", "Zeta"},
+		{"Alpha@lanqin.local", "Alpha"},
+		{"bravo@lanqin.local", "Bravo"},
+	} {
+		var created AdminUser
+		if code := admin.do("POST", "/api/admin/users", map[string]any{
+			"email":       user.email,
+			"displayName": user.displayName,
+			"role":        "user",
+			"password":    "Password123!",
+			"disabled":    false,
+		}, &created); code != http.StatusCreated {
+			t.Fatalf("create user %s code=%d user=%+v", user.email, code, created)
+		}
+	}
+
+	var users struct {
+		Items []AdminUser `json:"items"`
+	}
+	if code := admin.do("GET", "/api/admin/users", nil, &users); code != http.StatusOK {
+		t.Fatalf("list users code=%d users=%+v", code, users.Items)
+	}
+	if len(users.Items) < 4 {
+		t.Fatalf("expected at least 4 users, got %+v", users.Items)
+	}
+	got := []string{users.Items[0].Email, users.Items[1].Email, users.Items[2].Email, users.Items[3].Email}
+	want := []string{"admin@lanqin.local", "alpha@lanqin.local", "bravo@lanqin.local", "zeta@lanqin.local"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("users order=%v want prefix=%v", got, want)
+		}
 	}
 }
 
@@ -1548,7 +1936,7 @@ func TestUserMailboxApplicationUsesAllowedDomainsAndReservedPrefixes(t *testing.
 	}
 	limits := defaultPermissionLimits()
 	limits.MaxMailboxCount = 1
-	updateRegularPermissionGroupWithLimits(t, admin, regularUserDefaultPermissions(), limits)
+	setRegularPermissionGroupForTest(t, a, regularUserDefaultPermissions(), limits)
 	if code := userClient.do("POST", "/api/me/mailboxes/apply", map[string]string{"domainId": allowedDomain.ID, "localPart": "bob", "displayName": "Bob"}, &errBody); code != http.StatusForbidden {
 		t.Fatalf("mailbox count limit code=%d body=%v", code, errBody)
 	}
@@ -1702,6 +2090,138 @@ func TestUserCanSelectMultipleMailboxes(t *testing.T) {
 	}
 	if code := admin.do("GET", "/api/mail/messages?folder=Inbox&q=selected%20mailbox%20sender", nil, &adminInbox); code != http.StatusOK || len(adminInbox.Items) != 1 || adminInbox.Items[0].From != secondary.Address {
 		t.Fatalf("admin inbox code=%d items=%d first=%+v", code, len(adminInbox.Items), adminInbox.Items)
+	}
+}
+
+func TestAllMailboxBulkMoveToCustomFolderKeepsMailboxIsolation(t *testing.T) {
+	a := newTestApp(t)
+	ts := httptest.NewServer(a.Router())
+	defer ts.Close()
+	admin := &testClient{t: t, server: ts}
+
+	var login map[string]any
+	if code := admin.do("POST", "/api/auth/login", map[string]string{"email": "admin@lanqin.local", "password": "ChangeMe123!"}, &login); code != http.StatusOK {
+		t.Fatalf("admin login code=%d body=%v", code, login)
+	}
+
+	var domainList struct {
+		Items []Domain `json:"items"`
+	}
+	if code := admin.do("GET", "/api/admin/domains", nil, &domainList); code != http.StatusOK || len(domainList.Items) == 0 {
+		t.Fatalf("list domains code=%d items=%+v", code, domainList.Items)
+	}
+	domainID := domainList.Items[0].ID
+	primary := createTestMailbox(t, admin, domainID, "bulk-primary", "Bulk Primary", "Password123!", nil)
+	secondary := createTestMailbox(t, admin, domainID, "bulk-secondary", "Bulk Secondary", "Password456!", map[string]any{"ownerEmail": primary.Address})
+	otherUserMailbox := createTestMailbox(t, admin, domainID, "bulk-other", "Bulk Other", "Password789!", nil)
+	if primary.UserID != secondary.UserID {
+		t.Fatalf("primary and secondary should share owner: primary=%s secondary=%s", primary.UserID, secondary.UserID)
+	}
+	if primary.UserID == otherUserMailbox.UserID {
+		t.Fatalf("other mailbox should belong to a different user")
+	}
+
+	ctx := context.Background()
+	primaryInboxID, err := a.ensureFolder(ctx, primary.ID, "Inbox")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondaryInboxID, err := a.ensureFolder(ctx, secondary.ID, "Inbox")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherInboxID, err := a.ensureFolder(ctx, otherUserMailbox.ID, "Inbox")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := a.now().UTC().Format(time.RFC3339Nano)
+	insertMessage := func(id, mailboxID, folderID, subject string) {
+		t.Helper()
+		if _, err := a.db.ExecContext(ctx, `INSERT INTO messages(id,mailbox_id,folder_id,recipient_addr,message_uid,message_id,subject,from_addr,from_name,to_addrs,cc_addrs,bcc_addrs,sent_at,received_at,snippet,body_text,body_html,is_read,is_starred,has_attachments,size_bytes,created_at,updated_at)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			id, mailboxID, folderID, "", id+"-uid", "<"+id+"@example.test>", subject, "sender@example.test", "", jsonEncode([]string{"recipient@example.test"}), "[]", "[]", now, now, subject, "", "", 0, 0, 0, 0, now, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insertMessage("msg_bulk_primary_move", primary.ID, primaryInboxID, "bulk move primary")
+	insertMessage("msg_bulk_secondary_move", secondary.ID, secondaryInboxID, "bulk move secondary")
+	insertMessage("msg_bulk_other_stays", otherUserMailbox.ID, otherInboxID, "bulk move other")
+
+	userClient := &testClient{t: t, server: ts}
+	if code := userClient.do("POST", "/api/auth/login", map[string]string{"email": primary.Address, "password": "Password123!"}, &login); code != http.StatusOK {
+		t.Fatalf("user login code=%d", code)
+	}
+
+	var allInbox struct {
+		Items []MailMessage `json:"items"`
+	}
+	if code := userClient.do("GET", "/api/mail/messages?mailboxId=all&folder=Inbox&q=bulk%20move", nil, &allInbox); code != http.StatusOK || len(allInbox.Items) != 2 {
+		t.Fatalf("all inbox code=%d items=%+v", code, allInbox.Items)
+	}
+	messageIDs := make([]string, 0, len(allInbox.Items)+1)
+	for _, item := range allInbox.Items {
+		messageIDs = append(messageIDs, item.ID)
+	}
+	messageIDs = append(messageIDs, "msg_bulk_other_stays")
+	var moved struct {
+		OK      bool `json:"ok"`
+		Moved   int  `json:"moved"`
+		Failed  int  `json:"failed"`
+		Message string
+		Items   []struct {
+			ID        string `json:"id"`
+			MailboxID string `json:"mailboxId"`
+			OK        bool   `json:"ok"`
+			Message   string `json:"message"`
+		} `json:"items"`
+	}
+	if code := userClient.do("POST", "/api/mail/messages/bulk-move", map[string]any{"ids": messageIDs, "folder": "跨邮箱项目"}, &moved); code != http.StatusOK {
+		t.Fatalf("bulk move code=%d body=%+v", code, moved)
+	}
+	if moved.OK || moved.Moved != 2 || moved.Failed != 1 || !strings.Contains(moved.Message, "已移动 2 封邮件，1 封失败") || len(moved.Items) != 3 {
+		t.Fatalf("bulk move summary=%+v", moved)
+	}
+
+	var primaryTargetID, secondaryTargetID string
+	if err := a.db.QueryRowContext(ctx, `SELECT id FROM folders WHERE mailbox_id=? AND name=?`, primary.ID, "跨邮箱项目").Scan(&primaryTargetID); err != nil {
+		t.Fatalf("primary target folder: %v", err)
+	}
+	if err := a.db.QueryRowContext(ctx, `SELECT id FROM folders WHERE mailbox_id=? AND name=?`, secondary.ID, "跨邮箱项目").Scan(&secondaryTargetID); err != nil {
+		t.Fatalf("secondary target folder: %v", err)
+	}
+	var primaryFolderID, secondaryFolderID, otherFolderID string
+	if err := a.db.QueryRowContext(ctx, `SELECT folder_id FROM messages WHERE id=?`, "msg_bulk_primary_move").Scan(&primaryFolderID); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.db.QueryRowContext(ctx, `SELECT folder_id FROM messages WHERE id=?`, "msg_bulk_secondary_move").Scan(&secondaryFolderID); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.db.QueryRowContext(ctx, `SELECT folder_id FROM messages WHERE id=?`, "msg_bulk_other_stays").Scan(&otherFolderID); err != nil {
+		t.Fatal(err)
+	}
+	if primaryFolderID != primaryTargetID || secondaryFolderID != secondaryTargetID {
+		t.Fatalf("messages moved to wrong folders primary=%s want=%s secondary=%s want=%s", primaryFolderID, primaryTargetID, secondaryFolderID, secondaryTargetID)
+	}
+	if otherFolderID != otherInboxID {
+		t.Fatalf("other user's message moved: folder=%s want=%s", otherFolderID, otherInboxID)
+	}
+
+	otherClient := &testClient{t: t, server: ts}
+	if code := otherClient.do("POST", "/api/auth/login", map[string]string{"email": otherUserMailbox.Address, "password": "Password789!"}, &login); code != http.StatusOK {
+		t.Fatalf("other login code=%d", code)
+	}
+	var forbidden struct {
+		OK     bool `json:"ok"`
+		Moved  int  `json:"moved"`
+		Failed int  `json:"failed"`
+		Items  []struct {
+			ID      string `json:"id"`
+			OK      bool   `json:"ok"`
+			Message string `json:"message"`
+		} `json:"items"`
+	}
+	if code := otherClient.do("POST", "/api/mail/messages/bulk-move", map[string]any{"ids": []string{"msg_bulk_primary_move"}, "folder": "Inbox"}, &forbidden); code != http.StatusOK || forbidden.OK || forbidden.Moved != 0 || forbidden.Failed != 1 || len(forbidden.Items) != 1 || forbidden.Items[0].Message != "邮件不存在或无权访问" {
+		t.Fatalf("other user bulk move primary message code=%d body=%+v", code, forbidden)
 	}
 }
 
@@ -3338,7 +3858,7 @@ func TestAdminSendAuditAccessAndFilters(t *testing.T) {
 	if code := regular.do("GET", "/api/admin/send-audit", nil, nil); code != http.StatusForbidden {
 		t.Fatalf("regular send audit code=%d", code)
 	}
-	updateRegularPermissionGroup(t, admin, []string{PermissionAdminOverview})
+	setRegularPermissionGroupForTest(t, a, []string{PermissionAdminOverview}, defaultPermissionLimits())
 	if code := regular.do("GET", "/api/admin/send-audit", nil, nil); code != http.StatusForbidden {
 		t.Fatalf("admin access without messages permission code=%d", code)
 	}
@@ -4168,10 +4688,14 @@ func TestUserTwoFactorSetupAndLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 	var enabled struct {
-		User User `json:"user"`
+		User          User     `json:"user"`
+		RecoveryCodes []string `json:"recoveryCodes"`
 	}
 	if status := client.do("POST", "/api/me/2fa/enable", map[string]string{"code": code}, &enabled); status != http.StatusOK || !enabled.User.TwoFactorEnabled {
 		t.Fatalf("enable status=%d user=%+v", status, enabled.User)
+	}
+	if len(enabled.RecoveryCodes) != 8 {
+		t.Fatalf("recovery codes=%+v", enabled.RecoveryCodes)
 	}
 
 	fresh := &testClient{t: t, server: ts}
@@ -4185,14 +4709,28 @@ func TestUserTwoFactorSetupAndLogin(t *testing.T) {
 	if status := fresh.do("POST", "/api/auth/login", map[string]string{"challengeToken": challenge.ChallengeToken, "twoFactorCode": "000000"}, &out); status != http.StatusUnauthorized {
 		t.Fatalf("wrong challenge status=%d body=%v", status, out)
 	}
+	if status := fresh.do("POST", "/api/auth/login", map[string]string{"challengeToken": challenge.ChallengeToken, "twoFactorCode": enabled.RecoveryCodes[0]}, &login); status != http.StatusOK || fresh.cookie == nil {
+		t.Fatalf("recovery login status=%d body=%v cookie=%v", status, login, fresh.cookie)
+	}
+	reused := &testClient{t: t, server: ts}
+	if status := reused.do("POST", "/api/auth/login", map[string]string{"email": "admin@lanqin.local", "password": "ChangeMe123!"}, &challenge); status != http.StatusOK || !challenge.TwoFactorRequired || challenge.ChallengeToken == "" {
+		t.Fatalf("reused challenge status=%d challenge=%+v", status, challenge)
+	}
+	if status := reused.do("POST", "/api/auth/login", map[string]string{"challengeToken": challenge.ChallengeToken, "twoFactorCode": enabled.RecoveryCodes[0]}, &out); status != http.StatusUnauthorized {
+		t.Fatalf("reused recovery status=%d body=%v", status, out)
+	}
+	totpClient := &testClient{t: t, server: ts}
+	if status := totpClient.do("POST", "/api/auth/login", map[string]string{"email": "admin@lanqin.local", "password": "ChangeMe123!"}, &challenge); status != http.StatusOK || !challenge.TwoFactorRequired || challenge.ChallengeToken == "" {
+		t.Fatalf("totp challenge status=%d challenge=%+v", status, challenge)
+	}
 	code, err = generateTOTP(setup.Secret, a.now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status := fresh.do("POST", "/api/auth/login", map[string]string{"challengeToken": challenge.ChallengeToken, "twoFactorCode": code}, &login); status != http.StatusOK || fresh.cookie == nil {
-		t.Fatalf("2fa login status=%d body=%v cookie=%v", status, login, fresh.cookie)
+	if status := totpClient.do("POST", "/api/auth/login", map[string]string{"challengeToken": challenge.ChallengeToken, "twoFactorCode": code}, &login); status != http.StatusOK || totpClient.cookie == nil {
+		t.Fatalf("2fa login status=%d body=%v cookie=%v", status, login, totpClient.cookie)
 	}
-	if status := fresh.do("POST", "/api/me/2fa/disable", map[string]string{"code": code}, &enabled); status != http.StatusOK || enabled.User.TwoFactorEnabled {
+	if status := totpClient.do("POST", "/api/me/2fa/disable", map[string]string{"code": code}, &enabled); status != http.StatusOK || enabled.User.TwoFactorEnabled {
 		t.Fatalf("disable status=%d user=%+v", status, enabled.User)
 	}
 }
@@ -4275,9 +4813,20 @@ func TestFixedRolesProtectAdminRoutesAndDefaultAdmin(t *testing.T) {
 	}, &errBody); code != http.StatusForbidden {
 		t.Fatalf("system permission group update should be forbidden code=%d body=%v", code, errBody)
 	}
-	regularGroup := updateRegularPermissionGroup(t, admin, []string{PermissionAdminOverview})
-	if !regularGroup.System || !userHasPermission(&User{Role: "user", Permissions: regularGroup.Permissions}, PermissionAdminOverview) {
-		t.Fatalf("regular group update did not persist permissions=%+v", regularGroup)
+	var regularUpdateErr map[string]any
+	if code := admin.do("POST", "/api/admin/permission-groups/"+PermissionGroupRegular, map[string]any{
+		"name":        "Changed Regular",
+		"description": "Should not change",
+		"permissions": []string{PermissionAdminOverview},
+	}, &regularUpdateErr); code != http.StatusForbidden {
+		t.Fatalf("regular system permission group update should be forbidden code=%d body=%v", code, regularUpdateErr)
+	}
+	regularGroup, err := a.permissionGroupByID(context.Background(), PermissionGroupRegular)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !regularGroup.System || !userHasPermission(&User{Role: "user", Permissions: regularGroup.Permissions}, PermissionMailAccess) || userHasPermission(&User{Role: "user", Permissions: regularGroup.Permissions}, PermissionAdminOverview) {
+		t.Fatalf("regular group should stay locked with default permissions=%+v", regularGroup)
 	}
 	if code := admin.do("DELETE", "/api/admin/permission-groups/"+PermissionGroupSuperAdmin, nil, &errBody); code != http.StatusForbidden {
 		t.Fatalf("system permission group delete should be forbidden code=%d body=%v", code, errBody)
@@ -4356,7 +4905,7 @@ func TestFixedRolesProtectAdminRoutesAndDefaultAdmin(t *testing.T) {
 	}, &plainUser); code != http.StatusCreated {
 		t.Fatalf("create plain user code=%d user=%+v", code, plainUser)
 	}
-	if len(plainUser.PermissionGroupIDs) != 1 || plainUser.PermissionGroupIDs[0] != PermissionGroupRegular || !userHasPermission(&plainUser.User, PermissionAdminOverview) {
+	if len(plainUser.PermissionGroupIDs) != 1 || plainUser.PermissionGroupIDs[0] != PermissionGroupRegular || !userHasPermission(&plainUser.User, PermissionMailAccess) || userHasPermission(&plainUser.User, PermissionAdminOverview) {
 		t.Fatalf("plain user should inherit regular permissions: %+v", plainUser.User)
 	}
 
@@ -4562,7 +5111,7 @@ func TestRegularUserMailPermissionsAreEnforced(t *testing.T) {
 		t.Fatalf("regular mail permissions should not grant admin access code=%d body=%v", code, errBody)
 	}
 
-	updateRegularPermissionGroup(t, admin, withoutPermissions(regularUserDefaultPermissions(), PermissionMailAccess))
+	setRegularPermissionGroupForTest(t, a, withoutPermissions(regularUserDefaultPermissions(), PermissionMailAccess), defaultPermissionLimits())
 	noAccess := &testClient{t: t, server: ts}
 	if code := noAccess.do("POST", "/api/auth/login", map[string]string{"email": mb.Address, "password": "Password123!"}, &login); code != http.StatusOK {
 		t.Fatalf("no access login code=%d", code)
@@ -4571,7 +5120,7 @@ func TestRegularUserMailPermissionsAreEnforced(t *testing.T) {
 		t.Fatalf("missing mail access should block mailbox list code=%d body=%v", code, errBody)
 	}
 
-	updateRegularPermissionGroup(t, admin, withoutPermissions(regularUserDefaultPermissions(), PermissionMailSend))
+	setRegularPermissionGroupForTest(t, a, withoutPermissions(regularUserDefaultPermissions(), PermissionMailSend), defaultPermissionLimits())
 	noSend := &testClient{t: t, server: ts}
 	if code := noSend.do("POST", "/api/auth/login", map[string]string{"email": mb.Address, "password": "Password123!"}, &login); code != http.StatusOK {
 		t.Fatalf("no send login code=%d", code)

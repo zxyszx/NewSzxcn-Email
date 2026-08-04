@@ -33,6 +33,7 @@ type App struct {
 	workerWG      sync.WaitGroup
 	maildirHealth *maildirSyncHealthTracker
 	externalIMAP  externalIMAPClientFactory
+	turnstileURL  string
 }
 
 func (a *App) config() Config {
@@ -89,6 +90,10 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		return nil, err
 	}
 	if err := a.seed(context.Background()); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := a.enforceSingleAdministratorIndex(context.Background()); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -184,6 +189,14 @@ func (a *App) migrate(ctx context.Context) error {
 			token_hash TEXT NOT NULL UNIQUE,
 			expires_at TEXT NOT NULL,
 			created_at TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS two_factor_recovery_codes (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			code_hash TEXT NOT NULL,
+			used_at TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL,
+			UNIQUE(user_id, code_hash)
 		)`,
 		`CREATE TABLE IF NOT EXISTS api_tokens (
 			id TEXT PRIMARY KEY,
@@ -939,81 +952,11 @@ func (a *App) migratePermissionGroupLimits(ctx context.Context) error {
 	return err
 }
 
-// migrateLegacyBootstrapMailbox removes mailboxes created by an older version of seed()
-// that implicitly created an admin mailbox with display_name "LanQin Admin".
-// Current seed() creates mailboxes with display_name = admin email, so this migration
-// has no effect on fresh installs. It only cleans up after upgrades from pre-v1.0 schema.
+// migrateLegacyBootstrapMailbox used to remove implicit bootstrap mailboxes.
+// Administrators now use a real mailbox as their primary login address, so old
+// bootstrap mailboxes must be preserved and normalized by the admin identity
+// migration instead of deleted.
 func (a *App) migrateLegacyBootstrapMailbox(ctx context.Context) error {
-	adminEmail := normalizeEmail(a.config().AdminEmail)
-	if adminEmail == "" || !strings.Contains(adminEmail, "@") {
-		return nil
-	}
-	rows, err := a.db.QueryContext(ctx, `
-		SELECT mb.id, mb.domain_id
-		FROM mailboxes mb
-		JOIN users u ON u.id=mb.user_id
-		WHERE mb.address=?
-		  AND mb.display_name='LanQin Admin'
-		  AND u.email=?
-		  AND u.role='admin'`, adminEmail, adminEmail)
-	if err != nil {
-		return err
-	}
-	type legacyMailbox struct {
-		id       string
-		domainID string
-	}
-	items := []legacyMailbox{}
-	for rows.Next() {
-		var item legacyMailbox
-		if err := rows.Scan(&item.id, &item.domainID); err != nil {
-			rows.Close()
-			return err
-		}
-		items = append(items, item)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return err
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	for _, item := range items {
-		messageRows, err := a.db.QueryContext(ctx, `SELECT id FROM messages WHERE mailbox_id=?`, item.id)
-		if err != nil {
-			return err
-		}
-		messageIDs := []string{}
-		for messageRows.Next() {
-			var messageID string
-			if err := messageRows.Scan(&messageID); err != nil {
-				messageRows.Close()
-				return err
-			}
-			messageIDs = append(messageIDs, messageID)
-		}
-		if err := messageRows.Err(); err != nil {
-			messageRows.Close()
-			return err
-		}
-		if err := messageRows.Close(); err != nil {
-			return err
-		}
-		for _, messageID := range messageIDs {
-			a.deleteMessage(ctx, messageID)
-		}
-		if _, err := a.db.ExecContext(ctx, `DELETE FROM mailboxes WHERE id=?`, item.id); err != nil {
-			return err
-		}
-		if _, err := a.db.ExecContext(ctx, `
-			DELETE FROM domains
-			WHERE id=?
-			  AND NOT EXISTS (SELECT 1 FROM mailboxes WHERE domain_id=domains.id)
-			  AND NOT EXISTS (SELECT 1 FROM aliases WHERE domain_id=domains.id)`, item.domainID); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -1412,7 +1355,11 @@ func (a *App) seed(ctx context.Context) error {
 		return err
 	}
 	if count > 0 {
-		return a.ensureConfiguredAdminSuperAdmin(ctx)
+		return a.migrateConfiguredAdministratorIdentity(ctx)
+	}
+	adminEmail, err := cleanPrimaryEmail(cfg.AdminEmail)
+	if err != nil {
+		return errors.New("LANQIN_ADMIN_EMAIL must be set to a valid email for a new installation")
 	}
 
 	adminPassword := cfg.AdminPassword
@@ -1430,25 +1377,8 @@ func (a *App) seed(ctx context.Context) error {
 	}
 	now := a.now().UTC().Format(time.RFC3339Nano)
 	userID := newID("usr")
-	if strings.TrimSpace(cfg.AdminUsername) != "" {
-		adminUsername, err := cleanUsername(cfg.AdminUsername)
-		if err != nil {
-			return fmt.Errorf("invalid admin username: %w", err)
-		}
-		if _, err := a.db.ExecContext(ctx, `INSERT INTO users(id,login_name,email,display_name,role,password_hash,disabled,created_at,updated_at)
-			VALUES(?,?,?,?,?,?,?,?,?)`, userID, adminUsername, adminUsername, "NewSzxcn Admin", "admin", string(passwordHash), 0, now, now); err != nil {
-			return err
-		}
-		a.log.Warn("created default administrator; change LANQIN_ADMIN_PASSWORD in production", "username", adminUsername)
-		return nil
-	}
-	adminEmail := normalizeEmail(cfg.AdminEmail)
-	if adminEmail == "" || !strings.Contains(adminEmail, "@") {
-		return errors.New("invalid admin email")
-	}
-	adminLoginName := normalizeLoginName(strings.SplitN(adminEmail, "@", 2)[0])
 	if _, err := a.db.ExecContext(ctx, `INSERT INTO users(id,login_name,email,display_name,role,password_hash,disabled,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?)`, userID, adminLoginName, adminEmail, "NewSzxcn Admin", "admin", string(passwordHash), 0, now, now); err != nil {
+		VALUES(?,?,?,?,?,?,?,?,?)`, userID, adminEmail, adminEmail, "NewSzxcn Admin", "admin", string(passwordHash), 0, now, now); err != nil {
 		return err
 	}
 	a.log.Warn("created default administrator; change LANQIN_ADMIN_PASSWORD in production", "email", adminEmail)
@@ -1483,18 +1413,221 @@ func (a *App) seed(ctx context.Context) error {
 }
 
 func (a *App) ensureConfiguredAdminSuperAdmin(ctx context.Context) error {
+	return a.migrateConfiguredAdministratorIdentity(ctx)
+}
+
+func (a *App) migrateConfiguredAdministratorIdentity(ctx context.Context) error {
 	cfg := a.config()
-	if adminUsername := normalizeLoginName(cfg.AdminUsername); adminUsername != "" && !strings.Contains(adminUsername, "@") {
-		_, err := a.db.ExecContext(ctx, `UPDATE users SET role='admin', disabled=0, updated_at=? WHERE login_name=?`,
-			a.now().UTC().Format(time.RFC3339Nano), adminUsername)
+	type adminUser struct {
+		ID           string `json:"id"`
+		LoginName    string `json:"loginName,omitempty"`
+		Email        string `json:"email"`
+		PasswordHash string `json:"-"`
+		CreatedAt    string `json:"createdAt"`
+	}
+	rows, err := a.db.QueryContext(ctx, `SELECT id,login_name,email,password_hash,created_at FROM users WHERE role='admin' ORDER BY created_at,id`)
+	if err != nil {
 		return err
 	}
-	adminEmail := normalizeEmail(cfg.AdminEmail)
-	if adminEmail == "" || !strings.Contains(adminEmail, "@") {
-		return nil
+	admins := []adminUser{}
+	for rows.Next() {
+		var item adminUser
+		if err := rows.Scan(&item.ID, &item.LoginName, &item.Email, &item.PasswordHash, &item.CreatedAt); err != nil {
+			rows.Close()
+			return err
+		}
+		admins = append(admins, item)
 	}
-	_, err := a.db.ExecContext(ctx, `UPDATE users SET role='admin', disabled=0, updated_at=? WHERE email=?`,
-		a.now().UTC().Format(time.RFC3339Nano), adminEmail)
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if len(admins) == 0 {
+		if configuredEmail := normalizeEmail(cfg.AdminEmail); configuredEmail != "" {
+			row := a.db.QueryRowContext(ctx, `SELECT id,login_name,email,password_hash,created_at FROM users WHERE email=? LIMIT 1`, configuredEmail)
+			var item adminUser
+			if err := row.Scan(&item.ID, &item.LoginName, &item.Email, &item.PasswordHash, &item.CreatedAt); err == nil {
+				admins = append(admins, item)
+			} else if !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+		}
+	}
+	if len(admins) == 0 && strings.TrimSpace(cfg.AdminUsername) != "" {
+		adminUsername := normalizeLoginName(cfg.AdminUsername)
+		row := a.db.QueryRowContext(ctx, `SELECT id,login_name,email,password_hash,created_at FROM users WHERE login_name=? OR email=? ORDER BY created_at,id LIMIT 1`, adminUsername, adminUsername)
+		var item adminUser
+		if err := row.Scan(&item.ID, &item.LoginName, &item.Email, &item.PasswordHash, &item.CreatedAt); err == nil {
+			admins = append(admins, item)
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+	}
+	if len(admins) == 0 {
+		return errors.New("no administrator user found for identity migration")
+	}
+	keeper := admins[0]
+	adminEmail, emailSource, err := a.resolveAdministratorEmail(ctx, cfg, keeper.ID, keeper.LoginName, keeper.Email)
+	if err != nil {
+		return err
+	}
+	tx, err := a.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var conflictID string
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM users WHERE email=? AND id<>? LIMIT 1`, adminEmail, keeper.ID).Scan(&conflictID); err == nil {
+		return fmt.Errorf("admin email %s already belongs to user %s", adminEmail, conflictID)
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	now := a.now().UTC().Format(time.RFC3339Nano)
+	demoted := []adminUser{}
+	for _, admin := range admins[1:] {
+		if _, err := tx.ExecContext(ctx, `UPDATE users SET role='user', updated_at=? WHERE id=?`, now, admin.ID); err != nil {
+			return err
+		}
+		admin.PasswordHash = ""
+		demoted = append(demoted, admin)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE users SET login_name=?, email=?, role='admin', disabled=0, updated_at=? WHERE id=?`,
+		adminEmail, adminEmail, now, keeper.ID); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "unique") {
+			return fmt.Errorf("admin identity migration conflict: %w", err)
+		}
+		return err
+	}
+	parts := strings.SplitN(adminEmail, "@", 2)
+	localPart := parts[0]
+	domainName := normalizeDomain(parts[1])
+	var domainID string
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM domains WHERE name=?`, domainName).Scan(&domainID); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		domainID, err = a.createDomainTx(ctx, tx, domainName)
+		if err != nil {
+			return err
+		}
+	}
+	mailboxCreated := false
+	var mailboxID, mailboxUserID string
+	if err := tx.QueryRowContext(ctx, `SELECT id,user_id FROM mailboxes WHERE address=?`, adminEmail).Scan(&mailboxID, &mailboxUserID); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		mailboxID, err = a.createMailboxWithPasswordHashTx(ctx, tx, keeper.ID, domainID, localPart, adminEmail, keeper.PasswordHash, 1024, "active")
+		if err != nil {
+			return err
+		}
+		mailboxCreated = true
+	} else if mailboxUserID != keeper.ID {
+		return fmt.Errorf("admin mailbox %s already belongs to user %s", adminEmail, mailboxUserID)
+	}
+	result := map[string]any{
+		"adminUserId":    keeper.ID,
+		"adminEmail":     adminEmail,
+		"emailSource":    emailSource,
+		"previousEmail":  keeper.Email,
+		"demotedAdmins":  demoted,
+		"mailboxId":      mailboxID,
+		"mailboxCreated": mailboxCreated,
+		"migratedAt":     now,
+	}
+	raw, _ := json.Marshal(result)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO system_settings(key,value,updated_at) VALUES(?,?,?)
+		ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`, "adminIdentityMigrationResult", string(raw), now); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	a.updateConfig(func(current *Config) {
+		current.AdminEmail = adminEmail
+		if current.MailDomain == "" {
+			current.MailDomain = domainName
+		}
+	})
+	a.log.Info("administrator identity migration complete", "adminEmail", adminEmail, "adminUserId", keeper.ID, "demotedAdmins", len(demoted), "mailboxCreated", mailboxCreated)
+	return nil
+}
+
+func (a *App) resolveAdministratorEmail(ctx context.Context, cfg Config, userID, loginName, existingEmail string) (string, string, error) {
+	// Once initialized, the database identity is authoritative. This keeps an
+	// administrator email changed in the UI from reverting to the installer value.
+	if email, err := cleanPrimaryEmail(existingEmail); err == nil {
+		return email, "existing_admin_email", nil
+	}
+	if strings.TrimSpace(cfg.AdminEmail) != "" {
+		email, err := cleanPrimaryEmail(cfg.AdminEmail)
+		if err != nil {
+			return "", "", fmt.Errorf("invalid LANQIN_ADMIN_EMAIL: %w", err)
+		}
+		return email, "configured_admin_email", nil
+	}
+
+	preferredLocalPart := normalizeLocalPart(cfg.AdminUsername)
+	if preferredLocalPart == "" || strings.Contains(preferredLocalPart, "@") {
+		preferredLocalPart = normalizeLocalPart(loginName)
+	}
+	if preferredLocalPart == "" || strings.Contains(preferredLocalPart, "@") {
+		preferredLocalPart = "admin"
+	}
+	rows, err := a.db.QueryContext(ctx, `SELECT address FROM mailboxes WHERE user_id=? ORDER BY CASE WHEN lower(local_part)=? THEN 0 WHEN lower(local_part)='admin' THEN 1 ELSE 2 END, created_at, id`, userID, preferredLocalPart)
+	if err != nil {
+		return "", "", err
+	}
+	for rows.Next() {
+		var address string
+		if err := rows.Scan(&address); err != nil {
+			rows.Close()
+			return "", "", err
+		}
+		if email, err := cleanPrimaryEmail(address); err == nil {
+			rows.Close()
+			return email, "existing_admin_mailbox", nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return "", "", err
+	}
+	if err := rows.Close(); err != nil {
+		return "", "", err
+	}
+
+	if domain := normalizeDomain(cfg.MailDomain); validMailDomain(domain) {
+		return preferredLocalPart + "@" + domain, "configured_mail_domain", nil
+	}
+	var onlyDomain string
+	var domainCount int
+	if err := a.db.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(MIN(name),'') FROM domains`).Scan(&domainCount, &onlyDomain); err != nil {
+		return "", "", err
+	}
+	if domainCount == 1 && validMailDomain(onlyDomain) {
+		return preferredLocalPart + "@" + normalizeDomain(onlyDomain), "single_existing_domain", nil
+	}
+	publicDomain := normalizeDomain(cfg.PublicHostname)
+	if strings.HasPrefix(publicDomain, "mail.") {
+		publicDomain = strings.TrimPrefix(publicDomain, "mail.")
+	}
+	if validMailDomain(publicDomain) && !strings.HasSuffix(publicDomain, ".local") {
+		return preferredLocalPart + "@" + publicDomain, "public_hostname", nil
+	}
+	return "", "", errors.New("cannot determine administrator email; set LANQIN_ADMIN_EMAIL or LANQIN_MAIL_DOMAIN before updating")
+}
+
+func validMailDomain(domain string) bool {
+	domain = normalizeDomain(domain)
+	return domain != "" && strings.Contains(domain, ".") && !strings.ContainsAny(domain, "@/ :")
+}
+
+func (a *App) enforceSingleAdministratorIndex(ctx context.Context) error {
+	_, err := a.db.ExecContext(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_single_admin ON users(role) WHERE role='admin'`)
 	return err
 }
 
@@ -1616,13 +1749,24 @@ func (a *App) seedWelcomeMessage(ctx context.Context, mailboxID string) error {
 		return err
 	}
 	now := a.now().UTC()
+	systemDomain := normalizeDomain(cfg.MailDomain)
+	if systemDomain == "" && strings.Contains(cfg.AdminEmail, "@") {
+		systemDomain = normalizeDomain(strings.SplitN(cfg.AdminEmail, "@", 2)[1])
+	}
+	if systemDomain == "" {
+		systemDomain = normalizeDomain(cfg.PublicHostname)
+	}
+	if systemDomain == "" {
+		systemDomain = "lanqin.local"
+	}
+	systemAddress := "system@" + systemDomain
 	subject := "欢迎使用 NewSzxcn 邮箱"
 	bodyText := "你的自建邮箱 Webmail 已经初始化完成。请尽快修改默认管理员密码，并配置 MX/SPF/DKIM/DMARC。"
 	bodyHTML := "<p>你的自建邮箱 Webmail 已经初始化完成。</p><p>请尽快修改默认管理员密码，并配置 MX/SPF/DKIM/DMARC。</p>"
 	if tpl, err := a.mailTemplate(ctx, "welcome"); err == nil {
 		rendered := renderMailTemplate(tpl, templateRenderData{
 			To:             cfg.AdminEmail,
-			From:           "system@lanqin.local",
+			From:           systemAddress,
 			PublicHostname: cfg.PublicHostname,
 			PublicBaseURL:  cfg.PublicBaseURL,
 			Time:           now,
@@ -1633,9 +1777,9 @@ func (a *App) seedWelcomeMessage(ctx context.Context, mailboxID string) error {
 		MailboxID:  mailboxID,
 		FolderID:   folderID,
 		MessageUID: newID("uid"),
-		MessageID:  fmt.Sprintf("<%s@lanqin.local>", newID("msg")),
+		MessageID:  fmt.Sprintf("<%s@%s>", newID("msg"), systemDomain),
 		Subject:    subject,
-		From:       "system@lanqin.local",
+		From:       systemAddress,
 		FromName:   "NewSzxcn 邮箱",
 		To:         []string{cfg.AdminEmail},
 		SentAt:     now,

@@ -30,6 +30,25 @@ func newTOTPSecret() (string, error) {
 	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(buf), nil
 }
 
+func newTwoFactorRecoveryCode() (string, error) {
+	buf := make([]byte, 8)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	value := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(buf)
+	if len(value) > 10 {
+		value = value[:10]
+	}
+	return value[:5] + "-" + value[5:], nil
+}
+
+func normalizeRecoveryCode(code string) string {
+	code = strings.ToUpper(strings.TrimSpace(code))
+	code = strings.ReplaceAll(code, "-", "")
+	code = strings.ReplaceAll(code, " ", "")
+	return code
+}
+
 func totpProvisioningURI(issuer, account, secret string) string {
 	issuer = strings.TrimSpace(issuer)
 	account = strings.TrimSpace(account)
@@ -119,6 +138,57 @@ func (a *App) loginChallengeByToken(ctx context.Context, token string) (*loginCh
 
 func (a *App) deleteLoginChallenge(ctx context.Context, id string) {
 	_, _ = a.db.ExecContext(ctx, `DELETE FROM login_challenges WHERE id=?`, id)
+}
+
+func (a *App) generateTwoFactorRecoveryCodes(ctx context.Context, tx *sql.Tx, userID string) ([]string, error) {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM two_factor_recovery_codes WHERE user_id=?`, userID); err != nil {
+		return nil, err
+	}
+	now := a.now().UTC().Format(time.RFC3339Nano)
+	codes := make([]string, 0, 8)
+	for len(codes) < 8 {
+		code, err := newTwoFactorRecoveryCode()
+		if err != nil {
+			return nil, err
+		}
+		normalized := normalizeRecoveryCode(code)
+		_, err = tx.ExecContext(ctx, `INSERT INTO two_factor_recovery_codes(id,user_id,code_hash,created_at) VALUES(?,?,?,?)`,
+			newID("rcv"), userID, hashToken(normalized), now)
+		if err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "unique") {
+				continue
+			}
+			return nil, err
+		}
+		codes = append(codes, code)
+	}
+	return codes, nil
+}
+
+func (a *App) consumeTwoFactorRecoveryCode(ctx context.Context, userID, code string) (bool, error) {
+	normalized := normalizeRecoveryCode(code)
+	if len(normalized) < 8 {
+		return false, nil
+	}
+	tx, err := a.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	var id string
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM two_factor_recovery_codes WHERE user_id=? AND code_hash=? AND used_at=''`, userID, hashToken(normalized)).Scan(&id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE two_factor_recovery_codes SET used_at=? WHERE id=?`, a.now().UTC().Format(time.RFC3339Nano), id); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (a *App) loadUserAuthByID(ctx context.Context, id string) (*User, string, error) {
@@ -212,7 +282,22 @@ func (a *App) handleTwoFactorEnable(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusUnauthorized, "invalid verification code")
 		return
 	}
-	if _, err := a.db.ExecContext(r.Context(), `UPDATE users SET two_factor_enabled=1, updated_at=? WHERE id=?`, a.now().UTC().Format(time.RFC3339Nano), user.ID); err != nil {
+	tx, err := a.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to enable two-factor authentication")
+		return
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(r.Context(), `UPDATE users SET two_factor_enabled=1, updated_at=? WHERE id=?`, a.now().UTC().Format(time.RFC3339Nano), user.ID); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to enable two-factor authentication")
+		return
+	}
+	recoveryCodes, err := a.generateTwoFactorRecoveryCodes(r.Context(), tx, user.ID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to generate recovery codes")
+		return
+	}
+	if err := tx.Commit(); err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to enable two-factor authentication")
 		return
 	}
@@ -221,7 +306,7 @@ func (a *App) handleTwoFactorEnable(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "failed to load user")
 		return
 	}
-	respondJSON(w, http.StatusOK, map[string]any{"user": updated})
+	respondJSON(w, http.StatusOK, map[string]any{"user": updated, "recoveryCodes": recoveryCodes})
 }
 
 func (a *App) handleTwoFactorDisable(w http.ResponseWriter, r *http.Request) {
@@ -250,7 +335,21 @@ func (a *App) handleTwoFactorDisable(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusUnauthorized, "invalid verification code")
 		return
 	}
-	if _, err := a.db.ExecContext(r.Context(), `UPDATE users SET two_factor_secret='', two_factor_enabled=0, updated_at=? WHERE id=?`, a.now().UTC().Format(time.RFC3339Nano), user.ID); err != nil {
+	tx, err := a.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to disable two-factor authentication")
+		return
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(r.Context(), `UPDATE users SET two_factor_secret='', two_factor_enabled=0, updated_at=? WHERE id=?`, a.now().UTC().Format(time.RFC3339Nano), user.ID); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to disable two-factor authentication")
+		return
+	}
+	if _, err := tx.ExecContext(r.Context(), `DELETE FROM two_factor_recovery_codes WHERE user_id=?`, user.ID); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to disable two-factor authentication")
+		return
+	}
+	if err := tx.Commit(); err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to disable two-factor authentication")
 		return
 	}

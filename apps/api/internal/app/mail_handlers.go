@@ -2156,6 +2156,74 @@ func (a *App) handleMove(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+func (a *App) handleBulkMove(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		IDs    []string `json:"ids"`
+		Folder string   `json:"folder"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		badRequest(w, err)
+		return
+	}
+	folder, err := normalizeFolderNameForUser(req.Folder)
+	if err != nil {
+		badRequest(w, err)
+		return
+	}
+	ids := make([]string, 0, len(req.IDs))
+	seen := map[string]bool{}
+	for _, id := range req.IDs {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		badRequest(w, errors.New("请选择要移动的邮件"))
+		return
+	}
+	type itemResult struct {
+		ID        string `json:"id"`
+		MailboxID string `json:"mailboxId,omitempty"`
+		OK        bool   `json:"ok"`
+		Message   string `json:"message"`
+	}
+	results := make([]itemResult, 0, len(ids))
+	folderByMailbox := map[string]string{}
+	moved := 0
+	for _, id := range ids {
+		msg, err := a.loadMessageForRequest(r, id, false)
+		if err != nil {
+			results = append(results, itemResult{ID: id, OK: false, Message: "邮件不存在或无权访问"})
+			continue
+		}
+		folderID := folderByMailbox[msg.MailboxID]
+		if folderID == "" {
+			folderID, err = a.ensureFolder(r.Context(), msg.MailboxID, folder)
+			if err != nil {
+				results = append(results, itemResult{ID: id, MailboxID: msg.MailboxID, OK: false, Message: "目标文件夹创建失败"})
+				continue
+			}
+			folderByMailbox[msg.MailboxID] = folderID
+		}
+		if err := a.moveMessageMaildir(r.Context(), msg.ID, folderID); err != nil {
+			a.log.Warn("bulk move message failed", "messageID", msg.ID, "mailboxID", msg.MailboxID, "folder", folder, "error", err)
+			results = append(results, itemResult{ID: id, MailboxID: msg.MailboxID, OK: false, Message: "移动失败，请稍后重试"})
+			continue
+		}
+		moved++
+		results = append(results, itemResult{ID: id, MailboxID: msg.MailboxID, OK: true, Message: "已移动"})
+	}
+	failed := len(results) - moved
+	message := fmt.Sprintf("已移动 %d 封邮件", moved)
+	if failed > 0 {
+		message = fmt.Sprintf("已移动 %d 封邮件，%d 封失败", moved, failed)
+	}
+	respondJSON(w, http.StatusOK, map[string]any{"ok": failed == 0, "moved": moved, "failed": failed, "message": message, "items": results})
+}
+
 func (a *App) folderByID(ctx context.Context, folderID, mailboxID string) (*MailFolder, error) {
 	row := a.db.QueryRowContext(ctx, `SELECT f.id,f.name,f.role,
 		COALESCE(SUM(CASE WHEN m.is_read=0 THEN 1 ELSE 0 END),0) AS unread,

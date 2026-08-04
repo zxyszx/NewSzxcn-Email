@@ -128,6 +128,7 @@ func (a *App) Router() http.Handler {
 			r.With(a.requirePermission(PermissionMailOrganize)).Post("/mail/messages/{id}/star", a.handleStar)
 			r.With(a.requirePermission(PermissionMailLabels)).Post("/mail/messages/{id}/labels", a.handleAddMessageLabel)
 			r.With(a.requirePermission(PermissionMailLabels)).Delete("/mail/messages/{id}/labels/{labelID}", a.handleRemoveMessageLabel)
+			r.With(a.requirePermission(PermissionMailOrganize)).Post("/mail/messages/bulk-move", a.handleBulkMove)
 			r.With(a.requirePermission(PermissionMailOrganize)).Post("/mail/messages/{id}/move", a.handleMove)
 			r.With(a.requirePermission(PermissionMailOrganize)).Delete("/mail/messages/{id}", a.handleDeleteMessage)
 			r.With(a.requirePermission(PermissionMailAttachments)).Get("/mail/attachments/{id}", a.handleAttachment)
@@ -344,10 +345,9 @@ func bearerToken(r *http.Request) string {
 }
 
 func (a *App) userByEmail(ctx context.Context, email string) (*User, string, error) {
-	loginName := normalizeLoginName(email)
+	email = normalizeEmail(email)
 	row := a.db.QueryRowContext(ctx, `SELECT id,login_name,email,display_name,role,password_hash,disabled,two_factor_enabled,mailbox_limit_override,created_at
-		FROM users WHERE login_name=? OR email=?
-		ORDER BY CASE WHEN login_name=? THEN 0 ELSE 1 END LIMIT 1`, loginName, loginName, loginName)
+		FROM users WHERE email=? LIMIT 1`, email)
 	var u User
 	var passwordHash string
 	var disabled, twoFactorEnabled int

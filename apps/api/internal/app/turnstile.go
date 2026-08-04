@@ -31,7 +31,11 @@ func (a *App) verifyTurnstile(ctx context.Context, token, remoteIP string) error
 	if ip := normalizeRemoteIP(remoteIP); ip != "" {
 		form.Set("remoteip", ip)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://challenges.cloudflare.com/turnstile/v0/siteverify", strings.NewReader(form.Encode()))
+	verifyURL := strings.TrimSpace(a.turnstileURL)
+	if verifyURL == "" {
+		verifyURL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, verifyURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return err
 	}

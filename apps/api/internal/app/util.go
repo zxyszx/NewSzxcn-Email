@@ -205,6 +205,21 @@ func cleanUsername(value string) (string, error) {
 	return username, nil
 }
 
+func cleanPrimaryEmail(value string) (string, error) {
+	email := normalizeEmail(value)
+	if email == "" || !strings.Contains(email, "@") {
+		return "", errors.New("邮箱地址无效")
+	}
+	parts := strings.SplitN(email, "@", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", errors.New("邮箱地址无效")
+	}
+	if len([]rune(email)) > 254 {
+		return "", errors.New("邮箱地址不能超过 254 个字符")
+	}
+	return email, nil
+}
+
 func dedupeEmails(items []string) []string {
 	seen := map[string]bool{}
 	out := make([]string, 0, len(items))

@@ -1,4 +1,4 @@
-import type { User, AdminUser, AdminOverview, Domain, Mailbox, Alias, MailFolder, MailLabel, MailMessage, MailTranslation, DNSRecord, DNSCheckResult, ListResponse, SendPayload, DraftPayload, ScheduleSendPayload, ScheduledSend, SendQueueItem, SendQueueAuditEvent, SendQueueStatus, Contact, MailSignature, MailRule, MailRuleCondition, MailRuleAction, BlockedSender, MailStats, ForwardingSettings, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapOAuthStartPayload, ExternalImapSyncRun, MailboxApplyOptions, MailTemplate, MaildirSyncHealth, SystemSettings, SystemSettingsPayload, SystemVersion, SystemUpdateResult, PublicSettings, LoginPayload, LoginResponse, RegisterPayload, PermissionGroup, PermissionInfo, PermissionKey, PermissionLimits, APIToken } from "./api-types"
+import type { User, AdminUser, AdminOverview, Domain, Mailbox, Alias, MailFolder, MailLabel, MailMessage, MailTranslation, DNSRecord, DNSCheckResult, ListResponse, SendPayload, DraftPayload, ScheduleSendPayload, ScheduledSend, SendQueueItem, SendQueueAuditEvent, SendQueueStatus, Contact, MailSignature, MailRule, MailRuleCondition, MailRuleAction, BlockedSender, MailStats, ForwardingSettings, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapOAuthStartPayload, ExternalImapSyncRun, MailboxApplyOptions, MailTemplate, MaildirSyncHealth, SystemSettings, SystemSettingsPayload, SystemVersion, SystemUpdateResult, PublicSettings, LoginPayload, LoginResponse, RegisterPayload, PermissionGroup, PermissionInfo, PermissionKey, PermissionLimits, APIToken, TwoFactorEnableResponse, BulkMoveResult } from "./api-types"
 export * from "./api-types"
 
 const REQUEST_TIMEOUT_MS = 15_000
@@ -102,7 +102,7 @@ export const api = {
   updateApiToken: (id: string, payload: { name?: string; expiresAt?: string; disabled?: boolean; scopes?: string[] }) => request<APIToken>(`/api/me/api-tokens/${id}`, { method: "POST", body: JSON.stringify(payload) }),
   deleteApiToken: (id: string) => request<{ ok: boolean }>(`/api/me/api-tokens/${id}`, { method: "DELETE" }),
   setupTwoFactor: () => request<{ secret: string; otpauthUrl: string }>("/api/me/2fa/setup", { method: "POST" }),
-  enableTwoFactor: (code: string) => request<{ user: User }>("/api/me/2fa/enable", { method: "POST", body: JSON.stringify({ code }) }),
+  enableTwoFactor: (code: string) => request<TwoFactorEnableResponse>("/api/me/2fa/enable", { method: "POST", body: JSON.stringify({ code }) }),
   disableTwoFactor: (code: string) => request<{ user: User }>("/api/me/2fa/disable", { method: "POST", body: JSON.stringify({ code }) }),
   contacts: () => request<ListResponse<Contact>>("/api/me/contacts"),
   createContact: (payload: { name: string; email: string; note: string }) => request<Contact>("/api/me/contacts", { method: "POST", body: JSON.stringify(payload) }),
@@ -154,8 +154,8 @@ export const api = {
   updatePermissionGroup: (id: string, payload: { name: string; description: string; permissions: PermissionKey[]; limits: PermissionLimits }) => request<PermissionGroup>(`/api/admin/permission-groups/${id}`, { method: "POST", body: JSON.stringify(payload) }),
   defaultPermissionLimits: () => request<PermissionLimits>("/api/admin/permission-limits/defaults"),
   deletePermissionGroup: (id: string) => request<{ ok: boolean }>(`/api/admin/permission-groups/${id}`, { method: "DELETE" }),
-  createUser: (payload: { loginName: string; displayName: string; role: "admin" | "user"; password: string; disabled: boolean; mailboxLimitOverride?: number; permissionGroupIds?: string[] }) => request<AdminUser>("/api/admin/users", { method: "POST", body: JSON.stringify(payload) }),
-  updateUser: (id: string, payload: { loginName?: string; displayName: string; role: "admin" | "user"; disabled: boolean; mailboxLimitOverride?: number; permissionGroupIds?: string[] }) => request<AdminUser>(`/api/admin/users/${id}`, { method: "POST", body: JSON.stringify(payload) }),
+  createUser: (payload: { email: string; displayName: string; role: "user"; password: string; disabled: boolean; mailboxLimitOverride?: number }) => request<AdminUser>("/api/admin/users", { method: "POST", body: JSON.stringify(payload) }),
+  updateUser: (id: string, payload: { email?: string; displayName: string; role: "admin" | "user"; disabled: boolean; mailboxLimitOverride?: number; permissionGroupIds?: string[] }) => request<AdminUser>(`/api/admin/users/${id}`, { method: "POST", body: JSON.stringify(payload) }),
   resetUserPassword: (id: string, password: string) => request<{ ok: boolean }>(`/api/admin/users/${id}/password`, { method: "POST", body: JSON.stringify({ password }) }),
   deleteUser: (id: string) => request<{ ok: boolean }>(`/api/admin/users/${id}`, { method: "DELETE" }),
   domains: () => request<ListResponse<Domain>>("/api/admin/domains"),
@@ -163,7 +163,7 @@ export const api = {
   updateDomain: (id: string, payload: { status: string }) => request<Domain>(`/api/admin/domains/${id}`, { method: "POST", body: JSON.stringify(payload) }),
   deleteDomain: (id: string) => request<{ ok: boolean }>(`/api/admin/domains/${id}`, { method: "DELETE" }),
   mailboxes: () => request<ListResponse<Mailbox>>("/api/admin/mailboxes"),
-  createMailbox: (payload: { domainId: string; localPart: string; displayName: string; password: string; quotaMb: number; role: "admin" | "user"; ownerLoginName?: string; ownerEmail?: string; userId?: string }) => request<Mailbox>("/api/admin/mailboxes", { method: "POST", body: JSON.stringify(payload) }),
+  createMailbox: (payload: { domainId: string; localPart: string; displayName: string; password: string; quotaMb: number; role: "user"; ownerEmail?: string; userId?: string }) => request<Mailbox>("/api/admin/mailboxes", { method: "POST", body: JSON.stringify(payload) }),
   updateMailbox: (id: string, payload: { userId: string; displayName: string; quotaMb: number; status: string }) => request<Mailbox>(`/api/admin/mailboxes/${id}`, { method: "POST", body: JSON.stringify(payload) }),
   deleteMailbox: (id: string) => request<{ ok: boolean }>(`/api/admin/mailboxes/${id}`, { method: "DELETE" }),
   aliases: () => request<ListResponse<Alias>>("/api/admin/aliases"),
@@ -295,5 +295,6 @@ export const api = {
   addLabel: (id: string, payload: { name: string; color?: string }) => request<{ labels: MailLabel[] }>(`/api/mail/messages/${id}/labels`, { method: "POST", body: JSON.stringify(payload) }),
   removeLabel: (id: string, labelID: string) => request<{ labels: MailLabel[] }>(`/api/mail/messages/${id}/labels/${labelID}`, { method: "DELETE" }),
   move: (id: string, folder: string) => request<{ ok: boolean }>(`/api/mail/messages/${id}/move`, { method: "POST", body: JSON.stringify({ folder }) }),
+  bulkMove: (ids: string[], folder: string) => request<BulkMoveResult>("/api/mail/messages/bulk-move", { method: "POST", body: JSON.stringify({ ids, folder }) }),
   delete: (id: string) => request<{ ok: boolean }>(`/api/mail/messages/${id}`, { method: "DELETE" }),
 }

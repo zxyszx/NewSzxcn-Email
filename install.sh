@@ -37,6 +37,7 @@ NewSzxcn Email 管理命令
   guide       显示并更新 NewSzxcn 邮箱指南
   credentials 查看管理员登录信息和记录密码
   reset-password 重置管理员统一登录密码（含名下邮箱）
+  reset-2fa   应急关闭唯一管理员双因素认证
   uninstall   停止并移除容器，保留邮件与配置
 EOF
 }
@@ -266,6 +267,10 @@ prompt_text() {
   fi
 }
 
+lowercase() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
 valid_hostname() {
   local hostname="$1" label tld
   local -a labels
@@ -277,6 +282,108 @@ valid_hostname() {
   done
   tld="${labels[${#labels[@]}-1]}"
   [[ "${tld}" =~ ^[A-Za-z]{2,63}$ ]]
+}
+
+valid_mail_local_part() {
+  local value="$1"
+  [[ ${#value} -ge 1 && ${#value} -le 64 && "${value}" =~ ^[A-Za-z0-9][A-Za-z0-9._%+-]*$ ]]
+}
+
+valid_email_address() {
+  local value="$1" local_part domain_part
+  [[ "${value}" == *@* ]] || return 1
+  local_part="${value%@*}"
+  domain_part="${value#*@}"
+  valid_mail_local_part "${local_part}" && valid_hostname "${domain_part}"
+}
+
+suggest_mail_domain() {
+  local hostname="$1" first rest
+  hostname="$(lowercase "${hostname}")"
+  first="${hostname%%.*}"
+  rest="${hostname#*.}"
+  if [[ "${hostname}" == *.* && "${rest}" == *.* && "${first}" =~ ^(mail|smtp|imap|pop|pop3|mx|mx[0-9]+|webmail)$ ]]; then
+    printf '%s' "${rest}"
+    return
+  fi
+  printf '%s' "${hostname}"
+}
+
+prompt_mail_domain() {
+  local hostname="$1" suggestion value admin_email
+  admin_email="${LANQIN_ADMIN_EMAIL:-}"
+  if [[ -z "${LANQIN_MAIL_DOMAIN:-}" && -n "${admin_email}" && "${admin_email}" == *@* ]]; then
+    LANQIN_MAIL_DOMAIN="${admin_email#*@}"
+  fi
+  suggestion="$(suggest_mail_domain "${hostname}")"
+  value="${LANQIN_MAIL_DOMAIN:-}"
+  if [[ -z "${value}" ]] && has_tty; then
+    prompt_text "[提示] 邮件服务器域名是 ${hostname}；邮箱地址域名可以使用 ${suggestion}，请确认。\n"
+    read -r -p "邮箱地址域名 [${suggestion}]: " value </dev/tty
+  fi
+  value="${value:-${suggestion}}"
+  if [[ -z "${LANQIN_MAIL_DOMAIN:-}" && -z "${admin_email}" ]] && ! has_tty; then
+    fail "非交互安装/更新必须设置 LANQIN_MAIL_DOMAIN 或 LANQIN_ADMIN_EMAIL，不能自动猜测邮箱地址域名。"
+  fi
+  value="$(lowercase "${value}")"
+  valid_hostname "${value}" || fail "邮箱地址域名格式不正确。"
+  printf '%s' "${value}"
+}
+
+prompt_admin_email() {
+  local mail_domain="$1" choice prefix email domain_part
+  email="${LANQIN_ADMIN_EMAIL:-}"
+  if [[ -n "${email}" ]]; then
+    email="$(lowercase "${email}")"
+    valid_email_address "${email}" || fail "管理员邮箱格式不正确。"
+    domain_part="${email#*@}"
+    [[ "${domain_part}" == "${mail_domain}" ]] || fail "管理员邮箱域名必须与邮箱地址域名一致。"
+    printf '%s' "${email}"
+    return
+  fi
+  if has_tty; then
+    prompt_text "\n创建管理员邮箱 [1]：\n1. 默认 admin，自动创建 admin@${mail_domain}\n2. 自定义前缀\n"
+    choice="$(prompt_choice LANQIN_ADMIN_EMAIL_MODE "请选择 [1]: " "1" "2")"
+    if [[ "${choice}" == "2" ]]; then
+      prefix="$(prompt_value LANQIN_ADMIN_PREFIX "管理员邮箱前缀" "admin")"
+    else
+      prefix="admin"
+    fi
+  else
+    prefix="${LANQIN_ADMIN_PREFIX:-admin}"
+  fi
+  valid_mail_local_part "${prefix}" || fail "管理员邮箱前缀格式不正确。"
+  printf '%s@%s' "$(lowercase "${prefix}")" "${mail_domain}"
+}
+
+ensure_admin_email_config() {
+  [[ -f "${INSTALL_DIR}/.env" ]] || return 0
+  local hostname existing_mail_domain existing_admin_email existing_admin_prefix mail_domain admin_email admin_prefix
+  hostname="$(env_value LANQIN_PUBLIC_HOSTNAME || true)"
+  existing_mail_domain="${LANQIN_MAIL_DOMAIN:-$(env_value LANQIN_MAIL_DOMAIN || true)}"
+  existing_admin_email="${LANQIN_ADMIN_EMAIL:-$(env_value LANQIN_ADMIN_EMAIL || true)}"
+  existing_admin_prefix="${LANQIN_ADMIN_PREFIX:-$(env_value LANQIN_ADMIN_USERNAME || true)}"
+  if [[ -z "${hostname}" ]]; then
+    if [[ -n "${existing_mail_domain}" ]]; then
+      hostname="${existing_mail_domain}"
+    elif [[ -n "${existing_admin_email}" && "${existing_admin_email}" == *@* ]]; then
+      hostname="${existing_admin_email#*@}"
+    else
+      fail "缺少 LANQIN_PUBLIC_HOSTNAME，无法确认管理员邮箱域名。"
+    fi
+  fi
+  valid_hostname "${hostname}" || fail "邮件服务器域名配置无效，无法确认管理员邮箱域名。"
+  LANQIN_MAIL_DOMAIN="${existing_mail_domain}"
+  LANQIN_ADMIN_EMAIL="${existing_admin_email}"
+  mail_domain="$(prompt_mail_domain "${hostname}")"
+  LANQIN_ADMIN_EMAIL="${existing_admin_email}"
+  LANQIN_ADMIN_PREFIX="${existing_admin_prefix:-admin}"
+  admin_email="$(prompt_admin_email "${mail_domain}")"
+  admin_prefix="${admin_email%@*}"
+  set_env LANQIN_MAIL_DOMAIN "${mail_domain}"
+  set_env LANQIN_ADMIN_EMAIL "${admin_email}"
+  set_env LANQIN_ADMIN_USERNAME "${admin_prefix}"
+  chmod 0600 "${INSTALL_DIR}/.env"
 }
 
 prompt_admin_password() {
@@ -371,15 +478,17 @@ configure_first_install() {
     return
   fi
 
-  local firewall_mode hostname admin_username admin_password web_mode public_url update_token
+  local firewall_mode hostname mail_domain admin_email admin_prefix admin_password web_mode public_url update_token
   prompt_text '\n防火墙配置 [1]：\n1. 自动添加邮局必要端口规则（推荐）\n2. 保留现有防火墙，由用户自行配置\n'
   firewall_mode="$(prompt_choice LANQIN_INSTALL_FIREWALL_MODE "请选择 [1]: " "1" "2")"
 
   hostname="$(prompt_value LANQIN_PUBLIC_HOSTNAME "邮件服务器域名，例如 mail.example.com" "")"
   valid_hostname "${hostname}" || fail "邮件服务器域名格式不正确。"
 
-  admin_username="$(prompt_value LANQIN_ADMIN_USERNAME "管理员用户名" "admin")"
-  [[ "${admin_username}" =~ ^[A-Za-z0-9][A-Za-z0-9._%+-]{1,79}$ ]] || fail "管理员用户名需为 2-80 位且不能包含 @。"
+  mail_domain="$(prompt_mail_domain "${hostname}")"
+  LANQIN_MAIL_DOMAIN="${mail_domain}"
+  admin_email="$(prompt_admin_email "${mail_domain}")"
+  admin_prefix="${admin_email%@*}"
   admin_password="$(prompt_admin_password)"
 
   prompt_text '\nWeb 部署方式 [1]：\n1. 自动配置 Nginx + SSL\n2. 宝塔/已有 Nginx 反代\n3. 仅 HTTP 测试\n'
@@ -395,7 +504,9 @@ configure_first_install() {
   set_env LANQIN_INSTALL_FIREWALL_MODE "${firewall_mode}"
   set_env LANQIN_PUBLIC_HOSTNAME "${hostname}"
   set_env LANQIN_PUBLIC_BASE_URL "${public_url}"
-  set_env LANQIN_ADMIN_USERNAME "${admin_username}"
+  set_env LANQIN_MAIL_DOMAIN "${mail_domain}"
+  set_env LANQIN_ADMIN_EMAIL "${admin_email}"
+  set_env LANQIN_ADMIN_USERNAME "${admin_prefix}"
   set_env LANQIN_ADMIN_PASSWORD "${admin_password}"
   set_env LANQIN_INSTALL_WEB_MODE "${web_mode}"
   set_env LANQIN_UPDATE_TOKEN "${update_token}"
@@ -867,7 +978,7 @@ do_repair_install() {
   create_update_snapshot || fail "修复前备份失败，未修改现有安装。"
   stage_assets
   clear_runtime_image_pin
-  if ! apply_staged_assets || ! ensure_update_token || ! configure_runtime_bindings; then
+  if ! apply_staged_assets || ! ensure_update_token || ! ensure_admin_email_config || ! configure_runtime_bindings; then
     restore_update_snapshot "" false || true
     fail "修复准备失败，已恢复原安装。"
   fi
@@ -932,7 +1043,7 @@ do_update() {
   create_update_snapshot || fail "更新前备份失败，未修改现有安装。"
   stage_assets
   clear_runtime_image_pin
-  if ! apply_staged_assets || ! ensure_update_token; then
+  if ! apply_staged_assets || ! ensure_update_token || ! ensure_admin_email_config; then
     restore_update_snapshot "" false || true
     fail "更新文件替换失败，已恢复原安装。"
   fi
@@ -1002,11 +1113,12 @@ do_certificate() {
 
 generate_guide() {
   [[ -f "${INSTALL_DIR}/.env" ]] || return 1
-  local public_url admin_url hostname admin_username certificate_expiry="未安装" renewal_status="未开启" next_renewal="等待 acme.sh 生成续期计划"
+  ensure_admin_email_config
+  local public_url admin_url hostname admin_email certificate_expiry="未安装" renewal_status="未开启" next_renewal="等待 acme.sh 生成续期计划"
   local acme_info="" tmp
   public_url="$(env_value LANQIN_PUBLIC_BASE_URL || true)"
   hostname="$(env_value LANQIN_PUBLIC_HOSTNAME || true)"
-  admin_username="$(env_value LANQIN_ADMIN_USERNAME || true)"
+  admin_email="$(env_value LANQIN_ADMIN_EMAIL || true)"
   public_url="${public_url:-http://${hostname}}"
   admin_url="${public_url%/}/admin"
 
@@ -1035,7 +1147,7 @@ generate_guide() {
 
 邮箱前台：${public_url}
 管理后台：${admin_url}
-管理员账号：${admin_username:-admin}
+管理员邮箱：${admin_email:-未记录}
 管理员密码：仅在安装完成时显示；修改后请使用新密码
 SSL 证书：有效期至 ${certificate_expiry}
 自动续期：${renewal_status}
@@ -1094,8 +1206,9 @@ do_guide() {
 
 do_show_admin_credentials() {
   [[ -f "${INSTALL_DIR}/.env" ]] || fail "尚未安装。"
-  local username password public_url
-  username="$(env_value LANQIN_ADMIN_USERNAME || true)"
+  ensure_admin_email_config
+  local admin_email password public_url
+  admin_email="$(env_value LANQIN_ADMIN_EMAIL || true)"
   password="$(env_value LANQIN_ADMIN_PASSWORD || true)"
   public_url="$(env_value LANQIN_PUBLIC_BASE_URL || true)"
   cat <<EOF
@@ -1104,7 +1217,7 @@ do_show_admin_credentials() {
  NewSzxcn 管理员登录信息
 ==================================================
 登录地址：${public_url:-未记录}
-管理员用户名：${username:-admin}
+管理员邮箱：${admin_email:-未记录}
 记录密码：${password:-未记录}
 ==================================================
 EOF
@@ -1121,13 +1234,13 @@ generate_admin_password_hash() {
 
 do_reset_admin_password() {
   [[ -f "${INSTALL_DIR}/.env" ]] || fail "尚未安装。"
-  local username password user_id hash image timestamp backup env_backup result user_changes mailbox_changes
+  local admin_email password user_id hash image timestamp backup env_backup result user_changes mailbox_changes
   ensure_docker
-  username="$(env_value LANQIN_ADMIN_USERNAME || true)"
-  username="${username:-admin}"
-  [[ "${username}" =~ ^[A-Za-z0-9][A-Za-z0-9._%+-]{1,79}$ ]] || fail "管理员用户名配置无效，无法安全重置。"
-  user_id="$(compose exec -T lanqin-email sqlite3 -batch -noheader /data/lanqin.db "SELECT id FROM users WHERE login_name='${username}' AND role='admin' LIMIT 1;" | tr -d '\r\n')"
-  [[ "${user_id}" =~ ^[A-Za-z0-9_-]+$ ]] || fail "没有找到管理员账号 ${username}。"
+  ensure_admin_email_config
+  admin_email="$(env_value LANQIN_ADMIN_EMAIL || true)"
+  valid_email_address "${admin_email}" || fail "管理员邮箱配置无效，无法安全重置。"
+  user_id="$(compose exec -T lanqin-email sqlite3 -batch -noheader /data/lanqin.db "SELECT id FROM users WHERE email='${admin_email}' AND role='admin' LIMIT 1;" | tr -d '\r\n')"
+  [[ "${user_id}" =~ ^[A-Za-z0-9_-]+$ ]] || fail "没有找到管理员邮箱 ${admin_email}。"
   password="$(prompt_reset_password)"
   hash="$(generate_admin_password_hash "${password}")" || fail "无法生成安全密码哈希，管理员密码未修改。"
   image="$(current_image_id || true)"
@@ -1143,7 +1256,7 @@ do_reset_admin_password() {
     fail "管理员密码记录更新失败，数据库未修改。"
   fi
   chmod 0600 "${INSTALL_DIR}/.env"
-  if ! result="$(compose exec -T lanqin-email sqlite3 -batch -noheader /data/lanqin.db "BEGIN IMMEDIATE; UPDATE users SET password_hash='${hash}', updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id='${user_id}' AND role='admin'; SELECT 'user=' || changes(); UPDATE mailboxes SET password_hash='${hash}', updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE user_id='${user_id}' AND EXISTS (SELECT 1 FROM users WHERE id='${user_id}' AND role='admin'); SELECT 'mailboxes=' || changes(); COMMIT;" | tr -d '\r')"; then
+  if ! result="$(compose exec -T lanqin-email sqlite3 -batch -noheader /data/lanqin.db "BEGIN IMMEDIATE; UPDATE users SET password_hash='${hash}', updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id='${user_id}' AND email='${admin_email}' AND role='admin'; SELECT 'user=' || changes(); UPDATE mailboxes SET password_hash='${hash}', updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE user_id='${user_id}' AND EXISTS (SELECT 1 FROM users WHERE id='${user_id}' AND email='${admin_email}' AND role='admin'); SELECT 'mailboxes=' || changes(); COMMIT;" | tr -d '\r')"; then
     install -m 0600 "${env_backup}" "${INSTALL_DIR}/.env"
     rm -f "${env_backup}"
     fail "管理员密码写入失败，已恢复原密码记录。"
@@ -1156,11 +1269,40 @@ do_reset_admin_password() {
     fail "管理员账号不存在或身份已变化，密码未修改；已恢复原密码记录。"
   fi
   rm -f "${env_backup}"
-  success "管理员 ${username} 的统一登录密码已重置。"
+  success "管理员 ${admin_email} 的统一登录密码已重置。"
   printf '新密码：%s\n' "${password}"
   log "重置前数据库备份：${backup}"
   log "已同步 ${mailbox_changes} 个管理员邮箱的 SMTP/IMAP 密码。"
   warn "此次操作只修改管理员账号及其名下邮箱，不会修改普通用户或其邮箱密码。"
+}
+
+do_reset_admin_two_factor() {
+  [[ -f "${INSTALL_DIR}/.env" ]] || fail "尚未安装。"
+  local admin_email user_id image timestamp backup result user_changes recovery_changes challenge_changes
+  ensure_docker
+  ensure_admin_email_config
+  admin_email="$(env_value LANQIN_ADMIN_EMAIL || true)"
+  valid_email_address "${admin_email}" || fail "管理员邮箱配置无效，无法安全关闭双因素认证。"
+  user_id="$(compose exec -T lanqin-email sqlite3 -batch -noheader /data/lanqin.db "SELECT id FROM users WHERE email='${admin_email}' AND role='admin' LIMIT 1;" | tr -d '\r\n')"
+  [[ "${user_id}" =~ ^[A-Za-z0-9_-]+$ ]] || fail "没有找到管理员邮箱 ${admin_email}。"
+  image="$(current_image_id || true)"
+  [[ -n "${image}" ]] || fail "无法确定当前镜像，管理员双因素认证未修改。"
+  timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  backup="${INSTALL_DIR}/data/backups/2fa-reset-${timestamp}.db"
+  backup_database "${backup}" "${image}" || fail "数据库备份失败，管理员双因素认证未修改。"
+  if ! result="$(compose exec -T lanqin-email sqlite3 -batch -noheader /data/lanqin.db "BEGIN IMMEDIATE; UPDATE users SET two_factor_secret='', two_factor_enabled=0, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id='${user_id}' AND email='${admin_email}' AND role='admin'; SELECT 'user=' || changes(); DELETE FROM two_factor_recovery_codes WHERE user_id='${user_id}'; SELECT 'recovery=' || changes(); DELETE FROM login_challenges WHERE user_id='${user_id}'; SELECT 'challenges=' || changes(); COMMIT;" | tr -d '\r')"; then
+    fail "管理员双因素认证关闭失败，数据库未确认修改。"
+  fi
+  user_changes="$(printf '%s\n' "${result}" | sed -n 's/^user=//p' | tail -n 1)"
+  recovery_changes="$(printf '%s\n' "${result}" | sed -n 's/^recovery=//p' | tail -n 1)"
+  challenge_changes="$(printf '%s\n' "${result}" | sed -n 's/^challenges=//p' | tail -n 1)"
+  if [[ "${user_changes}" != "1" || ! "${recovery_changes}" =~ ^[0-9]+$ || ! "${challenge_changes}" =~ ^[0-9]+$ ]]; then
+    fail "管理员账号不存在或身份已变化，双因素认证未确认关闭。"
+  fi
+  success "管理员 ${admin_email} 的双因素认证已关闭。"
+  log "重置前数据库备份：${backup}"
+  log "已删除 ${recovery_changes} 个恢复码和 ${challenge_changes} 个登录挑战。"
+  warn "请管理员登录后重新绑定双因素认证并妥善保存新的恢复码。"
 }
 
 do_status() {
@@ -1353,6 +1495,7 @@ case "${COMMAND}" in
   guide) require_root; require_curl; do_guide ;;
   credentials) require_root; require_curl; do_show_admin_credentials ;;
   reset-password) require_root; require_curl; do_reset_admin_password ;;
+  reset-2fa) require_root; require_curl; do_reset_admin_two_factor ;;
   uninstall) require_root; require_curl; ensure_docker; do_uninstall ;;
   *) usage; fail "未知命令：${COMMAND}" ;;
 esac
