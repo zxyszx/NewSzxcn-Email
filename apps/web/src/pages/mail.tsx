@@ -205,6 +205,7 @@ export function MailPage() {
   const activeMailboxId = selectedMailboxId === "all" ? "all" : selectedMailbox?.id || ""
   const selectedComposeMailbox = selectedMailbox || (isAllMailboxSelected ? mailboxList.data?.items?.[0] : undefined)
   const hasMailboxes = (mailboxList.data?.items.length || 0) > 0
+  const showMailboxCopy = !!selectedMailbox && !isAllMailboxSelected
   const folders = useQuery({ queryKey: ["folders", activeMailboxId], queryFn: () => api.folders(activeMailboxId), enabled: !!activeMailboxId && canReadMail })
   const labels = useQuery({ queryKey: ["labels", activeMailboxId], queryFn: () => api.labels(activeMailboxId), enabled: !!activeMailboxId && (canReadMail || canManageLabels) })
   const mailStats = useQuery({ queryKey: ["mail-stats", activeMailboxId], queryFn: () => api.mailStats(activeMailboxId), enabled: !!activeMailboxId && hasPermission(user, "mail.stats.view") })
@@ -1216,7 +1217,7 @@ export function MailPage() {
           onLanguageChange={setLanguage}
           onSettings={openSettings}
         />
-        <div className={cn("mt-2 gap-1.5", sidebarCollapsed ? "flex justify-center" : "grid grid-cols-[minmax(0,1fr)_2rem]")}>
+        <div className={cn("mt-2 gap-1.5", sidebarCollapsed ? "flex justify-center" : showMailboxCopy ? "grid grid-cols-[minmax(0,1fr)_2rem]" : "grid grid-cols-1")}>
           <MailboxSwitcher
             collapsed={sidebarCollapsed}
             mailboxes={mailboxList.data?.items || []}
@@ -1226,17 +1227,15 @@ export function MailPage() {
             unreadCount={mailboxUnreadCount}
             onSelect={switchMailbox}
           />
-          {!sidebarCollapsed && (
+          {!sidebarCollapsed && showMailboxCopy && (
             <Button
               type="button"
               variant="outline"
               size="icon"
-              className={cn("h-8 w-8 shrink-0 rounded-md bg-background shadow-none hover:bg-background", isAllMailboxSelected && "invisible pointer-events-none")}
+              className="h-8 w-8 shrink-0 rounded-md bg-background shadow-none hover:bg-background"
               onClick={copyCurrentMailbox}
-              disabled={!selectedMailbox || isAllMailboxSelected}
+              disabled={!selectedMailbox}
               aria-label="复制邮箱地址"
-              aria-hidden={isAllMailboxSelected}
-              tabIndex={isAllMailboxSelected ? -1 : 0}
               title="复制邮箱地址"
             >
               <Copy className="h-3.5 w-3.5" />
