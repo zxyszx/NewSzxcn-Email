@@ -69,7 +69,6 @@ const exactTranslations: Record<string, Translation> = {
   "暂无标签": { "zh-TW": "暫無標籤", en: "No labels" },
   "收起侧栏": { "zh-TW": "收合側欄", en: "Collapse sidebar" },
   "选择邮箱": { "zh-TW": "選擇信箱", en: "Select mailbox" },
-  "加载邮箱...": { "zh-TW": "載入信箱...", en: "Loading mailboxes..." },
   "未注册邮箱": { "zh-TW": "未註冊信箱", en: "Unregistered mailbox" },
   "没有可用邮箱": { "zh-TW": "沒有可用信箱", en: "No mailboxes available" },
   "邮箱地址已复制": { "zh-TW": "信箱地址已複製", en: "Mailbox address copied" },

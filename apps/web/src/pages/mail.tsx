@@ -3252,7 +3252,7 @@ function MailboxSwitcher({ collapsed, mailboxes, loading, selectedMailboxId, sel
   const [mailboxQuery, setMailboxQuery] = React.useState("")
   const isAllSelected = selectedMailboxId === "all"
   const mailboxUnavailable = loading || mailboxes.length === 0
-  const displayAddress = loading ? "加载邮箱..." : mailboxes.length === 0 ? "未注册邮箱" : isAllSelected ? "全部邮箱" : selectedMailbox?.address || "选择邮箱"
+  const displayAddress = loading ? "全部邮箱" : mailboxes.length === 0 ? "未注册邮箱" : isAllSelected ? "全部邮箱" : selectedMailbox?.address || "选择邮箱"
   const selectedUnreadCount = isAllSelected ? unreadCount : (selectedMailbox?.unreadCount ?? unreadCount)
   const normalizedQuery = mailboxQuery.trim().toLowerCase()
   const showAllMailboxOption = !normalizedQuery || "全部邮箱".includes(normalizedQuery) || "all".includes(normalizedQuery)
