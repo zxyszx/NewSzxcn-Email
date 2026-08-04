@@ -205,11 +205,8 @@ jobs:
         shell: bash
         run: |
           tag="${{ needs.release.outputs.tag }}"
-          version="${{ needs.release.outputs.version }}"
           repo="${GITHUB_REPOSITORY}"
           repo_url="https://github.com/${repo}"
-          image_base="${REGISTRY}/${repo}"
-          image_base="${image_base,,}"
           current_commit="$(git rev-list -n 1 "${tag}")"
           previous_tag="$(git describe --tags --abbrev=0 "${current_commit}^" 2>/dev/null || true)"
           version_notes=".github/release-notes/${tag}.md"
@@ -240,36 +237,7 @@ jobs:
             fi
           fi
 
-          cat > release-notes.md <<EOF
-          自建邮箱 Webmail 全栈方案，包含 Web、API、Postfix、Dovecot、Rspamd 等组件。
-
-          ## 注意
-
-          如果需要公网正常收发邮件，请确保已正确配置 MX、SPF、DKIM、DMARC 以及 25 / 587 / 993 等端口。
-
-          ## 使用文档
-
-          - [项目文档](${repo_url}#readme)
-          - [开源协议](${repo_url}/blob/main/LICENSE)
-
-          ## Docker 镜像
-
-          | 组件 | 镜像 |
-          |------|------|
-          | All-in-one | \`${image_base}:${tag}\` |
-          | API | \`${image_base}-api:${tag}\` |
-          | Web | \`${image_base}-web:${tag}\` |
-          | Postfix | \`${image_base}-postfix:${tag}\` |
-          | Dovecot | \`${image_base}-dovecot:${tag}\` |
-          | Rspamd | \`${image_base}-rspamd:${tag}\` |
-
-          同时也会发布 \`${version}\`、\`latest\` 和 \`sha-*\` 标签。
-          EOF
-
-          {
-            echo
-            cat generated-release-notes.md
-          } >> release-notes.md
+          cp generated-release-notes.md release-notes.md
 
       - name: Create or update GitHub release
         env:
