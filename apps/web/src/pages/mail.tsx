@@ -88,7 +88,6 @@ const filterLabels: Record<MailFilter, string> = {
 
 const emptyAdvancedSearch: AdvancedMailSearch = { from: "", to: "", subject: "", startDate: "", endDate: "", hasAttachments: false, unread: false, starred: false }
 const emptyAdvancedSearchDraft: AdvancedMailSearchDraft = { ...emptyAdvancedSearch }
-const mailboxSelectionStorageVersion = "2"
 const mailCompactBreakpoint = 768
 const mailDetailBreakpoint = 768
 
@@ -122,10 +121,7 @@ export function MailPage() {
   const [composeDraft, setComposeDraft] = React.useState<ComposeDraft | undefined>()
   const sidebarCollapsed = false
   const [mailFilter, setMailFilter] = React.useState<MailFilter>("all")
-  const [selectedMailboxId, setSelectedMailboxId] = React.useState(() => {
-    if (localStorage.getItem("lanqin:selected-mailbox-version") !== mailboxSelectionStorageVersion) return "all"
-    return localStorage.getItem("lanqin:selected-mailbox") || "all"
-  })
+  const [selectedMailboxId, setSelectedMailboxId] = React.useState("all")
   const [selectedExternalAccountId, setSelectedExternalAccountId] = React.useState("")
   const [expandedExternalAccountIds, setExpandedExternalAccountIds] = React.useState<string[]>([])
   const [externalFolder, setExternalFolder] = React.useState("INBOX")
@@ -491,14 +487,19 @@ export function MailPage() {
     }
     if (!selectedMailboxId || (selectedMailboxId !== "all" && !items.some((item) => item.id === selectedMailboxId))) {
       setSelectedMailboxId("all")
+      setSelectedExternalAccountId("")
+      setFolder("Inbox")
+      setMailView("folder")
+      setSelectedLabelId("")
+      setSelectedId(null)
+      setMailFilter("all")
     }
   }, [mailboxList.isSuccess, mailboxList.data?.items, selectedMailboxId])
 
   React.useEffect(() => {
-    if (selectedMailboxId) localStorage.setItem("lanqin:selected-mailbox", selectedMailboxId)
-    else localStorage.removeItem("lanqin:selected-mailbox")
-    localStorage.setItem("lanqin:selected-mailbox-version", mailboxSelectionStorageVersion)
-  }, [selectedMailboxId])
+    localStorage.removeItem("lanqin:selected-mailbox")
+    localStorage.removeItem("lanqin:selected-mailbox-version")
+  }, [])
 
   React.useEffect(() => {
     setSelectedId(null)
@@ -3219,7 +3220,7 @@ function MailboxSwitcher({ collapsed, mailboxes, loading, selectedMailboxId, sel
   const [mailboxQuery, setMailboxQuery] = React.useState("")
   const isAllSelected = selectedMailboxId === "all"
   const mailboxUnavailable = loading || mailboxes.length === 0
-  const displayAddress = loading ? "加载邮箱..." : mailboxes.length === 0 ? "未创建邮箱" : isAllSelected ? "全部邮箱" : selectedMailbox?.address || "选择邮箱"
+  const displayAddress = loading ? "加载邮箱..." : mailboxes.length === 0 ? "未注册邮箱" : isAllSelected ? "全部邮箱" : selectedMailbox?.address || "选择邮箱"
   const selectedUnreadCount = isAllSelected ? unreadCount : (selectedMailbox?.unreadCount ?? unreadCount)
   const normalizedQuery = mailboxQuery.trim().toLowerCase()
   const showAllMailboxOption = !normalizedQuery || "全部邮箱".includes(normalizedQuery) || "all".includes(normalizedQuery)
@@ -3248,7 +3249,7 @@ function MailboxSwitcher({ collapsed, mailboxes, loading, selectedMailboxId, sel
         align="start"
         className={cn(
           "max-w-[calc(100vw-32px)] p-1",
-          collapsed ? "w-[204px]" : "w-[calc(var(--radix-dropdown-menu-trigger-width)+2.375rem)] min-w-[calc(var(--radix-dropdown-menu-trigger-width)+2.375rem)]"
+          collapsed ? "w-[204px]" : "w-[var(--radix-dropdown-menu-trigger-width)] min-w-[var(--radix-dropdown-menu-trigger-width)]"
         )}
       >
         {mailboxes.length > 0 && (

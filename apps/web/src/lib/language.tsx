@@ -70,7 +70,7 @@ const exactTranslations: Record<string, Translation> = {
   "收起侧栏": { "zh-TW": "收合側欄", en: "Collapse sidebar" },
   "选择邮箱": { "zh-TW": "選擇信箱", en: "Select mailbox" },
   "加载邮箱...": { "zh-TW": "載入信箱...", en: "Loading mailboxes..." },
-  "未创建邮箱": { "zh-TW": "尚未建立信箱", en: "No mailbox created" },
+  "未注册邮箱": { "zh-TW": "未註冊信箱", en: "Unregistered mailbox" },
   "没有可用邮箱": { "zh-TW": "沒有可用信箱", en: "No mailboxes available" },
   "邮箱地址已复制": { "zh-TW": "信箱地址已複製", en: "Mailbox address copied" },
   "打开导航": { "zh-TW": "開啟導覽", en: "Open navigation" },
