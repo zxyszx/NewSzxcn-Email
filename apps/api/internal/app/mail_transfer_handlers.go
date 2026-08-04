@@ -13,13 +13,20 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
+	"time"
+	"unicode"
 )
 
 const maxMailImportBytes int64 = 256 << 20
 
-var exportFilenameUnsafe = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
+const maxSelectedMailExport = 200
+
+type exportedMessage struct {
+	raw     []byte
+	subject string
+	date    time.Time
+}
 
 func (a *App) handleExportMail(w http.ResponseWriter, r *http.Request) {
 	ids, err := a.exportMessageIDs(r)
@@ -43,19 +50,21 @@ func (a *App) handleExportMail(w http.ResponseWriter, r *http.Request) {
 
 	zw := zip.NewWriter(w)
 	usedNames := make(map[string]int, len(ids))
-	for index, id := range ids {
-		raw, subject, err := a.rawMessageForExport(r.Context(), id)
+	for _, id := range ids {
+		message, err := a.rawMessageForExport(r.Context(), id)
 		if err != nil {
 			_ = zw.Close()
 			return
 		}
-		entryName := uniqueExportFilename(exportMessageFilename(subject, id, index), usedNames)
-		entry, err := zw.CreateHeader(&zip.FileHeader{Name: entryName, Method: zip.Deflate})
+		entryName := uniqueExportFilename(exportMessageFilename(message.subject, message.date), usedNames)
+		header := &zip.FileHeader{Name: entryName, Method: zip.Deflate}
+		header.SetModTime(message.date)
+		entry, err := zw.CreateHeader(header)
 		if err != nil {
 			_ = zw.Close()
 			return
 		}
-		if _, err := entry.Write(raw); err != nil {
+		if _, err := entry.Write(message.raw); err != nil {
 			_ = zw.Close()
 			return
 		}
@@ -74,6 +83,10 @@ func (a *App) exportMessageIDs(r *http.Request) ([]string, error) {
 	mailboxID := strings.TrimSpace(r.URL.Query().Get("mailboxId"))
 	where := []string{}
 	args := []any{}
+	selectedIDs, err := selectedExportMessageIDs(r)
+	if err != nil {
+		return nil, err
+	}
 
 	if view == "unknown" {
 		if user.Role != "admin" {
@@ -115,6 +128,14 @@ func (a *App) exportMessageIDs(r *http.Request) ([]string, error) {
 			return nil, errors.New("unsupported mail view")
 		}
 	}
+	if len(selectedIDs) > 0 {
+		placeholders := make([]string, 0, len(selectedIDs))
+		for _, id := range selectedIDs {
+			placeholders = append(placeholders, "?")
+			args = append(args, id)
+		}
+		where = append(where, "m.id IN ("+strings.Join(placeholders, ",")+")")
+	}
 
 	rows, err := a.db.QueryContext(r.Context(), `SELECT m.id FROM messages m LEFT JOIN folders f ON f.id=m.folder_id WHERE `+strings.Join(where, " AND ")+` ORDER BY m.received_at DESC,m.id`, args...)
 	if err != nil {
@@ -132,40 +153,77 @@ func (a *App) exportMessageIDs(r *http.Request) ([]string, error) {
 	return ids, rows.Err()
 }
 
-func (a *App) rawMessageForExport(ctx context.Context, id string) ([]byte, string, error) {
+func selectedExportMessageIDs(r *http.Request) ([]string, error) {
+	values := r.URL.Query()["messageId"]
+	if len(values) == 0 {
+		return nil, nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	ids := make([]string, 0, len(values))
+	for _, value := range values {
+		id := strings.TrimSpace(value)
+		if id == "" {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+		if len(ids) > maxSelectedMailExport {
+			return nil, fmt.Errorf("最多一次下载 %d 封邮件", maxSelectedMailExport)
+		}
+	}
+	return ids, nil
+}
+
+func (a *App) rawMessageForExport(ctx context.Context, id string) (exportedMessage, error) {
 	msg, err := a.storedMessageByID(ctx, id)
 	if err != nil {
-		return nil, "", err
+		return exportedMessage{}, err
+	}
+	exportDate := msg.ReceivedAt
+	if exportDate.IsZero() {
+		exportDate = messageDate(msg)
 	}
 	if msg.RawPath != "" {
 		if ok, pathErr := a.pathIsUnderMaildirRoot(msg.RawPath); pathErr == nil && ok {
 			if raw, readErr := os.ReadFile(msg.RawPath); readErr == nil {
-				return raw, msg.Subject, nil
+				return exportedMessage{raw: raw, subject: msg.Subject, date: exportDate}, nil
 			}
 		}
 	}
 	attachments, err := a.attachmentInputsForMessage(ctx, id)
 	if err != nil {
-		return nil, "", err
+		return exportedMessage{}, err
 	}
 	raw, err := BuildMIME(MIMEMessage{
 		From: msg.From, FromName: msg.FromName, To: msg.To, CC: msg.CC, BCC: msg.BCC,
 		Subject: msg.Subject, Text: msg.BodyText, HTML: msg.BodyHTML, MessageID: msg.MessageID,
 		Date: messageDate(msg), Attachments: attachments,
 	})
-	return raw, msg.Subject, err
+	return exportedMessage{raw: raw, subject: msg.Subject, date: exportDate}, err
 }
 
-func exportMessageFilename(subject, id string, index int) string {
-	name := exportFilenameUnsafe.ReplaceAllString(strings.TrimSpace(subject), "-")
-	name = strings.Trim(name, ".-_")
+func exportMessageFilename(subject string, date time.Time) string {
+	name := strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || strings.ContainsRune(`<>:"/\\|?*`, r) {
+			return '-'
+		}
+		return r
+	}, strings.TrimSpace(subject))
+	name = strings.Trim(name, " .-_")
 	if name == "" {
-		name = "message"
+		name = "无主题"
 	}
-	if len(name) > 80 {
-		name = name[:80]
+	runes := []rune(name)
+	if len(runes) > 80 {
+		name = string(runes[:80])
 	}
-	return fmt.Sprintf("%04d-%s-%s.eml", index+1, name, id)
+	if date.IsZero() {
+		return name + ".eml"
+	}
+	return fmt.Sprintf("%s (%s).eml", name, date.Format("20060102"))
 }
 
 func uniqueExportFilename(name string, used map[string]int) string {

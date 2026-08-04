@@ -251,11 +251,12 @@ export const api = {
     if (mailboxId) params.set("mailboxId", mailboxId)
     return request<ListResponse<MailMessage>>(`/api/mail/starred?${params.toString()}`)
   },
-  exportMailUrl: (params: { view: "folder" | "starred" | "label" | "unknown"; mailboxId?: string; folder?: string; labelId?: string }) => {
+  exportMailUrl: (params: { view: "folder" | "starred" | "label" | "unknown"; mailboxId?: string; folder?: string; labelId?: string; messageIds?: string[] }) => {
     const query = new URLSearchParams({ view: params.view })
     if (params.mailboxId) query.set("mailboxId", params.mailboxId)
     if (params.folder) query.set("folder", params.folder)
     if (params.labelId) query.set("labelId", params.labelId)
+    params.messageIds?.forEach((id) => query.append("messageId", id))
     return `/api/mail/export?${query.toString()}`
   },
   importMail: (files: File[], payload: { mailboxId: string; folder: string }) => {

@@ -194,11 +194,7 @@ export function MailPage() {
 
   React.useEffect(() => {
     if (!user) return
-    const timer = window.setTimeout(() => {
-      void import("@/pages/profile")
-      if (user.role === "admin") void import("@/pages/admin")
-    }, 400)
-    return () => window.clearTimeout(timer)
+    void import("@/pages/profile")
   }, [user])
 
   const mailboxList = useQuery({ queryKey: ["mailboxes", "mine"], queryFn: api.myMailboxes, enabled: canAccessMail })
@@ -1109,18 +1105,20 @@ export function MailPage() {
     if (!canExportCurrentView || exportingMail) return
     setExportingMail(true)
     const exportView = mailView === "unknown" ? "unknown" : mailView === "starred" ? "starred" : mailView === "label" ? "label" : "folder"
+    const selectedMessageIds = compactSelectedIds.filter((id) => visibleMessageIds.includes(id))
     const anchor = document.createElement("a")
     anchor.href = api.exportMailUrl({
       view: exportView,
       mailboxId: mailView === "unknown" ? undefined : activeMailboxId,
       folder: exportView === "folder" ? folder : undefined,
       labelId: exportView === "label" ? selectedLabelId : undefined,
+      messageIds: selectedMessageIds.length > 0 ? selectedMessageIds : undefined,
     })
     anchor.download = `${viewTitle.replace(/[\\/:*?"<>|]+/g, "-") || "邮件"}-${new Date().toISOString().slice(0, 10)}.zip`
     document.body.appendChild(anchor)
     anchor.click()
     anchor.remove()
-    toast({ title: "已开始下载", description: "邮件将打包为 ZIP，压缩包内为标准 EML 文件；邮件较多时请查看浏览器下载进度。" })
+    toast({ title: "已开始下载", description: selectedMessageIds.length > 0 ? `正在打包选中的 ${selectedMessageIds.length} 封邮件。` : "邮件将打包为 ZIP，压缩包内为标准 EML 文件；邮件较多时请查看浏览器下载进度。" })
     window.setTimeout(() => setExportingMail(false), 1000)
   }
   function chooseMailImport() {
@@ -1168,10 +1166,7 @@ export function MailPage() {
     toast({ title: "邮箱地址已复制" })
   }
   function openSettings() {
-    navigate("/profile")
-  }
-  function openAdmin() {
-    navigate("/admin")
+    void import("@/pages/profile").then(() => navigate("/profile"))
   }
   function toggleAdvancedSearch() {
     setAdvancedSearchDraft(advancedSearch)
@@ -1223,7 +1218,6 @@ export function MailPage() {
           language={language}
           onLanguageChange={setLanguage}
           onSettings={openSettings}
-          onAdmin={user?.role === "admin" ? openAdmin : undefined}
         />
         <div className={cn("mt-2 gap-1.5", sidebarCollapsed ? "flex justify-center" : showMailboxCopy ? "grid grid-cols-[minmax(0,1fr)_2rem]" : "grid grid-cols-1")}>
           <MailboxSwitcher
@@ -1490,7 +1484,7 @@ export function MailPage() {
 
   const mailTransferTools = isTransferView ? (
     <div className="flex shrink-0 items-center gap-0.5">
-      <Button type="button" size="icon" variant="ghost" onClick={() => void exportCurrentMail()} disabled={!canExportCurrentView || exportingMail} className="h-8 w-8 text-muted-foreground hover:text-foreground" title="导出当前邮箱邮件为 ZIP" aria-label="导出当前邮箱邮件为 ZIP">
+      <Button type="button" size="icon" variant="ghost" onClick={() => void exportCurrentMail()} disabled={!canExportCurrentView || exportingMail} className="h-8 w-8 text-muted-foreground hover:text-foreground" title={selectedCountOnPage > 0 ? `下载选中的 ${selectedCountOnPage} 封邮件` : "导出当前邮箱邮件为 ZIP"} aria-label={selectedCountOnPage > 0 ? `下载选中的 ${selectedCountOnPage} 封邮件` : "导出当前邮箱邮件为 ZIP"}>
         <Download className={cn("h-4 w-4", exportingMail && "animate-pulse")} />
       </Button>
       {mailView !== "unknown" && (
@@ -3199,7 +3193,7 @@ function NewLabelButton({ collapsed, pending, onCreate, editing, onEditingChange
   )
 }
 
-function AccountHeader({ collapsed, name, email, darkMode, language, onToggleTheme, onLanguageChange, onSettings, onAdmin }: { collapsed: boolean; name: string; email?: string; darkMode: boolean; language: Language; onToggleTheme: () => void; onLanguageChange: (language: Language) => void; onSettings: () => void; onAdmin?: () => void }) {
+function AccountHeader({ collapsed, name, email, darkMode, language, onToggleTheme, onLanguageChange, onSettings }: { collapsed: boolean; name: string; email?: string; darkMode: boolean; language: Language; onToggleTheme: () => void; onLanguageChange: (language: Language) => void; onSettings: () => void }) {
   const displayName = cleanAccountName(name, email)
   const currentLanguage = languageOptions.find((item) => item.value === language) || languageOptions[0]
   if (collapsed) {
@@ -3222,10 +3216,7 @@ function AccountHeader({ collapsed, name, email, darkMode, language, onToggleThe
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1">
-        {onAdmin && <Button type="button" variant="ghost" size="icon" className="size-7 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={onAdmin} title="后台管理" aria-label="后台管理">
-          <ShieldCheck className="h-3.5 w-3.5" />
-        </Button>}
-        <Button type="button" variant="ghost" size="icon" className="size-7 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={onToggleTheme}>
+        <Button type="button" variant="ghost" size="icon" className="size-7 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={onToggleTheme} title={darkMode ? "切换到浅色模式" : "切换到深色模式"} aria-label={darkMode ? "切换到浅色模式" : "切换到深色模式"}>
           {darkMode ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
         </Button>
         <DropdownMenu>
@@ -3243,7 +3234,7 @@ function AccountHeader({ collapsed, name, email, darkMode, language, onToggleThe
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
-        <Button type="button" variant="ghost" size="icon" className="size-7 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={onSettings}>
+        <Button type="button" variant="ghost" size="icon" className="size-7 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={onSettings} title="设置" aria-label="设置">
           <Settings className="h-3.5 w-3.5" />
         </Button>
       </div>

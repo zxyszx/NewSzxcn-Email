@@ -730,26 +730,9 @@ func (a *App) handleUpdateMailbox(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleDeleteMailbox(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	current := currentUser(r)
-	var owner string
-	if err := a.db.QueryRowContext(r.Context(), `SELECT user_id FROM mailboxes WHERE id=?`, id).Scan(&owner); err != nil {
-		respondError(w, http.StatusNotFound, "mailbox not found")
-		return
-	}
-	var count int
-	if current != nil && owner == current.ID {
-		if err := a.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM mailboxes WHERE user_id=?`, owner).Scan(&count); err != nil {
-			respondError(w, http.StatusInternalServerError, "failed to check mailbox")
-			return
-		}
-		if count <= 1 {
-			badRequest(w, errors.New("cannot delete your last mailbox"))
-			return
-		}
-	}
 	rows, err := a.db.QueryContext(r.Context(), `SELECT id FROM messages WHERE mailbox_id=?`, id)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to load mailbox messages")
+		respondError(w, http.StatusInternalServerError, "加载邮箱邮件失败")
 		return
 	}
 	messageIDs := []string{}
@@ -765,12 +748,12 @@ func (a *App) handleDeleteMailbox(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := a.db.ExecContext(r.Context(), `DELETE FROM mailboxes WHERE id=?`, id)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to delete mailbox")
+		respondError(w, http.StatusInternalServerError, "删除邮箱失败")
 		return
 	}
 	affected, _ := res.RowsAffected()
 	if affected == 0 {
-		respondError(w, http.StatusNotFound, "mailbox not found")
+		respondError(w, http.StatusNotFound, "邮箱不存在或已被删除")
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]any{"ok": true})
