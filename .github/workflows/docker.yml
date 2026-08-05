@@ -271,31 +271,59 @@ jobs:
           fi
 
           python3 - <<'PY'
-          import re
+          import html
           import os
+          import re
 
           notes = open("release-notes.md", "r", encoding="utf-8").read().strip()
-          lines = []
+          entries = []
           for raw in notes.splitlines():
               line = re.sub(r"^#{1,6}\s+", "", raw).strip()
+              line = re.sub(r"^[-*+]\s+", "", line)
               line = re.sub(r"\*\*([^*]+)\*\*", r"\1", line)
-              line = re.sub(r"\[([^]]+)\]\(([^)]+)\)", r"\1：\2", line)
-              lines.append(line)
-          body = "\n".join(lines).strip()
+              line = re.sub(r"`([^`]+)`", r"\1", line)
+              line = re.sub(r"\[([^]]+)\]\([^)]+\)", r"\1", line)
+              if line:
+                  entries.append(line)
+
+          sections = []
+          for index, entry in enumerate(entries, 1):
+              parts = re.split(r"[，；。]", entry, maxsplit=1)
+              title = parts[0].strip()
+              description = parts[1].strip() if len(parts) > 1 else ""
+              section = f"<b>{index:02d}  {html.escape(title)}</b>"
+              if description:
+                  section += "\n" + html.escape(description.rstrip("。") + "。")
+              sections.append(section)
+
           tag = os.environ["RELEASE_TAG"]
-          release_url = os.environ["RELEASE_URL"]
-          prefix = f"NewSzxcn Email {tag}\n\n"
-          suffix = f"\n\n更新地址：{release_url}"
-          available = max(0, 3600 - len(prefix) - len(suffix))
-          if len(body) > available:
-              body = body[:available].rstrip() + "..."
-          open("telegram-release-message.txt", "w", encoding="utf-8").write(prefix + body + suffix)
+          prefix = f"<b>NewSzxcn Email {html.escape(tag)}</b>\n新版本现已发布\n\n<b>本次更新</b>\n\n"
+          available = max(0, 3600 - len(prefix))
+          visible_sections = []
+          used = 0
+          for section in sections:
+              added = len(section) + (2 if visible_sections else 0)
+              if used + added > available:
+                  break
+              visible_sections.append(section)
+              used += added
+          body = "\n\n".join(visible_sections)
+          if len(visible_sections) < len(sections):
+              body += "\n\n更新内容较长，请点击下方按钮查看完整内容。"
+          open("telegram-release-message.txt", "w", encoding="utf-8").write(prefix + body)
           PY
 
           jq -n \
             --arg chat_id "${TELEGRAM_CHAT_ID}" \
+            --arg release_url "${RELEASE_URL}" \
             --rawfile text telegram-release-message.txt \
-            '{chat_id:$chat_id,text:$text,disable_web_page_preview:true}' > telegram-release-payload.json
+            '{
+              chat_id:$chat_id,
+              text:$text,
+              parse_mode:"HTML",
+              disable_web_page_preview:true,
+              reply_markup:{inline_keyboard:[[{text:"查看本次更新 ↗",url:$release_url}]]}
+            }' > telegram-release-payload.json
 
           http_code="$(curl -sS --retry 2 --retry-all-errors --connect-timeout 10 --max-time 30 \
             -o telegram-release-response.json -w '%{http_code}' \
