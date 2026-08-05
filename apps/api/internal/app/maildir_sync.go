@@ -292,7 +292,10 @@ func (a *App) syncUnregisteredMaildirFile(ctx context.Context, mb maildirMailbox
 		a.attachUnregisteredMaildirRawPathToExisting(ctx, path, msg.MessageID, msg.RecipientAddr)
 		return false, nil
 	}
-	_, err = a.insertMessage(ctx, msg, attachments)
+	id, err := a.insertMessage(ctx, msg, attachments)
+	if err == nil {
+		a.enqueueTelegramMailNotification(ctx, id, msg, attachments)
+	}
 	return err == nil, err
 }
 
@@ -365,6 +368,7 @@ func (a *App) syncMaildirFile(ctx context.Context, mb maildirMailbox, folder mai
 	}
 	id, err := a.insertMessage(ctx, msg, attachments)
 	if err == nil && strings.EqualFold(folder.Name, "Inbox") {
+		a.enqueueTelegramMailNotification(ctx, id, msg, attachments)
 		a.applyInboundControls(ctx, id, mb.ID, msg.From, msg.Subject)
 		a.processInboundForwarding(ctx, id, mb.ID, raw)
 	}

@@ -34,6 +34,7 @@ type App struct {
 	maildirHealth *maildirSyncHealthTracker
 	externalIMAP  externalIMAPClientFactory
 	turnstileURL  string
+	telegramURL   string
 }
 
 func (a *App) config() Config {
@@ -71,7 +72,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	}
 	db.SetMaxOpenConns(1)
 
-	a := &App{cfg: cfg, db: db, log: logger, now: time.Now, policy: NewHTMLPolicy(), maildirHealth: newMaildirSyncHealthTracker()}
+	a := &App{cfg: cfg, db: db, log: logger, now: time.Now, policy: NewHTMLPolicy(), maildirHealth: newMaildirSyncHealthTracker(), telegramURL: "https://api.telegram.org"}
 	a.externalIMAP = a
 	if err := a.configureSQLite(context.Background()); err != nil {
 		db.Close()
@@ -107,6 +108,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	a.startWorker(func() { a.externalIMAPWorker(workerCtx) })
 	a.startWorker(func() { a.smtpEventsCleanupWorker(workerCtx) })
 	a.startWorker(func() { a.statusWebhookWorker(workerCtx) })
+	a.startWorker(func() { a.telegramMailWorker(workerCtx) })
 	return a, nil
 }
 
@@ -433,6 +435,18 @@ func (a *App) migrate(ctx context.Context) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_status_webhook_outbox_due ON status_webhook_outbox(delivered_at,next_attempt_at,created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_status_webhook_outbox_mailbox ON status_webhook_outbox(mailbox_id,created_at)`,
+		`CREATE TABLE IF NOT EXISTS telegram_mail_outbox (
+			id TEXT PRIMARY KEY,
+			message_id TEXT NOT NULL UNIQUE,
+			payload_json TEXT NOT NULL,
+			attempt_count INTEGER NOT NULL DEFAULT 0,
+			next_attempt_at TEXT NOT NULL,
+			last_error TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			delivered_at TEXT
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_telegram_mail_outbox_due ON telegram_mail_outbox(delivered_at,next_attempt_at,created_at)`,
 		`CREATE TRIGGER IF NOT EXISTS trg_mailbox_delete_status_webhook_outbox
 			AFTER DELETE ON mailboxes BEGIN
 				DELETE FROM status_webhook_outbox WHERE mailbox_id=OLD.id;

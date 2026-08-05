@@ -27,7 +27,7 @@ import { hasAnyPermission, hasPermission } from "@/lib/permissions"
 import type { PermissionKey } from "@/lib/api-types"
 
 type Section = "overview" | "users" | "permissionGroups" | "domains" | "mailboxes" | "aliases" | "messages" | "sendAudit" | "settings"
-type SettingsTab = "base" | "smtp" | "storage" | "mail" | "externalImap" | "templates" | "security" | "about"
+type SettingsTab = "base" | "smtp" | "storage" | "mail" | "notifications" | "externalImap" | "templates" | "security" | "about"
 type PendingConfirm = { title: string; description?: string; confirmText: string; onConfirm: () => void }
 
 const sectionMeta: Record<Section, { label: string; frontLabel: string; description: string }> = {
@@ -1042,7 +1042,7 @@ function SystemSettingsSection({ settings, domains, initialTab }: { settings?: S
   const canResetTemplates = hasPermission(user, "admin.templates.reset")
   const templates = useQuery({ queryKey: ["admin", "mail-templates"], queryFn: api.mailTemplates, enabled: canViewTemplates })
   const requestedTab = initialTab as SettingsTab | undefined
-  const [settingsTab, setSettingsTab] = React.useState<SettingsTab>(() => requestedTab && ["base", "smtp", "storage", "mail", "externalImap", "templates", "security", "about"].includes(requestedTab) ? requestedTab : "base")
+  const [settingsTab, setSettingsTab] = React.useState<SettingsTab>(() => requestedTab && ["base", "smtp", "storage", "mail", "notifications", "externalImap", "templates", "security", "about"].includes(requestedTab) ? requestedTab : "base")
   const maildirHealth = useQuery({ queryKey: ["admin", "maildir-sync", "health"], queryFn: api.maildirSyncHealth, enabled: canSettingsView && settingsTab === "storage" })
   const [smtpRequireTls, setSmtpRequireTls] = React.useState(false)
   const [allowInsecureHttp, setAllowInsecureHttp] = React.useState(true)
@@ -1055,6 +1055,10 @@ function SystemSettingsSection({ settings, domains, initialTab }: { settings?: S
   const [userMailboxDomainIds, setUserMailboxDomainIds] = React.useState<string[]>([])
   const [externalImapEnabled, setExternalImapEnabled] = React.useState(false)
   const [externalImapAllowPrivateHosts, setExternalImapAllowPrivateHosts] = React.useState(false)
+  const [telegramMailEnabled, setTelegramMailEnabled] = React.useState(false)
+  const [telegramBotToken, setTelegramBotToken] = React.useState("")
+  const [telegramPrivateChatId, setTelegramPrivateChatId] = React.useState("")
+  const [telegramBodyMode, setTelegramBodyMode] = React.useState<"summary" | "full">("summary")
   React.useEffect(() => {
     if (!settings) return
     setSmtpRequireTls(settings.smtpRequireTls)
@@ -1068,7 +1072,24 @@ function SystemSettingsSection({ settings, domains, initialTab }: { settings?: S
     setUserMailboxDomainIds(settings.userMailboxDomainIds || [])
     setExternalImapEnabled(settings.externalImapEnabled)
     setExternalImapAllowPrivateHosts(settings.externalImapAllowPrivateHosts)
+    setTelegramMailEnabled(settings.telegramMailEnabled)
+    setTelegramBotToken("")
+    setTelegramPrivateChatId(settings.telegramPrivateChatId || "")
+    setTelegramBodyMode(settings.telegramBodyMode === "full" ? "full" : "summary")
   }, [settings])
+  const discoverTelegram = useMutation({
+    mutationFn: () => api.discoverTelegramChat(telegramBotToken),
+    onSuccess: (chat) => {
+      setTelegramPrivateChatId(chat.chatId)
+      toast({ title: "已获取 Telegram 私聊", description: chat.displayName || chat.chatId })
+    },
+    onError: (error) => toast({ title: "获取失败", description: error.message }),
+  })
+  const testTelegram = useMutation({
+    mutationFn: () => api.testTelegram(telegramBotToken, telegramPrivateChatId),
+    onSuccess: () => toast({ title: "Telegram 测试通知已发送" }),
+    onError: (error) => toast({ title: "发送失败", description: error.message }),
+  })
   const save = useMutation({
     mutationFn: (form: FormData) => api.updateSystemSettings({
       publicHostname: fieldValue(form, "publicHostname", settings?.publicHostname || ""),
@@ -1101,6 +1122,10 @@ function SystemSettingsSection({ settings, domains, initialTab }: { settings?: S
       externalImapGmailClientSecret: fieldValue(form, "externalImapGmailClientSecret", ""),
       externalImapOutlookClientId: fieldValue(form, "externalImapOutlookClientId", settings?.externalImapOutlookClientId || ""),
       externalImapOutlookClientSecret: fieldValue(form, "externalImapOutlookClientSecret", ""),
+      telegramMailEnabled,
+      telegramBotToken,
+      telegramPrivateChatId,
+      telegramBodyMode,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin", "settings"] })
@@ -1142,6 +1167,10 @@ function SystemSettingsSection({ settings, domains, initialTab }: { settings?: S
     settings.externalImapGmailClientSecretSet,
     settings.externalImapOutlookClientId,
     settings.externalImapOutlookClientSecretSet,
+    settings.telegramMailEnabled,
+    settings.telegramBotTokenSet,
+    settings.telegramPrivateChatId,
+    settings.telegramBodyMode,
   ].join("|") : "loading"
   const tabs: { key: typeof settingsTab; label: string }[] = [
     ...(canSettingsView ? [
@@ -1149,6 +1178,7 @@ function SystemSettingsSection({ settings, domains, initialTab }: { settings?: S
       { key: "smtp" as const, label: "SMTP" },
       { key: "storage" as const, label: "存储" },
       { key: "mail" as const, label: "邮件" },
+      { key: "notifications" as const, label: "通知" },
       { key: "externalImap" as const, label: "外部 IMAP" },
     ] : []),
     ...(canViewTemplates ? [{ key: "templates" as const, label: "模板" }] : []),
@@ -1253,6 +1283,49 @@ function SystemSettingsSection({ settings, domains, initialTab }: { settings?: S
           {mailAutoRefresh && (
             <div className="border-t pt-5">
               <Field name="mailRefreshSeconds" label="刷新间隔秒数" type="number" min={5} defaultValue={String(settings?.mailRefreshSeconds || 30)} />
+            </div>
+          )}
+        </CardContent>
+      </Card>}
+
+      {settingsTab === "notifications" && <Card>
+        <CardHeader><CardTitle>Telegram 邮件通知</CardTitle></CardHeader>
+        <CardContent className="space-y-5">
+          <SwitchRow label="私聊新邮件通知" checked={telegramMailEnabled} onCheckedChange={setTelegramMailEnabled} />
+          {telegramMailEnabled && (
+            <div className="space-y-5 border-t pt-5">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Bot Token</Label>
+                  <Input type="password" value={telegramBotToken} onChange={(event) => setTelegramBotToken(event.target.value)} placeholder={settings?.telegramBotTokenSet ? "已保存，留空不变" : "123456789:..."} />
+                </div>
+                <div className="space-y-2">
+                  <Label>私聊 Chat ID</Label>
+                  <div className="flex gap-2">
+                    <Input inputMode="numeric" value={telegramPrivateChatId} onChange={(event) => setTelegramPrivateChatId(event.target.value)} placeholder="123456789" />
+                    <Button type="button" variant="outline" className="shrink-0" disabled={discoverTelegram.isPending} onClick={() => discoverTelegram.mutate()}>
+                      <Search className="mr-2 h-4 w-4" />{discoverTelegram.isPending ? "获取中" : "自动获取"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>邮件正文</Label>
+                  <Select value={telegramBodyMode} onValueChange={(value) => setTelegramBodyMode(value === "full" ? "full" : "summary")}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="summary">正文摘要</SelectItem>
+                      <SelectItem value="full">尽量显示完整正文</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-end">
+                  <Button type="button" variant="outline" disabled={testTelegram.isPending || !telegramPrivateChatId} onClick={() => testTelegram.mutate()}>
+                    <Mail className="mr-2 h-4 w-4" />{testTelegram.isPending ? "发送中" : "测试通知"}
+                  </Button>
+                </div>
+              </div>
             </div>
           )}
         </CardContent>

@@ -240,6 +240,7 @@ jobs:
           cp generated-release-notes.md release-notes.md
 
       - name: Create or update GitHub release
+        id: release_result
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -248,6 +249,62 @@ jobs:
           title="NewSzxcn Email ${tag}"
           if gh release view "${tag}" >/dev/null 2>&1; then
             gh release edit "${tag}" --title "${title}" --notes-file release-notes.md --latest
+            echo "created=false" >> "$GITHUB_OUTPUT"
           else
             gh release create "${tag}" --verify-tag --title "${title}" --notes-file release-notes.md --latest
+            echo "created=true" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Notify Telegram release channel
+        if: steps.release_result.outputs.created == 'true'
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_RELEASE_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_RELEASE_CHAT_ID }}
+          RELEASE_TAG: ${{ needs.release.outputs.tag }}
+          RELEASE_URL: ${{ needs.release.outputs.release_url }}
+        shell: bash
+        run: |
+          if [[ -z "${TELEGRAM_BOT_TOKEN}" || -z "${TELEGRAM_CHAT_ID}" ]]; then
+            echo "::notice::Telegram release notification is not configured; skipping."
+            exit 0
+          fi
+
+          python3 - <<'PY'
+          import re
+          import os
+
+          notes = open("release-notes.md", "r", encoding="utf-8").read().strip()
+          lines = []
+          for raw in notes.splitlines():
+              line = re.sub(r"^#{1,6}\s+", "", raw).strip()
+              line = re.sub(r"\*\*([^*]+)\*\*", r"\1", line)
+              line = re.sub(r"\[([^]]+)\]\(([^)]+)\)", r"\1：\2", line)
+              lines.append(line)
+          body = "\n".join(lines).strip()
+          tag = os.environ["RELEASE_TAG"]
+          release_url = os.environ["RELEASE_URL"]
+          prefix = f"NewSzxcn Email {tag}\n\n"
+          suffix = f"\n\n更新地址：{release_url}"
+          available = max(0, 3600 - len(prefix) - len(suffix))
+          if len(body) > available:
+              body = body[:available].rstrip() + "..."
+          open("telegram-release-message.txt", "w", encoding="utf-8").write(prefix + body + suffix)
+          PY
+
+          jq -n \
+            --arg chat_id "${TELEGRAM_CHAT_ID}" \
+            --rawfile text telegram-release-message.txt \
+            '{chat_id:$chat_id,text:$text,disable_web_page_preview:true}' > telegram-release-payload.json
+
+          http_code="$(curl -sS --retry 2 --retry-all-errors --connect-timeout 10 --max-time 30 \
+            -o telegram-release-response.json -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            --data-binary @telegram-release-payload.json \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage")"
+          if [[ "${http_code}" != "200" ]] || ! jq -e '.ok == true' telegram-release-response.json >/dev/null 2>&1; then
+            description="$(jq -r '.description // "unknown Telegram error"' telegram-release-response.json 2>/dev/null || echo "unknown Telegram error")"
+            echo "::warning::Telegram release notification failed (HTTP ${http_code}): ${description}"
+            exit 1
+          fi
+          echo "::notice::Telegram release notification sent."

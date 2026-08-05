@@ -459,6 +459,10 @@ func systemSettingsPayload(settings SystemSettings) map[string]any {
 		"externalImapGmailClientSecret":   "",
 		"externalImapOutlookClientId":     settings.ExternalIMAPOutlookClientID,
 		"externalImapOutlookClientSecret": "",
+		"telegramMailEnabled":             settings.TelegramMailEnabled,
+		"telegramBotToken":                "",
+		"telegramPrivateChatId":           settings.TelegramPrivateChatID,
+		"telegramBodyMode":                settings.TelegramBodyMode,
 	}
 }
 

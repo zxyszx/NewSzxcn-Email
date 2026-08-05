@@ -52,6 +52,10 @@ type Config struct {
 	ExternalIMAPGmailClientSecret   string
 	ExternalIMAPOutlookClientID     string
 	ExternalIMAPOutlookClientSecret string
+	TelegramMailEnabled             bool
+	TelegramBotToken                string
+	TelegramPrivateChatID           string
+	TelegramBodyMode                string
 	MailTranslateEnabled            bool
 	MailTranslateMaxChars           int
 	DeliveryWebhookSecret           string
@@ -110,6 +114,10 @@ func LoadConfig() Config {
 		ExternalIMAPGmailClientSecret:   getenv("LANQIN_EXTERNAL_IMAP_GMAIL_CLIENT_SECRET", ""),
 		ExternalIMAPOutlookClientID:     getenv("LANQIN_EXTERNAL_IMAP_OUTLOOK_CLIENT_ID", ""),
 		ExternalIMAPOutlookClientSecret: getenv("LANQIN_EXTERNAL_IMAP_OUTLOOK_CLIENT_SECRET", ""),
+		TelegramMailEnabled:             getenvBool("LANQIN_TELEGRAM_MAIL_ENABLED", false),
+		TelegramBotToken:                getenv("LANQIN_TELEGRAM_BOT_TOKEN", ""),
+		TelegramPrivateChatID:           getenv("LANQIN_TELEGRAM_PRIVATE_CHAT_ID", ""),
+		TelegramBodyMode:                normalizeTelegramBodyMode(getenv("LANQIN_TELEGRAM_BODY_MODE", "summary")),
 		MailTranslateEnabled:            getenvBool("LANQIN_MAIL_TRANSLATE_ENABLED", true),
 		MailTranslateMaxChars:           getenvInt("LANQIN_MAIL_TRANSLATE_MAX_CHARS", 8000),
 		DeliveryWebhookSecret:           getenv("LANQIN_DELIVERY_WEBHOOK_SECRET", ""),

@@ -40,6 +40,10 @@ type SystemSettings struct {
 	ExternalIMAPGmailClientSecretSet   bool     `json:"externalImapGmailClientSecretSet"`
 	ExternalIMAPOutlookClientID        string   `json:"externalImapOutlookClientId"`
 	ExternalIMAPOutlookClientSecretSet bool     `json:"externalImapOutlookClientSecretSet"`
+	TelegramMailEnabled                bool     `json:"telegramMailEnabled"`
+	TelegramBotTokenSet                bool     `json:"telegramBotTokenSet"`
+	TelegramPrivateChatID              string   `json:"telegramPrivateChatId"`
+	TelegramBodyMode                   string   `json:"telegramBodyMode"`
 }
 
 type systemSettingsUpdate struct {
@@ -73,6 +77,10 @@ type systemSettingsUpdate struct {
 	ExternalIMAPGmailClientSecret   string   `json:"externalImapGmailClientSecret"`
 	ExternalIMAPOutlookClientID     string   `json:"externalImapOutlookClientId"`
 	ExternalIMAPOutlookClientSecret string   `json:"externalImapOutlookClientSecret"`
+	TelegramMailEnabled             bool     `json:"telegramMailEnabled"`
+	TelegramBotToken                string   `json:"telegramBotToken"`
+	TelegramPrivateChatID           string   `json:"telegramPrivateChatId"`
+	TelegramBodyMode                string   `json:"telegramBodyMode"`
 }
 
 type PublicSettings struct {
@@ -204,6 +212,22 @@ func (a *App) handleUpdateSystemSettings(w http.ResponseWriter, r *http.Request)
 		badRequest(w, errors.New("外部 IMAP 加密密钥未设置"))
 		return
 	}
+	next.TelegramMailEnabled = req.TelegramMailEnabled
+	if strings.TrimSpace(req.TelegramBotToken) != "" {
+		next.TelegramBotToken = strings.TrimSpace(req.TelegramBotToken)
+	}
+	next.TelegramPrivateChatID = strings.TrimSpace(req.TelegramPrivateChatID)
+	next.TelegramBodyMode = normalizeTelegramBodyMode(req.TelegramBodyMode)
+	if next.TelegramMailEnabled {
+		if next.TelegramBotToken == "" {
+			badRequest(w, errors.New("Telegram Bot Token 未设置"))
+			return
+		}
+		if !validTelegramPrivateChatID(next.TelegramPrivateChatID) {
+			badRequest(w, errors.New("Telegram 私聊 Chat ID 无效"))
+			return
+		}
+	}
 
 	if err := a.saveSystemSettings(r.Context(), next); err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to save settings")
@@ -318,6 +342,10 @@ func (a *App) systemSettingsSnapshot() SystemSettings {
 		ExternalIMAPGmailClientSecretSet:   strings.TrimSpace(cfg.ExternalIMAPGmailClientSecret) != "",
 		ExternalIMAPOutlookClientID:        cfg.ExternalIMAPOutlookClientID,
 		ExternalIMAPOutlookClientSecretSet: strings.TrimSpace(cfg.ExternalIMAPOutlookClientSecret) != "",
+		TelegramMailEnabled:                cfg.TelegramMailEnabled,
+		TelegramBotTokenSet:                strings.TrimSpace(cfg.TelegramBotToken) != "",
+		TelegramPrivateChatID:              cfg.TelegramPrivateChatID,
+		TelegramBodyMode:                   normalizeTelegramBodyMode(cfg.TelegramBodyMode),
 	}
 }
 
@@ -402,6 +430,14 @@ func (a *App) loadPersistedSystemSettings(ctx context.Context) error {
 			cfg.ExternalIMAPOutlookClientID = value
 		case "externalImapOutlookClientSecret":
 			cfg.ExternalIMAPOutlookClientSecret = value
+		case "telegramMailEnabled":
+			cfg.TelegramMailEnabled = value == "true"
+		case "telegramBotToken":
+			cfg.TelegramBotToken = value
+		case "telegramPrivateChatId":
+			cfg.TelegramPrivateChatID = value
+		case "telegramBodyMode":
+			cfg.TelegramBodyMode = normalizeTelegramBodyMode(value)
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -443,6 +479,10 @@ func (a *App) saveSystemSettings(ctx context.Context, cfg Config) error {
 		"externalImapGmailClientSecret":   cfg.ExternalIMAPGmailClientSecret,
 		"externalImapOutlookClientId":     cfg.ExternalIMAPOutlookClientID,
 		"externalImapOutlookClientSecret": cfg.ExternalIMAPOutlookClientSecret,
+		"telegramMailEnabled":             strconv.FormatBool(cfg.TelegramMailEnabled),
+		"telegramBotToken":                cfg.TelegramBotToken,
+		"telegramPrivateChatId":           cfg.TelegramPrivateChatID,
+		"telegramBodyMode":                normalizeTelegramBodyMode(cfg.TelegramBodyMode),
 	}
 	now := a.now().UTC().Format(time.RFC3339Nano)
 	tx, err := a.db.BeginTx(ctx, nil)

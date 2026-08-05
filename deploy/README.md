@@ -148,6 +148,33 @@ docker compose -f docker-compose.stack.yml -f docker-compose.stack.build.yml up 
 
 配置完成后点击“检测”。
 
+## Telegram 通知
+
+### 私聊新邮件通知
+
+每台邮局可以在“管理后台 -> 系统设置 -> 通知”中独立配置 Telegram 私聊邮件通知：
+
+1. 使用 `@BotFather` 创建机器人并填写 Bot Token。
+2. 在 Telegram 中打开该机器人并发送 `/start`。
+3. 回到后台点击“自动获取”，系统会填写最近一个私聊 Chat ID。
+4. 选择“正文摘要”或“尽量显示完整正文”，点击“测试通知”。
+5. 测试成功后开启“私聊新邮件通知”并保存。
+
+Bot Token 不会通过设置查询接口返回。新邮件通知会先持久化到 SQLite 队列，Telegram 暂时不可用时按退避策略重试；通知失败不会阻塞收件。通知包含发件人、收件邮箱、主题、收件时间、正文和附件名称，不会把附件文件上传到 Telegram。
+
+手动部署也可以在 `.env` 中设置 `LANQIN_TELEGRAM_MAIL_ENABLED`、`LANQIN_TELEGRAM_BOT_TOKEN`、`LANQIN_TELEGRAM_PRIVATE_CHAT_ID` 和 `LANQIN_TELEGRAM_BODY_MODE`。后台保存的值会持久化到数据库，并在后续启动时优先使用。
+
+### GitHub Release 版本频道通知
+
+版本频道通知由 GitHub Release 工作流统一发送，与各台已部署邮局是否更新无关。仓库需要配置以下 GitHub Actions Secrets：
+
+```text
+TELEGRAM_RELEASE_BOT_TOKEN
+TELEGRAM_RELEASE_CHAT_ID
+```
+
+`TELEGRAM_RELEASE_CHAT_ID` 可以填写频道用户名（例如 `@YourChannel`）或频道数字 ID。机器人必须先添加为频道管理员，并具有发布消息权限。工作流只在检查、全部 Docker 镜像和 GitHub Release 成功后发送一次；未配置密钥时自动跳过，Telegram 发送失败也不会把版本发布标记为失败。
+
 ## 邮件服务边界
 
 - Postfix 读取 `/data/lanqin.db` 中的 `domains`、`mailboxes`、`aliases`。

@@ -233,8 +233,13 @@ export type SystemSettings = {
   externalImapGmailClientSecretSet: boolean
   externalImapOutlookClientId: string
   externalImapOutlookClientSecretSet: boolean
+  telegramMailEnabled: boolean
+  telegramBotTokenSet: boolean
+  telegramPrivateChatId: string
+  telegramBodyMode: "summary" | "full"
 }
-export type SystemSettingsPayload = Omit<SystemSettings, "smtpPasswordSet" | "turnstileSecretSet" | "externalImapSecretSet" | "externalImapGmailClientSecretSet" | "externalImapOutlookClientSecretSet"> & { smtpPassword: string; turnstileSecretKey: string; externalImapSecretKey: string; externalImapGmailClientSecret: string; externalImapOutlookClientSecret: string }
+export type SystemSettingsPayload = Omit<SystemSettings, "smtpPasswordSet" | "turnstileSecretSet" | "externalImapSecretSet" | "externalImapGmailClientSecretSet" | "externalImapOutlookClientSecretSet" | "telegramBotTokenSet"> & { smtpPassword: string; turnstileSecretKey: string; externalImapSecretKey: string; externalImapGmailClientSecret: string; externalImapOutlookClientSecret: string; telegramBotToken: string }
+export type TelegramPrivateChat = { chatId: string; displayName: string }
 export type PublicDomain = { id: string; name: string }
 export type PublicSettings = { openRegistration: boolean; turnstileEnabled: boolean; turnstileSiteKey: string; publicHostname: string; mailAutoRefresh: boolean; mailRefreshMs: number; externalImapEnabled: boolean; mailboxDomains?: PublicDomain[] }
 export type LoginPayload = { loginName?: string; email?: string; password?: string; turnstileToken?: string; challengeToken?: string; twoFactorCode?: string }
