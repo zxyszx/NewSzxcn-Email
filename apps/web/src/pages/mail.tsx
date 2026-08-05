@@ -1223,7 +1223,7 @@ export function MailPage() {
           onLanguageChange={setLanguage}
           onSettings={openSettings}
         />
-        <div className={cn("mt-2 gap-1.5", sidebarCollapsed ? "flex justify-center" : "grid grid-cols-[minmax(0,1fr)_2rem]")}>
+        <div className={cn("relative mt-2", sidebarCollapsed && "flex justify-center")}>
           <MailboxSwitcher
             collapsed={sidebarCollapsed}
             mailboxes={mailboxList.data?.items || []}
@@ -1231,14 +1231,15 @@ export function MailPage() {
             selectedMailboxId={selectedMailboxId}
             selectedMailbox={selectedMailbox}
             unreadCount={mailboxUnreadCount}
+            hasCopyAction={showMailboxCopy}
             onSelect={switchMailbox}
           />
-          {!sidebarCollapsed && (
+          {!sidebarCollapsed && showMailboxCopy && (
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               size="icon"
-              className={cn("h-8 w-8 shrink-0 rounded-md bg-background shadow-none hover:bg-background", !showMailboxCopy && "pointer-events-none invisible")}
+              className="absolute right-1 top-1 h-6 w-6 rounded-sm text-muted-foreground shadow-none hover:bg-accent hover:text-foreground"
               onClick={copyCurrentMailbox}
               disabled={!selectedMailbox}
               aria-label="复制邮箱地址"
@@ -3258,7 +3259,7 @@ function UnreadBadge({ count, tone = "danger" }: { count?: number; tone?: "dange
   )
 }
 
-function MailboxSwitcher({ collapsed, mailboxes, loading, selectedMailboxId, selectedMailbox, unreadCount, onSelect }: { collapsed: boolean; mailboxes: Mailbox[]; loading: boolean; selectedMailboxId: string; selectedMailbox?: Mailbox; unreadCount: number; onSelect: (mailboxId: string) => void }) {
+function MailboxSwitcher({ collapsed, mailboxes, loading, selectedMailboxId, selectedMailbox, unreadCount, hasCopyAction, onSelect }: { collapsed: boolean; mailboxes: Mailbox[]; loading: boolean; selectedMailboxId: string; selectedMailbox?: Mailbox; unreadCount: number; hasCopyAction: boolean; onSelect: (mailboxId: string) => void }) {
   const [mailboxQuery, setMailboxQuery] = React.useState("")
   const isAllSelected = selectedMailboxId === "all"
   const mailboxUnavailable = loading || mailboxes.length === 0
@@ -3276,7 +3277,7 @@ function MailboxSwitcher({ collapsed, mailboxes, loading, selectedMailboxId, sel
   return (
     <DropdownMenu onOpenChange={(open) => { if (!open) setMailboxQuery("") }}>
       <DropdownMenuTrigger asChild>
-        <Button disabled={mailboxUnavailable} variant="outline" className={cn("h-8 min-w-0 flex-1 justify-start gap-1.5 overflow-hidden rounded-md border-input bg-background px-2 text-left font-normal shadow-none hover:bg-background", collapsed && "w-8 flex-none justify-center px-0")} title={displayAddress}>
+        <Button disabled={mailboxUnavailable} variant="outline" className={cn("h-8 w-full min-w-0 justify-start gap-1.5 overflow-hidden rounded-md border-input bg-background px-2 text-left font-normal shadow-none hover:bg-background", hasCopyAction && !collapsed && "pr-9", collapsed && "w-8 flex-none justify-center px-0")} title={displayAddress}>
           <Mail className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           {!collapsed && (
             <>
