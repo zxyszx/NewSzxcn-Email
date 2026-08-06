@@ -3292,7 +3292,7 @@ function MailboxSwitcher({ collapsed, mailboxes, loading, selectedMailboxId, sel
         align="start"
         className={cn(
           "max-w-[calc(100vw-32px)] p-1",
-          collapsed ? "w-[204px]" : "w-[21rem] min-w-[var(--radix-dropdown-menu-trigger-width)]"
+          collapsed ? "w-[204px]" : "w-[var(--radix-dropdown-menu-trigger-width)] min-w-0"
         )}
       >
         {mailboxes.length > 0 && (

@@ -298,7 +298,9 @@ jobs:
 
           tag = os.environ["RELEASE_TAG"]
           prefix = f"<b>NewSzxcn Email {html.escape(tag)}</b>\n新版本现已发布\n\n<b>本次更新</b>\n\n"
-          available = max(0, 3600 - len(prefix))
+          release_url = html.escape(os.environ["RELEASE_URL"], quote=True)
+          footer = f'\n\n🔗 <a href="{release_url}">查看本次更新</a>'
+          available = max(0, 3600 - len(prefix) - len(footer))
           visible_sections = []
           used = 0
           for section in sections:
@@ -309,20 +311,18 @@ jobs:
               used += added
           body = "\n\n".join(visible_sections)
           if len(visible_sections) < len(sections):
-              body += "\n\n更新内容较长，请点击下方按钮查看完整内容。"
-          open("telegram-release-message.txt", "w", encoding="utf-8").write(prefix + body)
+              body += "\n\n更新内容较长，请打开下方链接查看完整内容。"
+          open("telegram-release-message.txt", "w", encoding="utf-8").write(prefix + body + footer)
           PY
 
           jq -n \
             --arg chat_id "${TELEGRAM_CHAT_ID}" \
-            --arg release_url "${RELEASE_URL}" \
             --rawfile text telegram-release-message.txt \
             '{
               chat_id:$chat_id,
               text:$text,
               parse_mode:"HTML",
-              disable_web_page_preview:true,
-              reply_markup:{inline_keyboard:[[{text:"查看本次更新 ↗",url:$release_url}]]}
+              disable_web_page_preview:true
             }' > telegram-release-payload.json
 
           http_code="$(curl -sS --retry 2 --retry-all-errors --connect-timeout 10 --max-time 30 \

@@ -223,6 +223,42 @@ func TestTelegramOTPDetectionAndMessageBudget(t *testing.T) {
 	}
 }
 
+func TestTelegramForwardedGateOTPAndLinks(t *testing.T) {
+	body := `---------- Forwarded message ---------
+Date: 2026年8月6日周四 17:59
+Subject: 登录验证码 (https://www.gate.com)
+
+Gate 检测到您的账号正试图从此 IP 获得登录验证码：
+IP: 87.83.105.229
+如为您本人登录，请输入如下验证码完成操作：
+311665
+如非本人操作，请点击此处禁用账户 <https://data.gate.com/track/click?token=abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789>`
+	if otp := detectTelegramOTP("Fwd: 登录验证码 (https://www.gate.com)", body); otp != "311665" {
+		t.Fatalf("forwarded Gate OTP not detected: %q", otp)
+	}
+	if otp := detectTelegramOTP("登录验证码", "日期 2026-08-06，验证码将在稍后发送"); otp != "" {
+		t.Fatalf("year was incorrectly detected as OTP: %q", otp)
+	}
+	message := formatTelegramMailMessage(telegramMailPayload{
+		From: "no-reply@alert.gate.com", Recipient: "admin@example.com", Subject: "登录验证码",
+		ReceivedAt: time.Now().UTC().Format(time.RFC3339Nano), Body: body, BodyMode: "full", OTP: "311665",
+	})
+	if !strings.Contains(message.HTML, `<a href="https://www.gate.com">https://www.gate.com</a>`) {
+		t.Fatalf("normal URL was not linkified: %s", message.HTML)
+	}
+	if !strings.Contains(message.HTML, `>🔗 data.gate.com 链接</a>`) {
+		t.Fatalf("long tracking URL was not shortened: %s", message.HTML)
+	}
+	if strings.Contains(message.HTML, "&lt;a href=") || utf8.RuneCountInString(message.HTML) > telegramMessageBudget {
+		t.Fatalf("generated Telegram HTML is invalid or too long: %s", message.HTML)
+	}
+	markup := telegramCopyMarkup(message.OTP)
+	buttons, ok := markup["inline_keyboard"].([][]map[string]any)
+	if !ok || len(buttons) != 1 || len(buttons[0]) != 1 || buttons[0][0]["text"] != "复制验证码" {
+		t.Fatalf("copy OTP button missing: %#v", markup)
+	}
+}
+
 func TestTelegramPseudoHTMLAndBodyCharset(t *testing.T) {
 	pseudo := `<html><head><style>.hidden{display:none}</style></head><body><p>验证码：778899</p><div>欢迎登录</div></body></html>`
 	text := telegramMessageBody(storedMessage{BodyText: pseudo})

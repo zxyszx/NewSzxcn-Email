@@ -473,6 +473,7 @@ func sanitizeTelegramAttachmentName(value string) string {
 var (
 	telegramOTPKeywordRe   = regexp.MustCompile(`(?i)(验证码|校验码|动态码|登录码|安全码|一次性密码|otp|verification[ -]?code|security[ -]?code|login[ -]?code|passcode|one[ -]?time[ -]?(?:password|code))`)
 	telegramOTPCandidateRe = regexp.MustCompile(`(?i)[a-z0-9]{4,10}`)
+	telegramURLRe          = regexp.MustCompile(`(?i)https?://[^\s<>"']+`)
 )
 
 func detectTelegramOTP(subject, body string) string {
@@ -504,6 +505,9 @@ func detectTelegramOTP(subject, body string) string {
 			}
 		}
 		if !hasDigit || telegramOTPKeywordRe.MatchString(value) {
+			continue
+		}
+		if isTelegramOTPNonCode(value) {
 			continue
 		}
 		best := 0
@@ -555,6 +559,20 @@ func detectTelegramOTP(subject, body string) string {
 		return ""
 	}
 	return items[0].value
+}
+
+func isTelegramOTPNonCode(value string) bool {
+	if len(value) == 4 {
+		if year, err := strconv.Atoi(value); err == nil && year >= 1900 && year <= 2099 {
+			return true
+		}
+	}
+	if len(value) == 8 {
+		if _, err := time.Parse("20060102", value); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func isTelegramOTPAlphaNumeric(r rune) bool {
@@ -723,12 +741,79 @@ func formatTelegramMailMessage(payload telegramMailPayload) telegramFormattedMes
 		}
 		prefix := strings.Join(lines, "\n") + "\n\n<b>" + label + "</b>\n<blockquote>"
 		suffix := "</blockquote>"
-		body = escapeTelegramWithinBudget(body, telegramMessageBudget-utf8.RuneCountInString(prefix)-utf8.RuneCountInString(suffix))
+		body = formatTelegramBodyHTML(body, telegramMessageBudget-utf8.RuneCountInString(prefix)-utf8.RuneCountInString(suffix))
 		lines = []string{prefix + body + suffix}
 	}
 	htmlText := strings.Join(lines, "\n")
 	plain := formatTelegramMailPlainText(payload)
 	return telegramFormattedMessage{HTML: htmlText, PlainText: plain, OTP: payload.OTP}
+}
+
+func formatTelegramBodyHTML(value string, budget int) string {
+	if budget <= 3 {
+		return ""
+	}
+	var out strings.Builder
+	used := 0
+	truncated := false
+	appendEscaped := func(text string) bool {
+		for _, r := range text {
+			escaped := html.EscapeString(string(r))
+			length := utf8.RuneCountInString(escaped)
+			if used+length > budget-3 {
+				return false
+			}
+			out.WriteString(escaped)
+			used += length
+		}
+		return true
+	}
+	last := 0
+	for _, match := range telegramURLRe.FindAllStringIndex(value, -1) {
+		if !appendEscaped(value[last:match[0]]) {
+			truncated = true
+			break
+		}
+		rawURL, trailing := trimTelegramURL(value[match[0]:match[1]])
+		parsed, err := url.Parse(rawURL)
+		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			if !appendEscaped(value[match[0]:match[1]]) {
+				truncated = true
+				break
+			}
+			last = match[1]
+			continue
+		}
+		display := rawURL
+		if utf8.RuneCountInString(display) > 72 {
+			display = "🔗 " + parsed.Hostname() + " 链接"
+		}
+		anchor := `<a href="` + html.EscapeString(rawURL) + `">` + html.EscapeString(display) + `</a>`
+		length := utf8.RuneCountInString(anchor)
+		if used+length > budget-3 {
+			truncated = true
+			break
+		}
+		out.WriteString(anchor)
+		used += length
+		if !appendEscaped(trailing) {
+			truncated = true
+			break
+		}
+		last = match[1]
+	}
+	if !truncated && last < len(value) && !appendEscaped(value[last:]) {
+		truncated = true
+	}
+	if truncated {
+		out.WriteString("...")
+	}
+	return out.String()
+}
+
+func trimTelegramURL(value string) (string, string) {
+	trimmed := strings.TrimRight(value, ".,;:!?)]}，。；：！？）》】")
+	return trimmed, value[len(trimmed):]
 }
 
 func (a *App) sendTelegramMessage(ctx context.Context, token, chatID, text string) error {
