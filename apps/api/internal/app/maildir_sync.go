@@ -336,6 +336,9 @@ func (a *App) syncMaildirFile(ctx context.Context, mb maildirMailbox, folder mai
 	}
 	msg.MailboxID = mb.ID
 	msg.FolderID = folder.ID
+	if strings.TrimSpace(msg.RecipientAddr) == "" {
+		msg.RecipientAddr = mb.Address
+	}
 	msg.IsRead, msg.IsStarred = maildirFlagsFromPath(path, folder.Name)
 	msg.RawPath = path
 	if msg.MessageUID == "" {
@@ -368,9 +371,11 @@ func (a *App) syncMaildirFile(ctx context.Context, mb maildirMailbox, folder mai
 	}
 	id, err := a.insertMessage(ctx, msg, attachments)
 	if err == nil && strings.EqualFold(folder.Name, "Inbox") {
-		a.enqueueTelegramMailNotification(ctx, id, msg, attachments)
 		a.applyInboundControls(ctx, id, mb.ID, msg.From, msg.Subject)
 		a.processInboundForwarding(ctx, id, mb.ID, raw)
+		if a.shouldNotifyTelegramMessage(ctx, id) {
+			a.enqueueTelegramMailNotification(ctx, id, msg, attachments)
+		}
 	}
 	return err == nil, err
 }
@@ -589,6 +594,9 @@ func (a *App) attachUnregisteredMaildirRawPathToExisting(ctx context.Context, ra
 
 func unregisteredRecipientFromMessage(msg storedMessage, domain string) string {
 	domain = normalizeDomain(domain)
+	if address := normalizeEmail(msg.RecipientAddr); strings.HasSuffix(address, "@"+domain) {
+		return address
+	}
 	for _, address := range append(append([]string{}, msg.To...), msg.CC...) {
 		address = normalizeEmail(address)
 		if strings.HasSuffix(address, "@"+domain) {
@@ -613,10 +621,17 @@ func (a *App) parseMaildirMessage(raw []byte, fallbackTo string) (storedMessage,
 	if len(to) == 0 {
 		to = []string{fallbackTo}
 	}
+	recipientAddr := originalMailRecipient(m.Header)
 	sentAt := parseMailDate(m.Header.Get("Date"))
 	parsed := &parsedMail{}
 	if err := parseMailPart(textproto.MIMEHeader(m.Header), m.Body, parsed); err != nil {
 		return storedMessage{}, nil, err
+	}
+	if looksLikeHTMLDocument(parsed.Text) {
+		if strings.TrimSpace(parsed.HTML) == "" {
+			parsed.HTML = parsed.Text
+		}
+		parsed.Text = telegramHTMLToText(parsed.Text)
 	}
 	bodyHTML := a.policy.Sanitize(parsed.HTML)
 	bodyText := parsed.Text
@@ -633,6 +648,7 @@ func (a *App) parseMaildirMessage(raw []byte, fallbackTo string) (storedMessage,
 	return storedMessage{
 		MessageUID:     newID("uid"),
 		MessageID:      strings.TrimSpace(m.Header.Get("Message-Id")),
+		RecipientAddr:  recipientAddr,
 		Subject:        subject,
 		From:           from,
 		FromName:       fromName,
@@ -646,6 +662,21 @@ func (a *App) parseMaildirMessage(raw []byte, fallbackTo string) (storedMessage,
 		IsRead:         false,
 		Authentication: parseMailAuthentication(textproto.MIMEHeader(m.Header)),
 	}, parsed.Attachments, nil
+}
+
+func originalMailRecipient(header netmail.Header) string {
+	for _, key := range []string{"X-Original-To", "Delivered-To", "Envelope-To", "Original-Recipient"} {
+		value := strings.TrimSpace(header.Get(key))
+		if key == "Original-Recipient" {
+			if _, suffix, ok := strings.Cut(value, ";"); ok {
+				value = strings.TrimSpace(suffix)
+			}
+		}
+		if address, _ := firstAddressParts(value); strings.Contains(address, "@") {
+			return address
+		}
+	}
+	return ""
 }
 
 func parseMailPart(header textproto.MIMEHeader, body io.Reader, parsed *parsedMail) error {
@@ -685,6 +716,16 @@ func parseMailPart(header textproto.MIMEHeader, body io.Reader, parsed *parsedMa
 		}
 		parsed.Attachments = append(parsed.Attachments, AttachmentInput{Filename: filename, ContentType: mediaType, ContentBase64: base64.StdEncoding.EncodeToString(decoded)})
 		return nil
+	}
+	if strings.HasPrefix(strings.ToLower(mediaType), "text/") {
+		if charset := strings.TrimSpace(params["charset"]); charset != "" && !strings.EqualFold(charset, "utf-8") && !strings.EqualFold(charset, "us-ascii") {
+			if reader, decodeErr := charsetReader(charset, bytes.NewReader(decoded)); decodeErr == nil {
+				if converted, readErr := io.ReadAll(reader); readErr == nil {
+					decoded = converted
+				}
+			}
+		}
+		decoded = []byte(strings.ToValidUTF8(string(decoded), "�"))
 	}
 	switch strings.ToLower(mediaType) {
 	case "text/html":

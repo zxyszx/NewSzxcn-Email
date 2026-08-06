@@ -171,6 +171,7 @@ func (a *App) Router() http.Handler {
 			r.With(a.requirePermission(PermissionSettingsView)).Get("/admin/maildir-sync/health", a.handleMaildirSyncHealth)
 			r.With(a.requirePermission(PermissionSettingsUpdate)).Post("/admin/settings", a.handleUpdateSystemSettings)
 			r.With(a.requirePermission(PermissionSettingsTestSMTP)).Post("/admin/settings/test-smtp", a.handleTestSMTP)
+			r.With(a.requirePermission(PermissionSettingsUpdate)).Post("/admin/settings/telegram/pair", a.handleCreateTelegramPairing)
 			r.With(a.requirePermission(PermissionSettingsUpdate)).Post("/admin/settings/telegram/discover", a.handleDiscoverTelegramChat)
 			r.With(a.requirePermission(PermissionSettingsUpdate)).Post("/admin/settings/telegram/test", a.handleTestTelegram)
 			r.With(a.requirePermission(PermissionTemplatesView)).Get("/admin/mail-templates", a.handleListMailTemplates)

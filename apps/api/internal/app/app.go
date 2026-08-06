@@ -23,18 +23,21 @@ import (
 )
 
 type App struct {
-	cfg           Config
-	cfgMu         sync.RWMutex
-	db            *sql.DB
-	log           *slog.Logger
-	now           func() time.Time
-	policy        *HTMLPolicy
-	workerCancel  context.CancelFunc
-	workerWG      sync.WaitGroup
-	maildirHealth *maildirSyncHealthTracker
-	externalIMAP  externalIMAPClientFactory
-	turnstileURL  string
-	telegramURL   string
+	cfg                Config
+	cfgMu              sync.RWMutex
+	db                 *sql.DB
+	log                *slog.Logger
+	now                func() time.Time
+	policy             *HTMLPolicy
+	workerCancel       context.CancelFunc
+	workerWG           sync.WaitGroup
+	maildirHealth      *maildirSyncHealthTracker
+	externalIMAP       externalIMAPClientFactory
+	turnstileURL       string
+	telegramURL        string
+	telegramPairMu     sync.Mutex
+	telegramPairs      map[string]telegramPairing
+	telegramDeliveryMu sync.Mutex
 }
 
 func (a *App) config() Config {
@@ -72,7 +75,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	}
 	db.SetMaxOpenConns(1)
 
-	a := &App{cfg: cfg, db: db, log: logger, now: time.Now, policy: NewHTMLPolicy(), maildirHealth: newMaildirSyncHealthTracker(), telegramURL: "https://api.telegram.org"}
+	a := &App{cfg: cfg, db: db, log: logger, now: time.Now, policy: NewHTMLPolicy(), maildirHealth: newMaildirSyncHealthTracker(), telegramURL: "https://api.telegram.org", telegramPairs: map[string]telegramPairing{}}
 	a.externalIMAP = a
 	if err := a.configureSQLite(context.Background()); err != nil {
 		db.Close()
@@ -91,6 +94,14 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		return nil, err
 	}
 	if err := a.seed(context.Background()); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := a.initializeTelegramNotificationDefaults(context.Background()); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := a.loadPersistedSystemSettings(context.Background()); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -444,7 +455,9 @@ func (a *App) migrate(ctx context.Context) error {
 			last_error TEXT NOT NULL DEFAULT '',
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL,
-			delivered_at TEXT
+			delivered_at TEXT,
+			lease_until TEXT NOT NULL DEFAULT '',
+			telegram_message_id INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_telegram_mail_outbox_due ON telegram_mail_outbox(delivered_at,next_attempt_at,created_at)`,
 		`CREATE TRIGGER IF NOT EXISTS trg_mailbox_delete_status_webhook_outbox
@@ -689,8 +702,68 @@ func (a *App) migrate(ctx context.Context) error {
 	if err := a.migrateAPITokenScopes(ctx); err != nil {
 		return err
 	}
+	if err := a.migrateTelegramNotifications(ctx); err != nil {
+		return err
+	}
 	if err := a.ensureDefaultPermissionGroups(ctx); err != nil {
 		return err
+	}
+	return nil
+}
+
+func (a *App) migrateTelegramNotifications(ctx context.Context) error {
+	if err := a.ensureTableColumn(ctx, "telegram_mail_outbox", "lease_until", `ALTER TABLE telegram_mail_outbox ADD COLUMN lease_until TEXT NOT NULL DEFAULT ''`); err != nil {
+		return err
+	}
+	if err := a.ensureTableColumn(ctx, "telegram_mail_outbox", "telegram_message_id", `ALTER TABLE telegram_mail_outbox ADD COLUMN telegram_message_id INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (a *App) initializeTelegramNotificationDefaults(ctx context.Context) error {
+	now := a.now().UTC().Format(time.RFC3339Nano)
+	var mailboxSettingExists int
+	if err := a.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM system_settings WHERE key='telegramMailboxIds'`).Scan(&mailboxSettingExists); err != nil {
+		return err
+	}
+	if mailboxSettingExists == 0 {
+		rows, err := a.db.QueryContext(ctx, `SELECT m.id FROM mailboxes m JOIN users u ON u.id=m.user_id WHERE u.role='admin' AND m.status='active' ORDER BY m.address`)
+		if err != nil {
+			return err
+		}
+		var mailboxIDs []string
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			mailboxIDs = append(mailboxIDs, id)
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		if _, err := a.db.ExecContext(ctx, `INSERT INTO system_settings(key,value,updated_at) VALUES('telegramMailboxIds',?,?)`, strings.Join(mailboxIDs, ","), now); err != nil {
+			return err
+		}
+	}
+
+	var includeSettingExists int
+	if err := a.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM system_settings WHERE key='telegramIncludeUnregistered'`).Scan(&includeSettingExists); err != nil {
+		return err
+	}
+	if includeSettingExists == 0 {
+		var enabled string
+		_ = a.db.QueryRowContext(ctx, `SELECT value FROM system_settings WHERE key='telegramMailEnabled'`).Scan(&enabled)
+		includeUnregistered := "false"
+		if strings.EqualFold(enabled, "true") {
+			includeUnregistered = "true"
+		}
+		if _, err := a.db.ExecContext(ctx, `INSERT INTO system_settings(key,value,updated_at) VALUES('telegramIncludeUnregistered',?,?)`, includeUnregistered, now); err != nil {
+			return err
+		}
 	}
 	return nil
 }

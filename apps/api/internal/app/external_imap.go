@@ -1181,6 +1181,9 @@ func (a *App) syncExternalIMAPFolder(ctx context.Context, account externalIMAPAc
 			if err := a.writeStoredMessageToMaildir(ctx, msgID, stored, attachments); err != nil {
 				a.log.Warn("failed to write external imap message to maildir", "message", msgID, "error", err)
 			}
+			if state.Initialized && strings.EqualFold(localFolderName, "Inbox") {
+				a.enqueueTelegramMailNotification(ctx, msgID, stored, attachments)
+			}
 			imported++
 		} else {
 			skipped++
@@ -1194,12 +1197,15 @@ func (a *App) syncExternalIMAPFolder(ctx context.Context, account externalIMAPAc
 }
 
 type externalIMAPFolderState struct {
-	LastUID uint32
+	LastUID     uint32
+	Initialized bool
 }
 
 func (a *App) loadExternalIMAPFolderState(ctx context.Context, accountID, folder string) externalIMAPFolderState {
 	var state externalIMAPFolderState
-	_ = a.db.QueryRowContext(ctx, `SELECT last_uid FROM external_imap_folder_states WHERE account_id=? AND remote_folder=?`, accountID, folder).Scan(&state.LastUID)
+	if err := a.db.QueryRowContext(ctx, `SELECT last_uid FROM external_imap_folder_states WHERE account_id=? AND remote_folder=?`, accountID, folder).Scan(&state.LastUID); err == nil {
+		state.Initialized = true
+	}
 	return state
 }
 

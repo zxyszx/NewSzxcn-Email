@@ -56,6 +56,8 @@ type Config struct {
 	TelegramBotToken                string
 	TelegramPrivateChatID           string
 	TelegramBodyMode                string
+	TelegramMailboxIDs              string
+	TelegramIncludeUnregistered     bool
 	MailTranslateEnabled            bool
 	MailTranslateMaxChars           int
 	DeliveryWebhookSecret           string
@@ -118,6 +120,8 @@ func LoadConfig() Config {
 		TelegramBotToken:                getenv("LANQIN_TELEGRAM_BOT_TOKEN", ""),
 		TelegramPrivateChatID:           getenv("LANQIN_TELEGRAM_PRIVATE_CHAT_ID", ""),
 		TelegramBodyMode:                normalizeTelegramBodyMode(getenv("LANQIN_TELEGRAM_BODY_MODE", "summary")),
+		TelegramMailboxIDs:              getenv("LANQIN_TELEGRAM_MAILBOX_IDS", ""),
+		TelegramIncludeUnregistered:     getenvBool("LANQIN_TELEGRAM_INCLUDE_UNREGISTERED", false),
 		MailTranslateEnabled:            getenvBool("LANQIN_MAIL_TRANSLATE_ENABLED", true),
 		MailTranslateMaxChars:           getenvInt("LANQIN_MAIL_TRANSLATE_MAX_CHARS", 8000),
 		DeliveryWebhookSecret:           getenv("LANQIN_DELIVERY_WEBHOOK_SECRET", ""),

@@ -24,7 +24,7 @@ import { SystemVersionDialog } from "@/components/system-version-dialog"
 import { useMe } from "@/hooks/use-me"
 import { useToast } from "@/hooks/use-toast"
 import { hasAnyPermission, hasPermission } from "@/lib/permissions"
-import type { PermissionKey } from "@/lib/api-types"
+import type { PermissionKey, TelegramPairing } from "@/lib/api-types"
 
 type Section = "overview" | "users" | "permissionGroups" | "domains" | "mailboxes" | "aliases" | "messages" | "sendAudit" | "settings"
 type SettingsTab = "base" | "smtp" | "storage" | "mail" | "notifications" | "externalImap" | "templates" | "security" | "about"
@@ -87,7 +87,7 @@ export function AdminPage() {
   const users = useQuery({ queryKey: ["admin", "users"], queryFn: api.users, enabled: !!user && (canUsersView || canMailboxesView) })
   const permissionGroups = useQuery({ queryKey: ["admin", "permission-groups"], queryFn: api.permissionGroups, enabled: !!user && (canPermissionGroupsView || canUsersView) })
   const domains = useQuery({ queryKey: ["admin", "domains"], queryFn: api.domains, enabled: !!user && (canDomainsView || canDNSView || canMailboxesView || canAliasesView || canSettingsView || canTemplatesView) })
-  const mailboxes = useQuery({ queryKey: ["admin", "mailboxes"], queryFn: api.mailboxes, enabled: !!user && (canMailboxesView || canMessagesView) })
+  const mailboxes = useQuery({ queryKey: ["admin", "mailboxes"], queryFn: api.mailboxes, enabled: !!user && (canMailboxesView || canMessagesView || canSettingsView) })
   const aliases = useQuery({ queryKey: ["admin", "aliases"], queryFn: api.aliases, enabled: !!user && canAliasesView })
   const settings = useQuery({ queryKey: ["admin", "settings"], queryFn: api.systemSettings, enabled: !!user && canSettingsView })
   const [params, setParams] = useSearchParams()
@@ -141,7 +141,7 @@ export function AdminPage() {
         {section === "aliases" && <AliasesSection aliases={aliasItems} domains={domainItems} />}
         {section === "messages" && <AdminMessagesSection mailboxes={mailboxItems} systemAdmin={user?.role === "admin"} />}
         {section === "sendAudit" && <AdminSendAuditSection mailboxes={mailboxItems} />}
-        {section === "settings" && <SystemSettingsSection settings={settings.data} domains={domainItems} initialTab={params.get("settingsTab")} />}
+        {section === "settings" && <SystemSettingsSection settings={settings.data} domains={domainItems} mailboxes={mailboxItems} initialTab={params.get("settingsTab")} />}
       </main>
     </ScrollArea>
   )
@@ -1029,7 +1029,7 @@ function AdminSendAuditSection({ mailboxes }: { mailboxes: MailboxType[] }) {
   )
 }
 
-function SystemSettingsSection({ settings, domains, initialTab }: { settings?: SystemSettings; domains: Domain[]; initialTab?: string | null }) {
+function SystemSettingsSection({ settings, domains, mailboxes, initialTab }: { settings?: SystemSettings; domains: Domain[]; mailboxes: MailboxType[]; initialTab?: string | null }) {
   const me = useMe()
   const user = me.data?.user
   const qc = useQueryClient()
@@ -1059,6 +1059,9 @@ function SystemSettingsSection({ settings, domains, initialTab }: { settings?: S
   const [telegramBotToken, setTelegramBotToken] = React.useState("")
   const [telegramPrivateChatId, setTelegramPrivateChatId] = React.useState("")
   const [telegramBodyMode, setTelegramBodyMode] = React.useState<"summary" | "full">("summary")
+  const [telegramMailboxIds, setTelegramMailboxIds] = React.useState<string[]>([])
+  const [telegramIncludeUnregistered, setTelegramIncludeUnregistered] = React.useState(false)
+  const [telegramPairing, setTelegramPairing] = React.useState<TelegramPairing | null>(null)
   React.useEffect(() => {
     if (!settings) return
     setSmtpRequireTls(settings.smtpRequireTls)
@@ -1076,11 +1079,23 @@ function SystemSettingsSection({ settings, domains, initialTab }: { settings?: S
     setTelegramBotToken("")
     setTelegramPrivateChatId(settings.telegramPrivateChatId || "")
     setTelegramBodyMode(settings.telegramBodyMode === "full" ? "full" : "summary")
+    setTelegramMailboxIds(settings.telegramMailboxIds || [])
+    setTelegramIncludeUnregistered(settings.telegramIncludeUnregistered)
+    setTelegramPairing(null)
   }, [settings])
+  const createTelegramPairing = useMutation({
+    mutationFn: () => api.createTelegramPairing(telegramBotToken),
+    onSuccess: (pairing) => {
+      setTelegramPairing(pairing)
+      toast({ title: "Telegram 绑定码已生成" })
+    },
+    onError: (error) => toast({ title: "生成失败", description: error.message }),
+  })
   const discoverTelegram = useMutation({
-    mutationFn: () => api.discoverTelegramChat(telegramBotToken),
+    mutationFn: () => api.discoverTelegramChat(telegramBotToken, telegramPairing?.code || ""),
     onSuccess: (chat) => {
       setTelegramPrivateChatId(chat.chatId)
+      setTelegramPairing(null)
       toast({ title: "已获取 Telegram 私聊", description: chat.displayName || chat.chatId })
     },
     onError: (error) => toast({ title: "获取失败", description: error.message }),
@@ -1126,6 +1141,8 @@ function SystemSettingsSection({ settings, domains, initialTab }: { settings?: S
       telegramBotToken,
       telegramPrivateChatId,
       telegramBodyMode,
+      telegramMailboxIds,
+      telegramIncludeUnregistered,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin", "settings"] })
@@ -1171,6 +1188,8 @@ function SystemSettingsSection({ settings, domains, initialTab }: { settings?: S
     settings.telegramBotTokenSet,
     settings.telegramPrivateChatId,
     settings.telegramBodyMode,
+    (settings.telegramMailboxIds || []).join(","),
+    settings.telegramIncludeUnregistered,
   ].join("|") : "loading"
   const tabs: { key: typeof settingsTab; label: string }[] = [
     ...(canSettingsView ? [
@@ -1303,10 +1322,46 @@ function SystemSettingsSection({ settings, domains, initialTab }: { settings?: S
                   <Label>私聊 Chat ID</Label>
                   <div className="flex gap-2">
                     <Input inputMode="numeric" value={telegramPrivateChatId} onChange={(event) => setTelegramPrivateChatId(event.target.value)} placeholder="123456789" />
-                    <Button type="button" variant="outline" className="shrink-0" disabled={discoverTelegram.isPending} onClick={() => discoverTelegram.mutate()}>
-                      <Search className="mr-2 h-4 w-4" />{discoverTelegram.isPending ? "获取中" : "自动获取"}
+                    <Button type="button" variant="outline" className="shrink-0" disabled={createTelegramPairing.isPending} onClick={() => createTelegramPairing.mutate()}>
+                      <ShieldCheck className="mr-2 h-4 w-4" />{createTelegramPairing.isPending ? "生成中" : "安全绑定"}
                     </Button>
                   </div>
+                  {telegramPairing && (
+                    <div className="space-y-3 border-l-2 border-primary/50 py-1 pl-3">
+                      <div className="flex items-center gap-2">
+                        <code className="min-w-0 flex-1 font-mono text-sm font-semibold">{telegramPairing.code}</code>
+                        <Button type="button" variant="ghost" size="icon" title="复制绑定码" onClick={() => navigator.clipboard.writeText(telegramPairing.code)}>
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button asChild type="button" variant="outline" size="sm">
+                          <a href={telegramPairing.deepLink} target="_blank" rel="noreferrer"><ExternalLink className="mr-2 h-4 w-4" />打开机器人</a>
+                        </Button>
+                        <Button type="button" size="sm" disabled={discoverTelegram.isPending} onClick={() => discoverTelegram.mutate()}>
+                          <CheckCircle2 className="mr-2 h-4 w-4" />{discoverTelegram.isPending ? "绑定中" : "完成绑定"}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="space-y-3 border-t pt-5">
+                <Label>通知邮箱</Label>
+                <div className="grid gap-2 md:grid-cols-2">
+                  {mailboxes.filter((mailbox) => mailbox.status === "active").map((mailbox) => (
+                    <label key={mailbox.id} className="flex min-h-11 items-center gap-3 rounded-md border px-3 py-2">
+                      <Checkbox
+                        checked={telegramMailboxIds.includes(mailbox.id)}
+                        onCheckedChange={(checked) => setTelegramMailboxIds((items) => checked === true ? Array.from(new Set([...items, mailbox.id])) : items.filter((id) => id !== mailbox.id))}
+                      />
+                      <span className="min-w-0 truncate text-sm font-medium">{mailbox.address}</span>
+                    </label>
+                  ))}
+                  <label className="flex min-h-11 items-center gap-3 rounded-md border px-3 py-2">
+                    <Checkbox checked={telegramIncludeUnregistered} onCheckedChange={(checked) => setTelegramIncludeUnregistered(checked === true)} />
+                    <span className="text-sm font-medium">未知收件</span>
+                  </label>
                 </div>
               </div>
               <div className="grid gap-4 md:grid-cols-2">

@@ -44,6 +44,8 @@ type SystemSettings struct {
 	TelegramBotTokenSet                bool     `json:"telegramBotTokenSet"`
 	TelegramPrivateChatID              string   `json:"telegramPrivateChatId"`
 	TelegramBodyMode                   string   `json:"telegramBodyMode"`
+	TelegramMailboxIDs                 []string `json:"telegramMailboxIds"`
+	TelegramIncludeUnregistered        bool     `json:"telegramIncludeUnregistered"`
 }
 
 type systemSettingsUpdate struct {
@@ -81,6 +83,8 @@ type systemSettingsUpdate struct {
 	TelegramBotToken                string   `json:"telegramBotToken"`
 	TelegramPrivateChatID           string   `json:"telegramPrivateChatId"`
 	TelegramBodyMode                string   `json:"telegramBodyMode"`
+	TelegramMailboxIDs              []string `json:"telegramMailboxIds"`
+	TelegramIncludeUnregistered     bool     `json:"telegramIncludeUnregistered"`
 }
 
 type PublicSettings struct {
@@ -135,6 +139,8 @@ func (a *App) handlePublicSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleUpdateSystemSettings(w http.ResponseWriter, r *http.Request) {
+	a.telegramDeliveryMu.Lock()
+	defer a.telegramDeliveryMu.Unlock()
 	var req systemSettingsUpdate
 	if err := decodeJSON(r, &req); err != nil {
 		badRequest(w, err)
@@ -218,6 +224,8 @@ func (a *App) handleUpdateSystemSettings(w http.ResponseWriter, r *http.Request)
 	}
 	next.TelegramPrivateChatID = strings.TrimSpace(req.TelegramPrivateChatID)
 	next.TelegramBodyMode = normalizeTelegramBodyMode(req.TelegramBodyMode)
+	next.TelegramMailboxIDs = strings.Join(a.activeTelegramMailboxIDs(r.Context(), req.TelegramMailboxIDs), ",")
+	next.TelegramIncludeUnregistered = req.TelegramIncludeUnregistered
 	if next.TelegramMailEnabled {
 		if next.TelegramBotToken == "" {
 			badRequest(w, errors.New("Telegram Bot Token 未设置"))
@@ -227,9 +235,15 @@ func (a *App) handleUpdateSystemSettings(w http.ResponseWriter, r *http.Request)
 			badRequest(w, errors.New("Telegram 私聊 Chat ID 无效"))
 			return
 		}
+		if next.TelegramMailboxIDs == "" && !next.TelegramIncludeUnregistered {
+			badRequest(w, errors.New("请至少选择一个 Telegram 通知邮箱或开启未知收件通知"))
+			return
+		}
 	}
 
-	if err := a.saveSystemSettings(r.Context(), next); err != nil {
+	previous := a.config()
+	telegramDestinationChanged := previous.TelegramMailEnabled != next.TelegramMailEnabled || previous.TelegramBotToken != next.TelegramBotToken || previous.TelegramPrivateChatID != next.TelegramPrivateChatID || previous.TelegramMailboxIDs != next.TelegramMailboxIDs || previous.TelegramIncludeUnregistered != next.TelegramIncludeUnregistered
+	if err := a.saveSystemSettings(r.Context(), next, telegramDestinationChanged); err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to save settings")
 		return
 	}
@@ -346,6 +360,8 @@ func (a *App) systemSettingsSnapshot() SystemSettings {
 		TelegramBotTokenSet:                strings.TrimSpace(cfg.TelegramBotToken) != "",
 		TelegramPrivateChatID:              cfg.TelegramPrivateChatID,
 		TelegramBodyMode:                   normalizeTelegramBodyMode(cfg.TelegramBodyMode),
+		TelegramMailboxIDs:                 cleanIDList(strings.Split(cfg.TelegramMailboxIDs, ",")),
+		TelegramIncludeUnregistered:        cfg.TelegramIncludeUnregistered,
 	}
 }
 
@@ -438,6 +454,10 @@ func (a *App) loadPersistedSystemSettings(ctx context.Context) error {
 			cfg.TelegramPrivateChatID = value
 		case "telegramBodyMode":
 			cfg.TelegramBodyMode = normalizeTelegramBodyMode(value)
+		case "telegramMailboxIds":
+			cfg.TelegramMailboxIDs = strings.Join(cleanIDList(strings.Split(value, ",")), ",")
+		case "telegramIncludeUnregistered":
+			cfg.TelegramIncludeUnregistered = value == "true"
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -447,7 +467,7 @@ func (a *App) loadPersistedSystemSettings(ctx context.Context) error {
 	return nil
 }
 
-func (a *App) saveSystemSettings(ctx context.Context, cfg Config) error {
+func (a *App) saveSystemSettings(ctx context.Context, cfg Config, clearPendingTelegram bool) error {
 	values := map[string]string{
 		"publicHostname":                  cfg.PublicHostname,
 		"publicBaseUrl":                   cfg.PublicBaseURL,
@@ -483,6 +503,8 @@ func (a *App) saveSystemSettings(ctx context.Context, cfg Config) error {
 		"telegramBotToken":                cfg.TelegramBotToken,
 		"telegramPrivateChatId":           cfg.TelegramPrivateChatID,
 		"telegramBodyMode":                normalizeTelegramBodyMode(cfg.TelegramBodyMode),
+		"telegramMailboxIds":              strings.Join(cleanIDList(strings.Split(cfg.TelegramMailboxIDs, ",")), ","),
+		"telegramIncludeUnregistered":     strconv.FormatBool(cfg.TelegramIncludeUnregistered),
 	}
 	now := a.now().UTC().Format(time.RFC3339Nano)
 	tx, err := a.db.BeginTx(ctx, nil)
@@ -493,6 +515,11 @@ func (a *App) saveSystemSettings(ctx context.Context, cfg Config) error {
 	for key, value := range values {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO system_settings(key,value,updated_at) VALUES(?,?,?)
 			ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`, key, value, now); err != nil {
+			return err
+		}
+	}
+	if clearPendingTelegram {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM telegram_mail_outbox WHERE delivered_at IS NULL`); err != nil {
 			return err
 		}
 	}

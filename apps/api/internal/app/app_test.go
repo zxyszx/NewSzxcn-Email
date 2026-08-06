@@ -463,6 +463,8 @@ func systemSettingsPayload(settings SystemSettings) map[string]any {
 		"telegramBotToken":                "",
 		"telegramPrivateChatId":           settings.TelegramPrivateChatID,
 		"telegramBodyMode":                settings.TelegramBodyMode,
+		"telegramMailboxIds":              settings.TelegramMailboxIDs,
+		"telegramIncludeUnregistered":     settings.TelegramIncludeUnregistered,
 	}
 }
 
