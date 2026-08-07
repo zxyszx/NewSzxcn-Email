@@ -44,9 +44,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y shellcheck sqlite3
-          bash -n install.sh tests/install_test.sh
-          shellcheck -x install.sh tests/install_test.sh
+          bash -n install.sh tests/install_test.sh tests/dkim_sync_test.sh
+          shellcheck -x install.sh tests/install_test.sh tests/dkim_sync_test.sh deploy/rspamd/sync-dkim.sh
           bash tests/install_test.sh
+          bash tests/dkim_sync_test.sh
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4

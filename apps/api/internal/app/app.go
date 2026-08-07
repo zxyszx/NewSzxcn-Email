@@ -705,6 +705,9 @@ func (a *App) migrate(ctx context.Context) error {
 	if err := a.migrateTelegramNotifications(ctx); err != nil {
 		return err
 	}
+	if err := a.migrateDefaultMailLabels(ctx); err != nil {
+		return err
+	}
 	if err := a.ensureDefaultPermissionGroups(ctx); err != nil {
 		return err
 	}
@@ -720,6 +723,48 @@ func (a *App) migrateTelegramNotifications(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (a *App) migrateDefaultMailLabels(ctx context.Context) error {
+	const marker = "defaultMailLabelsInitialized"
+	var initialized int
+	if err := a.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM system_settings WHERE key=?`, marker).Scan(&initialized); err != nil {
+		return err
+	}
+	if initialized > 0 {
+		return nil
+	}
+	rows, err := a.db.QueryContext(ctx, `SELECT id FROM mailboxes ORDER BY id`)
+	if err != nil {
+		return err
+	}
+	var mailboxIDs []string
+	for rows.Next() {
+		var mailboxID string
+		if err := rows.Scan(&mailboxID); err != nil {
+			rows.Close()
+			return err
+		}
+		mailboxIDs = append(mailboxIDs, mailboxID)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	tx, err := a.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	now := a.now().UTC().Format(time.RFC3339Nano)
+	for _, mailboxID := range mailboxIDs {
+		if err := insertDefaultMailLabels(ctx, tx, mailboxID, now); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO system_settings(key,value,updated_at) VALUES(?,?,?)`, marker, "true", now); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (a *App) initializeTelegramNotificationDefaults(ctx context.Context) error {
@@ -1769,6 +1814,30 @@ func defaultFolderDefs() []struct{ name, role string } {
 	}
 }
 
+type defaultMailLabel struct {
+	name  string
+	color string
+}
+
+func defaultMailLabelDefs() []defaultMailLabel {
+	return []defaultMailLabel{
+		{name: "个人", color: "#10b981"},
+		{name: "家人", color: "#ec4899"},
+		{name: "朋友", color: "#06b6d4"},
+		{name: "工作", color: "#3b82f6"},
+		{name: "重要", color: "#f59e0b"},
+	}
+}
+
+func insertDefaultMailLabels(ctx context.Context, tx *sql.Tx, mailboxID, now string) error {
+	for _, label := range defaultMailLabelDefs() {
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO mail_labels(id,mailbox_id,name,color,created_at,updated_at) VALUES(?,?,?,?,?,?)`, newID("lbl"), mailboxID, label.name, label.color, now, now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (a *App) createMailbox(ctx context.Context, userID, domainID, localPart, displayName, password string, quotaMB int, status string) (string, error) {
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -1825,6 +1894,9 @@ func (a *App) createMailboxWithPasswordHashTx(ctx context.Context, tx *sql.Tx, u
 		if err != nil {
 			return "", err
 		}
+	}
+	if err := insertDefaultMailLabels(ctx, tx, id, now); err != nil {
+		return "", err
 	}
 	return id, nil
 }

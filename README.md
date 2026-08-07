@@ -7,7 +7,7 @@ NewSzxcn-Email 是一个可自建、可管理、带完整 Webmail 与管理后�
 [![CI](https://github.com/zxyszx/NewSzxcn-Email/actions/workflows/ci.yml/badge.svg)](https://github.com/zxyszx/NewSzxcn-Email/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/zxyszx/NewSzxcn-Email)](LICENSE)
 
-[邮箱指南](docs/GUIDE.md) · [版本发布](https://github.com/zxyszx/NewSzxcn-Email/releases) · [部署文档](deploy/README.md) · [English](README.en.md)
+[邮箱后台配置指南](docs/GUIDE.md) · [版本发布](https://github.com/zxyszx/NewSzxcn-Email/releases) · [部署文档](deploy/README.md) · [English](README.en.md)
 
 ## 主要功能
 
@@ -35,8 +35,60 @@ curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/install.
 bash <(curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/install.sh)
 ```
 
-脚本会先显示统一管理菜单。空白服务器默认选择安装，并进入防火墙、邮件服务器域名、邮箱地址域名、管理员
-邮箱和 Web 部署方式的引导；检测到已有安装时默认选择安全更新。选择重新安装会先将
+### 管理面板
+
+脚本会根据服务器当前状态显示不同菜单。空白服务器只显示安装和退出，避免误选尚不可用的更新、回滚或重启功能：
+
+```text
+==================================================
+          NewSzxcn Email 管理面板
+==================================================
+状态：尚未安装
+--------------------------------------------------
+1. 一键安装 NewSzxcn Email
+0. 退出
+==================================================
+请选择 [1]：
+```
+
+检测到已有安装后，会动态读取服务状态、实际镜像版本和访问地址，并默认选择安全更新：
+
+```text
+==================================================
+          NewSzxcn Email 管理面板
+==================================================
+状态：运行中
+版本：v1.2.19（示例，以实际安装版本为准）
+地址：https://mail.example.com
+--------------------------------------------------
+安装与维护
+1. 重新安装（完整备份，失败自动恢复）
+2. 更新系统（自动备份，失败自动回滚）
+3. 检查并修复现有安装
+
+服务管理
+4. 查看运行状态
+5. 重启服务
+6. 查看实时日志
+
+证书与恢复
+7. 管理 SSL 证书
+8. 回滚到上次更新前版本
+
+账号与帮助
+9. 邮箱后台配置指南
+10. 查看管理员登录信息
+11. 重置管理员登录密码
+
+危险操作
+12. 卸载服务（保留数据）
+
+0. 退出
+==================================================
+请选择 [2]：
+```
+
+容器停止后菜单会显示“已停止”；配置存在但运行文件残缺时会显示“安装不完整”并默认选择修复。空白服务器进入安装后，会依次引导配置防火墙、邮件服务器域名、邮箱地址域名、管理员邮箱和 Web 部署方式。选择重新安装会先将
 `/opt/newszxcn-email` 完整改名备份，失败时自动恢复原目录、Nginx 和旧容器。更新前会
 校验数据库备份并保存镜像、Compose、环境、安装脚本和 Nginx，失败时执行完整恢复。
 
@@ -44,7 +96,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/i
 
 - 安装或检查 Docker Engine 与 Docker Compose v2
 - 选择自动添加邮局必要端口规则，或保留现有防火墙由用户自行配置
-- 分开确认邮件服务器域名和邮箱地址域名，创建唯一管理员邮箱；默认 `admin@邮箱地址域名`，回车自动生成 12 位密码，自定义密码最少 6 位
+- 自动检测并确认邮箱地址域名；创建管理员邮箱时可选择默认 `admin` 前缀或自行输入前缀，例如服务器域名 `mail.example.com`、前缀 `admin` 会创建 `admin@example.com`；回车自动生成 12 位密码，自定义密码最少 6 位
 - 选择自动 Nginx + SSL、宝塔/已有 Nginx 反代或 HTTP 测试模式
 - 自动模式使用官方 `acme.sh` 签发和续期证书，不会强制停止占用 80 端口的进程
 - 创建 `/opt/newszxcn-email` 持久化目录
@@ -87,6 +139,7 @@ sudo ns
 sudo newszxcn-email guide
 sudo newszxcn-email credentials
 sudo newszxcn-email reset-password
+sudo newszxcn-email repair
 sudo newszxcn-email status
 sudo newszxcn-email logs
 sudo newszxcn-email restart

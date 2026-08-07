@@ -13,8 +13,20 @@ chown_dkim_dir() {
   fi
 }
 
+reload_rspamd() {
+  if command -v rspamadm >/dev/null 2>&1 && rspamadm control reload >/dev/null 2>&1; then
+    echo "Rspamd reloaded after DKIM key update"
+    return 0
+  fi
+  if command -v pkill >/dev/null 2>&1 && pkill -HUP -x rspamd 2>/dev/null; then
+    echo "Rspamd reloaded after DKIM key update"
+  fi
+}
+
 sync_keys() {
+  changed_marker="$LANQIN_RSPAMD_DKIM_DIR/.reload-required.$$"
   mkdir -p "$LANQIN_RSPAMD_DKIM_DIR"
+  rm -f "$changed_marker"
   if [ ! -f "$LANQIN_DB_PATH" ]; then
     chown_dkim_dir
     return 0
@@ -24,13 +36,22 @@ sync_keys() {
     [ -n "$domain" ] || continue
     [ -n "$selector" ] || selector="lanqin"
     keyfile="$LANQIN_RSPAMD_DKIM_DIR/${domain}.${selector}.key"
-    tmpfile="${keyfile}.tmp"
+    tmpfile="${keyfile}.tmp.$$"
     printf '%s' "$private_key" | base64 -d > "$tmpfile"
     chmod 0640 "$tmpfile"
-    mv "$tmpfile" "$keyfile"
+    if [ -f "$keyfile" ] && cmp -s "$tmpfile" "$keyfile"; then
+      rm -f "$tmpfile"
+    else
+      mv "$tmpfile" "$keyfile"
+      : > "$changed_marker"
+    fi
   done
 
   chown_dkim_dir
+  if [ -f "$changed_marker" ]; then
+    rm -f "$changed_marker"
+    reload_rspamd
+  fi
 }
 
 if [ "${1:-}" = "--once" ]; then

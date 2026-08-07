@@ -29,12 +29,13 @@ NewSzxcn Email 管理命令
   menu        显示安装与运维菜单
   install     首次安装；已有安装会先完整备份再重新安装
   update      备份数据库并更新到最新版
+  repair      检查并修复现有安装
   status      查看容器与健康状态
   logs        持续查看运行日志
   restart     重启服务并重载 Nginx
   certificate 申请或续期自动模式的 SSL 证书
   rollback    回滚到上次更新前版本
-  guide       显示并更新 NewSzxcn 邮箱指南
+  guide       显示并更新邮箱后台配置指南
   credentials 查看管理员登录信息和记录密码
   reset-password 重置管理员统一登录密码（含名下邮箱）
   reset-2fa   应急关闭唯一管理员双因素认证
@@ -202,6 +203,18 @@ env_value() {
   sed -n "s/^${key}=//p" "${INSTALL_DIR}/.env" | tail -n 1
 }
 
+installation_configured() {
+  [[ -f "${INSTALL_DIR}/.env" ]]
+}
+
+installation_complete() {
+  installation_configured && [[ -f "${INSTALL_DIR}/docker-compose.yml" ]]
+}
+
+require_installation() {
+  installation_complete || fail "尚未完成安装，请先运行 newszxcn-email install；如果配置残缺，请运行 newszxcn-email repair。"
+}
+
 prompt_value() {
   local variable="$1" prompt="$2" default_value="$3" secret="${4:-false}"
   local value="${!variable:-}"
@@ -318,8 +331,8 @@ prompt_mail_domain() {
   suggestion="$(suggest_mail_domain "${hostname}")"
   value="${LANQIN_MAIL_DOMAIN:-}"
   if [[ -z "${value}" ]] && has_tty; then
-    prompt_text "[提示] 邮件服务器域名是 ${hostname}；邮箱地址域名可以使用 ${suggestion}，请确认。\n"
-    read -r -p "邮箱地址域名 [${suggestion}]: " value </dev/tty
+    prompt_text "[检测] 邮件服务器域名：${hostname}\n[检测] 邮箱地址域名：@${suggestion}\n"
+    read -r -p "邮箱地址域名 [${suggestion}]（直接回车确认）: " value </dev/tty
   fi
   value="${value:-${suggestion}}"
   if [[ -z "${LANQIN_MAIL_DOMAIN:-}" && -z "${admin_email}" ]] && ! has_tty; then
@@ -342,10 +355,10 @@ prompt_admin_email() {
     return
   fi
   if has_tty; then
-    prompt_text "\n创建管理员邮箱 [1]：\n1. 默认 admin，自动创建 admin@${mail_domain}\n2. 自定义前缀\n"
+    prompt_text "\n检测到邮箱地址域名：@${mail_domain}\n创建管理员邮箱 [1]：\n1. 使用默认前缀 admin\n2. 自定义管理员邮箱前缀\n"
     choice="$(prompt_choice LANQIN_ADMIN_EMAIL_MODE "请选择 [1]: " "1" "2")"
     if [[ "${choice}" == "2" ]]; then
-      prefix="$(prompt_value LANQIN_ADMIN_PREFIX "管理员邮箱前缀" "admin")"
+      prefix="$(prompt_value LANQIN_ADMIN_PREFIX "管理员邮箱账号前缀" "admin")"
     else
       prefix="admin"
     fi
@@ -353,7 +366,9 @@ prompt_admin_email() {
     prefix="${LANQIN_ADMIN_PREFIX:-admin}"
   fi
   valid_mail_local_part "${prefix}" || fail "管理员邮箱前缀格式不正确。"
-  printf '%s@%s' "$(lowercase "${prefix}")" "${mail_domain}"
+  email="$(lowercase "${prefix}")@${mail_domain}"
+  prompt_text "[提示] 将创建管理员邮箱：${email}\n"
+  printf '%s' "${email}"
 }
 
 ensure_admin_email_config() {
@@ -974,42 +989,67 @@ restore_update_snapshot() {
 }
 
 do_repair_install() {
+  installation_configured || fail "尚未安装，无法执行修复。"
+  local snapshot_created="false"
   ensure_docker
-  create_update_snapshot || fail "修复前备份失败，未修改现有安装。"
+  if [[ -f "${INSTALL_DIR}/docker-compose.yml" ]]; then
+    create_update_snapshot || fail "修复前备份失败，未修改现有安装。"
+    snapshot_created="true"
+  else
+    warn "安装缺少 docker-compose.yml，将保留现有配置和数据并重新生成运行文件。"
+  fi
   stage_assets
   clear_runtime_image_pin
   if ! apply_staged_assets || ! ensure_update_token || ! ensure_admin_email_config || ! configure_runtime_bindings; then
-    restore_update_snapshot "" false || true
-    fail "修复准备失败，已恢复原安装。"
+    if [[ "${snapshot_created}" == "true" ]]; then
+      restore_update_snapshot "" false || true
+      fail "修复准备失败，已恢复原安装。"
+    fi
+    fail "修复准备失败，原配置和数据未删除。"
   fi
   if ! (configure_firewall && prepare_directories); then
-    restore_update_snapshot "" false || true
-    fail "修复环境准备失败，已恢复原安装。"
+    if [[ "${snapshot_created}" == "true" ]]; then
+      restore_update_snapshot "" false || true
+      fail "修复环境准备失败，已恢复原安装。"
+    fi
+    fail "修复环境准备失败，原配置和数据未删除。"
   fi
   log "正在拉取并修复 NewSzxcn Email 服务..."
   if ! compose pull; then
-    restore_update_snapshot "" false || true
-    fail "修复镜像拉取失败，已恢复原安装。"
+    if [[ "${snapshot_created}" == "true" ]]; then
+      restore_update_snapshot "" false || true
+      fail "修复镜像拉取失败，已恢复原安装。"
+    fi
+    fail "修复镜像拉取失败，原配置和数据未删除。"
   fi
   log "正在启动服务..."
   if ! compose up -d --remove-orphans; then
-    warn "修复后容器启动失败，正在自动回滚。"
-    restore_update_snapshot || fail "修复失败，且自动恢复未完成，请使用回滚快照手动恢复。"
-    fail "修复失败，已恢复到修复前版本。"
+    if [[ "${snapshot_created}" == "true" ]]; then
+      warn "修复后容器启动失败，正在自动回滚。"
+      restore_update_snapshot || fail "修复失败，且自动恢复未完成，请使用回滚快照手动恢复。"
+      fail "修复失败，已恢复到修复前版本。"
+    fi
+    fail "修复后容器启动失败，请查看实时日志；原配置和数据未删除。"
   fi
   if ! wait_for_health 90; then
-    warn "修复后健康检查失败，正在自动回滚。"
-    restore_update_snapshot || fail "修复失败，且自动恢复未完成，请使用回滚快照手动恢复。"
-    fail "修复失败，已恢复到修复前版本。"
+    if [[ "${snapshot_created}" == "true" ]]; then
+      warn "修复后健康检查失败，正在自动回滚。"
+      restore_update_snapshot || fail "修复失败，且自动恢复未完成，请使用回滚快照手动恢复。"
+      fail "修复失败，已恢复到修复前版本。"
+    fi
+    fail "修复后健康检查失败，请查看实时日志；原配置和数据未删除。"
   fi
   if ! (configure_web_mode); then
-    restore_update_snapshot || fail "Web 配置失败，且自动恢复未完成，请使用回滚快照手动恢复。"
-    fail "Web 配置失败，已恢复到修复前版本。"
+    if [[ "${snapshot_created}" == "true" ]]; then
+      restore_update_snapshot || fail "Web 配置失败，且自动恢复未完成，请使用回滚快照手动恢复。"
+      fail "Web 配置失败，已恢复到修复前版本。"
+    fi
+    fail "Web 配置修复失败，原配置和数据未删除。"
   fi
-  generate_guide >/dev/null || warn "安装成功，但邮箱指南生成失败，可稍后执行 newszxcn-email guide 重试。"
-  success "安装完成：$(env_value LANQIN_PUBLIC_BASE_URL)"
+  generate_guide >/dev/null || warn "修复成功，但邮箱后台配置指南生成失败，可稍后执行 newszxcn-email guide 重试。"
+  success "修复完成：$(env_value LANQIN_PUBLIC_BASE_URL)"
   warn "下一步请配置 MX、SPF、DKIM、DMARC，并确认 25/465/587/993/995 端口可访问。"
-  warn "输入 ns 可打开管理菜单；输入 newszxcn-email guide 可查看邮箱指南。"
+  warn "输入 ns 可打开管理菜单；输入 newszxcn-email guide 可查看邮箱后台配置指南。"
 }
 
 do_install() {
@@ -1031,14 +1071,14 @@ do_install() {
   compose up -d --remove-orphans
   wait_for_health 90 || fail "服务未能通过健康检查，请执行 newszxcn-email logs 查看日志。"
   configure_web_mode
-  generate_guide >/dev/null || warn "安装成功，但邮箱指南生成失败，可稍后执行 newszxcn-email guide 重试。"
+  generate_guide >/dev/null || warn "安装成功，但邮箱后台配置指南生成失败，可稍后执行 newszxcn-email guide 重试。"
   success "安装完成：$(env_value LANQIN_PUBLIC_BASE_URL)"
   warn "下一步请配置 MX、SPF、DKIM、DMARC，并确认 25/465/587/993/995 端口可访问。"
-  warn "输入 ns 可打开管理菜单；输入 newszxcn-email guide 可查看邮箱指南。"
+  warn "输入 ns 可打开管理菜单；输入 newszxcn-email guide 可查看邮箱后台配置指南。"
 }
 
 do_update() {
-  [[ -f "${INSTALL_DIR}/.env" ]] || fail "尚未安装，请先执行 install。"
+  require_installation
   ensure_docker
   create_update_snapshot || fail "更新前备份失败，未修改现有安装。"
   stage_assets
@@ -1063,11 +1103,12 @@ do_update() {
     fail "更新失败，已恢复到更新前版本。"
   fi
   ensure_cli_alias
-  generate_guide >/dev/null || warn "更新成功，但邮箱指南生成失败，可稍后执行 newszxcn-email guide 重试。"
+  generate_guide >/dev/null || warn "更新成功，但邮箱后台配置指南生成失败，可稍后执行 newszxcn-email guide 重试。"
   success "系统已更新，配置、邮件、证书和数据库均已保留。"
 }
 
 do_rollback() {
+  require_installation
   [[ -f "${ROLLBACK_POINTER}" ]] || fail "没有可用的完整回滚快照。"
   local confirm="${LANQIN_ROLLBACK_CONFIRM:-}" image timestamp emergency_backup
   if [[ -z "${confirm}" ]] && has_tty; then
@@ -1085,7 +1126,7 @@ do_rollback() {
 }
 
 reload_services() {
-  [[ -f "${INSTALL_DIR}/docker-compose.yml" ]] || return 0
+  require_installation
   ensure_docker
   compose restart lanqin-email >/dev/null
   if [[ -f "${NGINX_CONFIG}" ]]; then
@@ -1100,14 +1141,14 @@ do_restart() {
 }
 
 do_certificate() {
-  [[ -f "${INSTALL_DIR}/.env" ]] || fail "尚未安装。"
+  require_installation
   [[ "$(env_value LANQIN_INSTALL_WEB_MODE || true)" == "1" ]] || fail "只有自动 Nginx + SSL 模式可使用此命令。"
   ensure_nginx
   write_nginx_http_config
   install_certificate
   write_nginx_https_config
   reload_services
-  generate_guide >/dev/null || warn "证书已应用，但邮箱指南生成失败，可稍后执行 newszxcn-email guide 重试。"
+  generate_guide >/dev/null || warn "证书已应用，但邮箱后台配置指南生成失败，可稍后执行 newszxcn-email guide 重试。"
   success "SSL 证书已安装并应用。"
 }
 
@@ -1140,7 +1181,7 @@ generate_guide() {
   tmp="$(mktemp)"
   cat > "${tmp}" <<EOF
 ==================================================
- NewSzxcn 邮箱指南
+ NewSzxcn 邮箱后台配置指南
 ==================================================
 
 【安装信息】
@@ -1199,7 +1240,7 @@ EOF
 }
 
 do_guide() {
-  generate_guide || fail "尚未安装，无法生成邮箱指南。"
+  generate_guide || fail "尚未安装，无法生成邮箱后台配置指南。"
   cat "${GUIDE_FILE}"
   success "指南已更新并保存到 ${GUIDE_FILE}。"
 }
@@ -1233,7 +1274,7 @@ generate_admin_password_hash() {
 }
 
 do_reset_admin_password() {
-  [[ -f "${INSTALL_DIR}/.env" ]] || fail "尚未安装。"
+  require_installation
   local admin_email password user_id hash image timestamp backup env_backup result user_changes mailbox_changes
   ensure_docker
   ensure_admin_email_config
@@ -1277,7 +1318,7 @@ do_reset_admin_password() {
 }
 
 do_reset_admin_two_factor() {
-  [[ -f "${INSTALL_DIR}/.env" ]] || fail "尚未安装。"
+  require_installation
   local admin_email user_id image timestamp backup result user_changes recovery_changes challenge_changes
   ensure_docker
   ensure_admin_email_config
@@ -1306,7 +1347,8 @@ do_reset_admin_two_factor() {
 }
 
 do_status() {
-  [[ -f "${INSTALL_DIR}/docker-compose.yml" ]] || fail "尚未安装。"
+  require_installation
+  ensure_docker
   compose ps
   if wait_for_health 1; then
     success "Web 与 API 健康检查正常。"
@@ -1315,8 +1357,15 @@ do_status() {
   fi
 }
 
+do_logs() {
+  require_installation
+  ensure_docker
+  compose logs -f --tail=200 lanqin-email updater
+}
+
 do_uninstall() {
-  [[ -f "${INSTALL_DIR}/docker-compose.yml" ]] || fail "尚未安装。"
+  require_installation
+  ensure_docker
   local confirm="${LANQIN_UNINSTALL_CONFIRM:-}" remove_renewal="${LANQIN_REMOVE_CERT_RENEWAL:-}" hostname
   if [[ -z "${confirm}" ]] && has_tty; then
     read -r -p "确认停止并卸载服务吗？邮件和配置将保留。[y/N]: " confirm </dev/tty
@@ -1415,58 +1464,112 @@ do_backup_reinstall() {
   fail "重新安装失败，旧安装已自动恢复。失败的新安装保存在 ${failed_dir}。"
 }
 
-do_menu() {
-  local installed="false" default_choice="1" public_url="" choice
-  if [[ -f "${INSTALL_DIR}/.env" ]]; then
-    installed="true"
-    default_choice="2"
-    public_url="$(env_value LANQIN_PUBLIC_BASE_URL || true)"
+menu_service_status() {
+  local container_id
+  if ! installation_complete; then
+    printf '安装不完整'
+    return
   fi
-
-  prompt_text '\n==================================================\n'
-  prompt_text ' NewSzxcn Email 一键安装与管理\n'
-  prompt_text '==================================================\n'
-  if [[ "${installed}" == "true" ]]; then
-    prompt_text " 状态：已安装\n 路径：${INSTALL_DIR}\n"
-    [[ -n "${public_url}" ]] && prompt_text " 地址：${public_url}\n"
+  if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
+    printf '状态未知'
+    return
+  fi
+  container_id="$(compose ps -q lanqin-email 2>/dev/null | head -n 1 || true)"
+  if [[ -n "${container_id}" ]] && [[ "$(docker inspect --format '{{.State.Running}}' "${container_id}" 2>/dev/null || true)" == "true" ]]; then
+    printf '运行中'
   else
-    prompt_text ' 状态：未安装\n'
+    printf '已停止'
   fi
-  prompt_text '--------------------------------------------------\n'
-  prompt_text ' 1. 安装 / 重新安装（完整备份，失败自动恢复）\n'
-  prompt_text ' 2. 更新系统（数据库备份，失败自动回滚）\n'
-  prompt_text ' 3. 检查并修复现有安装\n'
-  prompt_text ' 4. 查看运行状态\n'
-  prompt_text ' 5. 重启服务\n'
-  prompt_text ' 6. 查看实时日志\n'
-  prompt_text ' 7. 申请、检查或续期 SSL 证书\n'
-  prompt_text ' 8. 回滚到上次更新前版本\n'
-  prompt_text ' 9. NewSzxcn 邮箱指南\n'
-  prompt_text ' 10. 查看管理员登录信息\n'
-  prompt_text ' 11. 重置管理员统一登录密码\n'
-  prompt_text ' 12. 卸载服务（保留数据）\n'
-  prompt_text ' 0. 退出\n'
+}
+
+menu_installed_version() {
+  local image version
+  if ! installation_complete || ! command -v docker >/dev/null 2>&1; then
+    printf '未知'
+    return
+  fi
+  image="$(current_image_id 2>/dev/null || true)"
+  if [[ -n "${image}" ]]; then
+    version="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "${image}" 2>/dev/null || true)"
+  fi
+  [[ "${version:-}" == "<no value>" ]] && version=""
+  printf '%s' "${version:-未知}"
+}
+
+render_uninstalled_menu() {
+  prompt_text '\n==================================================\n'
+  prompt_text '          NewSzxcn Email 管理面板\n'
   prompt_text '==================================================\n'
+  prompt_text '状态：尚未安装\n'
+  prompt_text '--------------------------------------------------\n'
+  prompt_text '1. 一键安装 NewSzxcn Email\n'
+  prompt_text '0. 退出\n'
+  prompt_text '==================================================\n'
+}
 
-  choice="$(prompt_menu_choice "${default_choice}" "12")"
-  if [[ "${choice}" != "0" && "${choice}" != "1" && "${installed}" != "true" ]]; then
-    fail "尚未安装，请先选择 1。"
+render_installed_menu() {
+  local status="$1" version="$2" public_url="$3"
+  prompt_text '\n==================================================\n'
+  prompt_text '          NewSzxcn Email 管理面板\n'
+  prompt_text '==================================================\n'
+  prompt_text "状态：${status}\n"
+  prompt_text "版本：${version}\n"
+  prompt_text "地址：${public_url:-未配置}\n"
+  prompt_text '--------------------------------------------------\n'
+  prompt_text '安装与维护\n'
+  prompt_text '1. 重新安装（完整备份，失败自动恢复）\n'
+  prompt_text '2. 更新系统（自动备份，失败自动回滚）\n'
+  prompt_text '3. 检查并修复现有安装\n\n'
+  prompt_text '服务管理\n'
+  prompt_text '4. 查看运行状态\n'
+  prompt_text '5. 重启服务\n'
+  prompt_text '6. 查看实时日志\n\n'
+  prompt_text '证书与恢复\n'
+  prompt_text '7. 管理 SSL 证书\n'
+  prompt_text '8. 回滚到上次更新前版本\n\n'
+  prompt_text '账号与帮助\n'
+  prompt_text '9. 邮箱后台配置指南\n'
+  prompt_text '10. 查看管理员登录信息\n'
+  prompt_text '11. 重置管理员登录密码\n\n'
+  prompt_text '危险操作\n'
+  prompt_text '12. 卸载服务（保留数据）\n\n'
+  prompt_text '0. 退出\n'
+  prompt_text '==================================================\n'
+}
+
+do_menu() {
+  local default_choice="2" public_url="" choice status version
+  if ! installation_configured; then
+    render_uninstalled_menu
+    choice="$(prompt_menu_choice "1" "1")" || return 1
+    case "${choice}" in
+      0) success "已退出，未作任何修改。" ;;
+      1) do_install ;;
+    esac
+    return
   fi
 
+  public_url="$(env_value LANQIN_PUBLIC_BASE_URL || true)"
+  status="$(menu_service_status)"
+  version="$(menu_installed_version)"
+  [[ "${status}" == "安装不完整" ]] && default_choice="3"
+  render_installed_menu "${status}" "${version}" "${public_url}"
+
+  choice="$(prompt_menu_choice "${default_choice}" "12")" || return 1
   case "${choice}" in
     0) success "已退出，未作任何修改。" ;;
     1) do_install ;;
     2) do_update ;;
     3) do_repair_install ;;
-    4) ensure_docker; do_status ;;
+    4) do_status ;;
     5) do_restart ;;
-    6) ensure_docker; compose logs -f --tail=200 lanqin-email updater ;;
+    6) do_logs ;;
     7) do_certificate ;;
-    8) ensure_docker; do_rollback ;;
+    8) do_rollback ;;
     9) do_guide ;;
     10) do_show_admin_credentials ;;
     11) do_reset_admin_password ;;
-    12) ensure_docker; do_uninstall ;;
+    12) do_uninstall ;;
   esac
 }
 
@@ -1486,16 +1589,17 @@ case "${COMMAND}" in
   menu) require_root; require_curl; do_menu ;;
   install) require_root; require_curl; do_install ;;
   update) require_root; require_curl; do_update ;;
-  status) require_root; require_curl; ensure_docker; do_status ;;
-  logs) require_root; require_curl; ensure_docker; compose logs -f --tail=200 lanqin-email updater ;;
+  repair) require_root; require_curl; do_repair_install ;;
+  status) require_root; require_curl; do_status ;;
+  logs) require_root; require_curl; do_logs ;;
   restart) require_root; require_curl; do_restart ;;
   reload) require_root; require_curl; reload_services ;;
   certificate) require_root; require_curl; do_certificate ;;
-  rollback) require_root; require_curl; ensure_docker; do_rollback ;;
+  rollback) require_root; require_curl; do_rollback ;;
   guide) require_root; require_curl; do_guide ;;
   credentials) require_root; require_curl; do_show_admin_credentials ;;
   reset-password) require_root; require_curl; do_reset_admin_password ;;
   reset-2fa) require_root; require_curl; do_reset_admin_two_factor ;;
-  uninstall) require_root; require_curl; ensure_docker; do_uninstall ;;
+  uninstall) require_root; require_curl; do_uninstall ;;
   *) usage; fail "未知命令：${COMMAND}" ;;
 esac

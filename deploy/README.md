@@ -23,7 +23,7 @@ sudo newszxcn-email reset-2fa
 
 一键安装会把配置和数据放在 `/opt/newszxcn-email`，并部署内部 Watchtower 更新服务。该服务不映射公网端口，仅接受带随机令牌的容器内请求；后台“立即更新”也只允许超级管理员执行。
 
-首次安装会依次询问防火墙模式、邮件服务器域名、邮箱地址域名、管理员邮箱/密码和 Web 部署方式。防火墙可以选择自动添加邮局必要端口规则或保留现有规则，不会清空服务器已有防火墙。自动 Web 模式会把容器绑定到 `127.0.0.1:8088`，配置宿主机 Nginx，并使用官方 `acme.sh` 申请和续期证书。管理员邮箱默认 `admin@邮箱地址域名`，自定义管理员密码最少 6 位，留空则生成 12 位密码。
+首次安装会依次询问防火墙模式和邮件服务器域名，自动检测邮箱地址域名，再选择默认 `admin` 前缀或自行创建管理员邮箱前缀，最后输入密码并选择 Web 部署方式。防火墙可以选择自动添加邮局必要端口规则或保留现有规则，不会清空服务器已有防火墙。自动 Web 模式会把容器绑定到 `127.0.0.1:8088`，配置宿主机 Nginx，并使用官方 `acme.sh` 申请和续期证书。例如服务器域名 `mail.newszxcn.com`、选择默认前缀会创建 `admin@newszxcn.com`；自定义管理员密码最少 6 位，留空则生成 12 位密码。
 
 安装后输入 `ns` 可以打开统一管理菜单。更新前会创建包含数据库、镜像、Compose、环境、安装脚本和 Nginx 的回滚快照；更新或健康检查失败时会自动恢复。手动完整回滚前还会单独备份当前数据库，回滚镜像会保持锁定到下一次更新。
 
@@ -181,7 +181,7 @@ TELEGRAM_RELEASE_CHAT_ID
 - Dovecot 读取同一个 SQLite 数据库进行邮箱认证，并使用 `/var/mail/vhosts` 作为 Maildir 根目录。
 - 第三方客户端可使用 IMAP SSL `993`、POP3 SSL `995`、SMTP SSL `465` 或 Submission `587`。
 - Rspamd 通过 milter 接入 Postfix，负责 DKIM 签名和垃圾邮件标记。
-- Rspamd 会周期性从 SQLite 导出域名 DKIM 私钥到容器内 `/var/lib/rspamd/dkim`。
+- Rspamd 会周期性从 SQLite 导出域名 DKIM 私钥到容器内 `/var/lib/rspamd/dkim`；仅当密钥内容变化时重新载入签名配置，避免继续使用内存中的旧密钥。
 - Go API 是 Webmail 和管理后台入口；浏览器不直接连接 SMTP/IMAP/POP3。
 - Go API 会读取 `LANQIN_MAILDIR_ROOT=/var/mail/vhosts`，周期扫描 Maildir，把 Postfix/Dovecot 入站邮件同步成 Webmail 索引。
 - 第三方客户端可通过 LanQin API 提供的 SMTP `465/587` 发信；Webmail/API 和第三方客户端的“已发送”都由 API 写入，外发投递进入发送队列并由 API worker relay/retry，客户端后续 IMAP APPEND 到 Sent 会按 `Message-ID` 去重。

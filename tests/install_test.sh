@@ -46,6 +46,10 @@ test_password_validation() {
 test_mail_domain_and_admin_email_validation() {
   assert_eq "example.com" "$(suggest_mail_domain "mail.example.com")" "mail host domain suggestion"
   assert_eq "example.co.uk" "$(suggest_mail_domain "mail.example.co.uk")" "multi-label mail host domain suggestion"
+  assert_eq "newszxcn.com" "$(suggest_mail_domain "mail.newszxcn.com")" "NewSzxcn mail host domain suggestion"
+  assert_eq "admin@newszxcn.com" "$(LANQIN_ADMIN_EMAIL='' LANQIN_ADMIN_PREFIX='' prompt_admin_email "newszxcn.com")" "NewSzxcn default administrator email"
+  assert_eq "newszxcn.cm" "$(suggest_mail_domain "mail.newszxcn.cm")" "two-label suffix mail host domain suggestion"
+  assert_eq "admin@newszxcn.cm" "$(LANQIN_ADMIN_EMAIL='' LANQIN_ADMIN_PREFIX='' prompt_admin_email "newszxcn.cm")" "matching administrator email for entered domain"
   LANQIN_MAIL_DOMAIN="example.com"
   LANQIN_ADMIN_EMAIL="admin@example.com"
   assert_eq "example.com" "$(prompt_mail_domain "mail.example.com")" "explicit mail domain"
@@ -147,6 +151,122 @@ test_menu_choice() {
   unset LANQIN_MENU_ACTION
 }
 
+test_menu_rendering() (
+  local output
+  prompt_text() { printf '%b' "$1"; }
+
+  output="$(render_uninstalled_menu)"
+  [[ "${output}" == *'NewSzxcn Email 管理面板'* ]] || fail_test "uninstalled menu title missing"
+  [[ "${output}" == *'状态：尚未安装'* ]] || fail_test "uninstalled menu status missing"
+  [[ "${output}" == *'1. 一键安装 NewSzxcn Email'* ]] || fail_test "uninstalled menu install action missing"
+  [[ "${output}" != *'更新系统'* ]] || fail_test "uninstalled menu exposes update action"
+  [[ "${output}" != *'卸载服务'* ]] || fail_test "uninstalled menu exposes uninstall action"
+
+  output="$(render_installed_menu "运行中" "v1.2.19" "https://mail.example.com")"
+  for expected in \
+    '状态：运行中' \
+    '版本：v1.2.19' \
+    '地址：https://mail.example.com' \
+    '安装与维护' \
+    '服务管理' \
+    '证书与恢复' \
+    '账号与帮助' \
+    '危险操作' \
+    '9. 邮箱后台配置指南' \
+    '12. 卸载服务（保留数据）'; do
+    [[ "${output}" == *"${expected}"* ]] || fail_test "installed menu item missing: ${expected}"
+  done
+)
+
+test_menu_dispatch() (
+  local temp_dir action_file LANQIN_MENU_ACTION=1
+  temp_dir="$(mktemp -d)"
+  INSTALL_DIR="${temp_dir}/install"
+  action_file="${temp_dir}/action"
+  mkdir -p "${INSTALL_DIR}"
+  prompt_text() { :; }
+  do_install() { printf 'install\n' > "${action_file}"; }
+
+  do_menu
+  grep -Fq 'install' "${action_file}" || fail_test "uninstalled menu did not dispatch install"
+  if (LANQIN_MENU_ACTION=2 do_menu >/dev/null 2>&1); then
+    fail_test "uninstalled menu accepted unavailable update action"
+  fi
+
+  printf 'LANQIN_PUBLIC_BASE_URL=https://mail.example.com\n' > "${INSTALL_DIR}/.env"
+  printf 'services: {}\n' > "${INSTALL_DIR}/docker-compose.yml"
+  menu_service_status() { printf '运行中'; }
+  menu_installed_version() { printf 'v1.2.19'; }
+  do_update() { printf 'update\n' > "${action_file}"; }
+  LANQIN_MENU_ACTION=2
+  do_menu
+  grep -Fq 'update' "${action_file}" || fail_test "installed menu did not dispatch update"
+  unset LANQIN_MENU_ACTION
+)
+
+test_menu_runtime_metadata() (
+  local temp_dir running="true" image_version="v1.2.19"
+  temp_dir="$(mktemp -d)"
+  INSTALL_DIR="${temp_dir}/install"
+  mkdir -p "${INSTALL_DIR}"
+  printf 'LANQIN_PUBLIC_BASE_URL=https://mail.example.com\n' > "${INSTALL_DIR}/.env"
+  printf 'services: {}\n' > "${INSTALL_DIR}/docker-compose.yml"
+  compose() {
+    if [[ "$*" == 'ps -q lanqin-email' ]]; then
+      printf 'container-id\n'
+    fi
+  }
+  current_image_id() { printf 'sha256:test-image\n'; }
+  docker() {
+    if [[ "$*" == 'compose version' ]]; then
+      return 0
+    fi
+    if [[ "$*" == *'.State.Running'* ]]; then
+      printf '%s\n' "${running}"
+      return 0
+    fi
+    if [[ "$*" == *'org.opencontainers.image.version'* ]]; then
+      printf '%s\n' "${image_version}"
+    fi
+  }
+
+  assert_eq "运行中" "$(menu_service_status)" "running menu service status"
+  assert_eq "v1.2.19" "$(menu_installed_version)" "installed menu version"
+  running="false"
+  assert_eq "已停止" "$(menu_service_status)" "stopped menu service status"
+  image_version="<no value>"
+  assert_eq "未知" "$(menu_installed_version)" "missing image version label"
+)
+
+test_incomplete_install_defaults_to_repair() (
+  local temp_dir action_file LANQIN_MENU_ACTION=3
+  temp_dir="$(mktemp -d)"
+  INSTALL_DIR="${temp_dir}/install"
+  action_file="${temp_dir}/action"
+  mkdir -p "${INSTALL_DIR}"
+  printf 'LANQIN_PUBLIC_BASE_URL=https://mail.example.com\n' > "${INSTALL_DIR}/.env"
+  prompt_text() { :; }
+  menu_installed_version() { printf '未知'; }
+  do_repair_install() { printf 'repair\n' > "${action_file}"; }
+  do_menu
+  grep -Fq 'repair' "${action_file}" || fail_test "incomplete installation did not dispatch repair"
+  unset LANQIN_MENU_ACTION
+)
+
+test_service_commands_require_complete_installation() (
+  local temp_dir command_name
+  temp_dir="$(mktemp -d)"
+  INSTALL_DIR="${temp_dir}/install"
+  mkdir -p "${INSTALL_DIR}"
+  # shellcheck disable=SC2329
+  ensure_docker() { fail_test "service command checked Docker before installation"; }
+  for command_name in do_update do_status do_logs do_restart do_certificate do_rollback do_reset_admin_password do_reset_admin_two_factor do_uninstall; do
+    if ("${command_name}" >/dev/null 2>&1); then
+      fail_test "${command_name} accepted missing installation"
+    fi
+  done
+)
+
 test_admin_credentials() (
   local temp_dir output
   temp_dir="$(mktemp -d)"
@@ -186,6 +306,7 @@ LANQIN_MAIL_DOMAIN=example.com
 LANQIN_ADMIN_EMAIL=admin@example.com
 LANQIN_ADMIN_PASSWORD=old-password
 EOF
+  printf 'services: {}\n' > "${INSTALL_DIR}/docker-compose.yml"
   printf 'database\n' > "${INSTALL_DIR}/data/lanqin.db"
 
   ensure_docker() { return 0; }
@@ -226,6 +347,7 @@ LANQIN_PUBLIC_HOSTNAME=mail.example.com
 LANQIN_MAIL_DOMAIN=example.com
 LANQIN_ADMIN_EMAIL=admin@example.com
 EOF
+  printf 'services: {}\n' > "${INSTALL_DIR}/docker-compose.yml"
   printf 'database\n' > "${INSTALL_DIR}/data/lanqin.db"
 
   ensure_docker() { return 0; }
@@ -571,6 +693,11 @@ test_nginx_configuration
 test_compose_configuration
 test_legacy_configuration_is_preserved
 test_menu_choice
+test_menu_rendering
+test_menu_dispatch
+test_menu_runtime_metadata
+test_incomplete_install_defaults_to_repair
+test_service_commands_require_complete_installation
 test_admin_credentials
 test_admin_password_hash_parsing
 test_admin_password_reset_only_updates_admin_account

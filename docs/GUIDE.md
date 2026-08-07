@@ -1,4 +1,4 @@
-# NewSzxcn 邮箱指南
+# NewSzxcn 邮箱后台配置指南
 
 本指南介绍 NewSzxcn Email 的安装入口、首次配置、邮箱申请、无人收件、SSL 证书和日常更新。管理员密码等敏感信息不会保存在本文档中。
 
@@ -10,7 +10,7 @@
 bash <(curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/install.sh)
 ```
 
-安装脚本会依次询问防火墙配置、邮件服务器域名、邮箱地址域名、管理员邮箱和密码，以及 Web 部署方式。选择“自动配置 Nginx + SSL”时，脚本会安装 Nginx，并使用官方 `acme.sh` 申请 Let's Encrypt 证书。
+安装脚本会依次询问防火墙配置和邮件服务器域名，自动检测邮箱地址域名，再让你选择默认 `admin` 前缀或自定义管理员邮箱前缀，最后输入密码并选择 Web 部署方式。例如输入服务器域名 `mail.newszxcn.com`，确认检测结果 `@newszxcn.com`，选择 `1. 使用默认前缀 admin` 会创建 `admin@newszxcn.com`；选择 `2. 自定义管理员邮箱前缀` 后才需要输入邮箱账号前缀。选择“自动配置 Nginx + SSL”时，脚本会安装 Nginx，并使用官方 `acme.sh` 申请 Let's Encrypt 证书。
 
 安装完成后，请记录终端中显示的访问地址、管理员邮箱和初始密码。初始密码仅在安装时显示；如果以后在后台修改密码，请以新密码为准。
 

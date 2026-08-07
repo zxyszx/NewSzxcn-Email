@@ -473,6 +473,7 @@ func sanitizeTelegramAttachmentName(value string) string {
 var (
 	telegramOTPKeywordRe   = regexp.MustCompile(`(?i)(验证码|校验码|动态码|登录码|安全码|一次性密码|otp|verification[ -]?code|security[ -]?code|login[ -]?code|passcode|one[ -]?time[ -]?(?:password|code))`)
 	telegramOTPCandidateRe = regexp.MustCompile(`(?i)[a-z0-9]{4,10}`)
+	telegramEmailRe        = regexp.MustCompile(`(?i)[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}`)
 	telegramURLRe          = regexp.MustCompile(`(?i)https?://[^\s<>"']+`)
 )
 
@@ -489,7 +490,11 @@ func detectTelegramOTP(subject, body string) string {
 	}
 	scores := map[string]candidateScore{}
 	subjectEnd := len(strings.TrimSpace(subject))
+	excludedRanges := append(telegramEmailRe.FindAllStringIndex(text, -1), telegramURLRe.FindAllStringIndex(text, -1)...)
 	for _, match := range telegramOTPCandidateRe.FindAllStringIndex(text, -1) {
+		if telegramRangeOverlaps(match, excludedRanges) {
+			continue
+		}
 		if match[0] > 0 && isTelegramOTPAlphaNumeric(rune(text[match[0]-1])) {
 			continue
 		}
@@ -559,6 +564,15 @@ func detectTelegramOTP(subject, body string) string {
 		return ""
 	}
 	return items[0].value
+}
+
+func telegramRangeOverlaps(candidate []int, ranges [][]int) bool {
+	for _, item := range ranges {
+		if len(item) == 2 && candidate[0] < item[1] && candidate[1] > item[0] {
+			return true
+		}
+	}
+	return false
 }
 
 func isTelegramOTPNonCode(value string) bool {

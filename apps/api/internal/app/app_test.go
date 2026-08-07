@@ -549,16 +549,26 @@ func TestAuthAdminAndLocalDeliveryFlow(t *testing.T) {
 	var labels struct {
 		Items []MailLabel `json:"items"`
 	}
-	if code := bob.do("GET", "/api/mail/labels?mailboxId="+mb2.ID, nil, &labels); code != http.StatusOK || len(labels.Items) != 1 || labels.Items[0].MessageCount != 1 {
+	if code := bob.do("GET", "/api/mail/labels?mailboxId="+mb2.ID, nil, &labels); code != http.StatusOK || len(labels.Items) != len(defaultMailLabelDefs()) {
 		t.Fatalf("labels code=%d items=%+v", code, labels.Items)
+	}
+	var importantLabel MailLabel
+	for _, label := range labels.Items {
+		if label.Name == "重要" {
+			importantLabel = label
+			break
+		}
+	}
+	if importantLabel.ID == "" || importantLabel.MessageCount != 1 {
+		t.Fatalf("important label missing or count is wrong: %+v", labels.Items)
 	}
 	var labeled struct {
 		Items []MailMessage `json:"items"`
 	}
-	if code := bob.do("GET", "/api/mail/messages?mailboxId="+mb2.ID+"&labelId="+labels.Items[0].ID, nil, &labeled); code != http.StatusOK || len(labeled.Items) != 1 || labeled.Items[0].ID != detail.ID {
+	if code := bob.do("GET", "/api/mail/messages?mailboxId="+mb2.ID+"&labelId="+importantLabel.ID, nil, &labeled); code != http.StatusOK || len(labeled.Items) != 1 || labeled.Items[0].ID != detail.ID {
 		t.Fatalf("labeled messages code=%d items=%+v", code, labeled.Items)
 	}
-	if code := bob.do("DELETE", "/api/mail/messages/"+detail.ID+"/labels/"+labels.Items[0].ID, nil, &labelUpdate); code != http.StatusOK || len(labelUpdate.Labels) != 0 {
+	if code := bob.do("DELETE", "/api/mail/messages/"+detail.ID+"/labels/"+importantLabel.ID, nil, &labelUpdate); code != http.StatusOK || len(labelUpdate.Labels) != 0 {
 		t.Fatalf("remove label code=%d labels=%+v", code, labelUpdate.Labels)
 	}
 	var starred struct {
@@ -2020,6 +2030,16 @@ func TestUserCanSelectMultipleMailboxes(t *testing.T) {
 	insertMessage("msg_multi_primary_read", primary.ID, primaryInboxID, "primary read", 1)
 	insertMessage("msg_multi_primary_archived", primary.ID, primaryArchiveID, "primary archived unread", 0)
 	insertMessage("msg_multi_secondary_unread", secondary.ID, secondaryInboxID, "secondary unread", 0)
+	var primaryImportantID, secondaryImportantID string
+	if err := a.db.QueryRowContext(ctx, `SELECT id FROM mail_labels WHERE mailbox_id=? AND name='重要'`, primary.ID).Scan(&primaryImportantID); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.db.QueryRowContext(ctx, `SELECT id FROM mail_labels WHERE mailbox_id=? AND name='重要'`, secondary.ID).Scan(&secondaryImportantID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.db.ExecContext(ctx, `INSERT INTO message_labels(message_id,label_id,created_at) VALUES(?,?,?),(?,?,?)`, "msg_multi_primary_unread_1", primaryImportantID, now, "msg_multi_secondary_unread", secondaryImportantID, now); err != nil {
+		t.Fatal(err)
+	}
 
 	userClient := &testClient{t: t, server: ts}
 	if code := userClient.do("POST", "/api/auth/login", map[string]string{"email": primary.Address, "password": "Password123!"}, &login); code != http.StatusOK {
@@ -2030,6 +2050,28 @@ func TestUserCanSelectMultipleMailboxes(t *testing.T) {
 	}
 	if code := userClient.do("GET", "/api/mail/mailboxes", nil, &mine); code != http.StatusOK || len(mine.Items) != 2 {
 		t.Fatalf("my mailboxes code=%d items=%d", code, len(mine.Items))
+	}
+	var allLabels struct {
+		Items []MailLabel `json:"items"`
+	}
+	if code := userClient.do("GET", "/api/mail/labels?mailboxId=all", nil, &allLabels); code != http.StatusOK || len(allLabels.Items) != len(defaultMailLabelDefs()) {
+		t.Fatalf("all labels code=%d items=%+v", code, allLabels.Items)
+	}
+	var allImportant MailLabel
+	for _, label := range allLabels.Items {
+		if label.Name == "重要" {
+			allImportant = label
+			break
+		}
+	}
+	if allImportant.ID == "" || allImportant.MailboxID != "" || allImportant.MessageCount != 2 {
+		t.Fatalf("aggregated important label=%+v", allImportant)
+	}
+	var importantMessages struct {
+		Items []MailMessage `json:"items"`
+	}
+	if code := userClient.do("GET", "/api/mail/messages?mailboxId=all&labelId="+url.QueryEscape(allImportant.ID), nil, &importantMessages); code != http.StatusOK || len(importantMessages.Items) != 2 {
+		t.Fatalf("all important messages code=%d items=%+v", code, importantMessages.Items)
 	}
 	unreadByAddress := map[string]int{}
 	for _, item := range mine.Items {
@@ -4757,6 +4799,72 @@ func TestDNSRecords(t *testing.T) {
 	}
 	if records[0].Type != "MX" || !strings.Contains(records[2].Value, "v=DKIM1") {
 		t.Fatalf("unexpected records: %+v", records)
+	}
+}
+
+func TestDefaultMailLabelsBackfillOrderAndDeletion(t *testing.T) {
+	a := newTestApp(t)
+	var mailboxID string
+	if err := a.db.QueryRow(`SELECT id FROM mailboxes WHERE address='admin@lanqin.local'`).Scan(&mailboxID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.db.Exec(`DELETE FROM system_settings WHERE key='defaultMailLabelsInitialized'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.db.Exec(`DELETE FROM mail_labels WHERE mailbox_id=?`, mailboxID); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.migrateDefaultMailLabels(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	labels, err := a.labelsForMailbox(context.Background(), mailboxID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defaults := defaultMailLabelDefs()
+	if len(labels) != len(defaults) {
+		t.Fatalf("labels=%+v", labels)
+	}
+	for index, expected := range defaults {
+		if labels[index].Name != expected.name || labels[index].Color != expected.color {
+			t.Fatalf("label %d=%+v want name=%q color=%q", index, labels[index], expected.name, expected.color)
+		}
+	}
+	if _, err := a.db.Exec(`DELETE FROM mail_labels WHERE id=?`, labels[1].ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.migrateDefaultMailLabels(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	labels, err = a.labelsForMailbox(context.Background(), mailboxID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(labels) != len(defaults)-1 {
+		t.Fatalf("deleted default label was restored: %+v", labels)
+	}
+}
+
+func TestCheckDKIMRecordRequiresMatchingPublicKey(t *testing.T) {
+	tests := []struct {
+		name    string
+		records []string
+		key     string
+		ok      bool
+		message string
+	}{
+		{name: "matching", records: []string{"v=DKIM1; k=rsa; p=ABC123"}, key: "ABC123", ok: true, message: "DKIM 公钥匹配"},
+		{name: "split whitespace", records: []string{"v=DKIM1; k=rsa; p=ABC 123\n456"}, key: "ABC123456", ok: true, message: "DKIM 公钥匹配"},
+		{name: "wrong key", records: []string{"v=DKIM1; k=rsa; p=WRONG"}, key: "EXPECTED", ok: false, message: "DKIM 公钥与后台生成的记录不一致"},
+		{name: "unrelated TXT", records: []string{"google-site-verification=token"}, key: "EXPECTED", ok: false, message: "未找到 DKIM 记录"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			status := checkDKIMRecord(tt.records, tt.key)
+			if status.OK != tt.ok || status.Message != tt.message {
+				t.Fatalf("status=%+v", status)
+			}
+		})
 	}
 }
 

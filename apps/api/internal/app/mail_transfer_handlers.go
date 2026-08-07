@@ -122,8 +122,17 @@ func (a *App) exportMessageIDs(r *http.Request) ([]string, error) {
 			if labelID == "" || !a.labelBelongsToUser(r.Context(), labelID, user.ID) {
 				return nil, sql.ErrNoRows
 			}
-			where = append(where, "EXISTS (SELECT 1 FROM message_labels ml WHERE ml.message_id=m.id AND ml.label_id=?)")
-			args = append(args, labelID)
+			if isAllMailboxID(mailboxID) {
+				labelName, ok := a.labelNameForUser(r.Context(), labelID, user.ID)
+				if !ok {
+					return nil, sql.ErrNoRows
+				}
+				where = append(where, "EXISTS (SELECT 1 FROM message_labels ml JOIN mail_labels l ON l.id=ml.label_id WHERE ml.message_id=m.id AND lower(l.name)=lower(?))")
+				args = append(args, labelName)
+			} else {
+				where = append(where, "EXISTS (SELECT 1 FROM message_labels ml WHERE ml.message_id=m.id AND ml.label_id=?)")
+				args = append(args, labelID)
+			}
 		default:
 			return nil, errors.New("unsupported mail view")
 		}

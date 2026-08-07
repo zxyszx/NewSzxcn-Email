@@ -70,7 +70,7 @@ func (a *App) checkDNS(ctx context.Context, d *Domain) DNSCheckResult {
 
 	dkimName := d.DKIMSelector + "._domainkey." + d.Name
 	dkimTXT, _ := resolver.LookupTXT(ctx, dkimName)
-	checks["dkim"] = txtContains(dkimTXT, "v=DKIM1", "DKIM 记录存在", "未找到 DKIM 记录")
+	checks["dkim"] = checkDKIMRecord(dkimTXT, d.DKIMPublicKey)
 
 	dmarcTXT, _ := resolver.LookupTXT(ctx, "_dmarc."+d.Name)
 	checks["dmarc"] = txtContains(dmarcTXT, "v=DMARC1", "DMARC 记录存在", "未找到 DMARC 记录")
@@ -83,6 +83,42 @@ func (a *App) checkDNS(ctx context.Context, d *Domain) DNSCheckResult {
 		}
 	}
 	return DNSCheckResult{Domain: d.Name, Status: status, Checks: checks}
+}
+
+func checkDKIMRecord(records []string, expectedPublicKey string) DNSCheckStatus {
+	found := append([]string{}, records...)
+	expectedPublicKey = compactDKIMPublicKey(expectedPublicKey)
+	dkimFound := false
+	for _, record := range records {
+		tags := map[string]string{}
+		for _, part := range strings.Split(record, ";") {
+			key, value, ok := strings.Cut(part, "=")
+			if !ok {
+				continue
+			}
+			tags[strings.ToLower(strings.TrimSpace(key))] = strings.TrimSpace(value)
+		}
+		if !strings.EqualFold(tags["v"], "DKIM1") {
+			continue
+		}
+		dkimFound = true
+		if expectedPublicKey != "" && compactDKIMPublicKey(tags["p"]) == expectedPublicKey {
+			return DNSCheckStatus{OK: true, Message: "DKIM 公钥匹配", Found: found}
+		}
+	}
+	if dkimFound {
+		return DNSCheckStatus{OK: false, Message: "DKIM 公钥与后台生成的记录不一致", Found: found}
+	}
+	return DNSCheckStatus{OK: false, Message: "未找到 DKIM 记录", Found: found}
+}
+
+func compactDKIMPublicKey(value string) string {
+	return strings.Map(func(r rune) rune {
+		if r == ' ' || r == '\t' || r == '\r' || r == '\n' {
+			return -1
+		}
+		return r
+	}, value)
 }
 
 func txtContains(records []string, needle, okMsg, failMsg string) DNSCheckStatus {

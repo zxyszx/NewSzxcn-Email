@@ -223,6 +223,19 @@ func TestTelegramOTPDetectionAndMessageBudget(t *testing.T) {
 	}
 }
 
+func TestTelegramIQiyiOTPDetection(t *testing.T) {
+	subject := "825534 是您的动态安全验证码"
+	body := "哈喽 iqiyi02@newszxcn.com 您正在进行爱奇艺账号的安全验证，以下是您的动态验证码：825534 如果这不是您的邮件，请忽略此邮件，请勿回复 手机·电视 其他 APP 在 LG, Samsung 等应用商店搜索 iQiyi 即可获得 Copyright © 2021 iQiyi All Rights Reserved"
+	otp := detectTelegramOTP(subject, body)
+	if otp != "825534" {
+		t.Fatalf("iQiyi OTP not detected: %q", otp)
+	}
+	message := formatTelegramMailMessage(telegramMailPayload{Subject: subject, From: "no_reply_intl@iq.com", Recipient: "iqiyi02@newszxcn.com", ReceivedAt: time.Now().UTC().Format(time.RFC3339Nano), Body: body, OTP: otp})
+	if !strings.Contains(message.HTML, "<code>825534</code>") || telegramCopyMarkup(message.OTP) == nil {
+		t.Fatalf("iQiyi OTP section or copy button missing: %+v", message)
+	}
+}
+
 func TestTelegramForwardedGateOTPAndLinks(t *testing.T) {
 	body := `---------- Forwarded message ---------
 Date: 2026年8月6日周四 17:59

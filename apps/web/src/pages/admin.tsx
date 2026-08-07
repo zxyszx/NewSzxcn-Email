@@ -2171,18 +2171,32 @@ function dnsDescription(record: DNSRecord): string {
 }
 
 function DNSRecordRow({ record }: { record: DNSRecord }) {
-  const { toast } = useToast(); const text = `${record.type} ${record.name} ${record.value}`
+  const { toast } = useToast()
   const desc = dnsDescription(record)
+  async function copyField(label: string, value: string) {
+    await navigator.clipboard.writeText(value)
+    toast({ title: `${label}已复制` })
+  }
   return <div className="rounded-lg border bg-card p-3">
-    <div className="mb-2 flex items-center justify-between">
+    <div className="mb-2 flex items-center">
       <Badge variant="outline" className="font-mono">{record.type}</Badge>
-      <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs" onClick={() => { navigator.clipboard.writeText(text); toast({ title: "已复制" }) }}><Copy className="h-3.5 w-3.5" />复制</Button>
     </div>
     {desc && <p className="mb-2 text-xs text-muted-foreground">{desc}</p>}
-    <div className="break-all font-mono text-xs text-muted-foreground">
-      <div><span className="text-foreground">Name:</span> {record.name}</div>
-      <div><span className="text-foreground">Value:</span> {record.value}</div>
-      <div><span className="text-foreground">TTL:</span> {record.ttl}s</div>
+    <div className="space-y-1 font-mono text-xs text-muted-foreground">
+      <div className="grid grid-cols-[4.5rem_minmax(0,1fr)_1.75rem] items-start gap-2">
+        <span className="pt-1 text-foreground">主机记录</span>
+        <code className="break-all pt-1 font-mono">{record.name}</code>
+        <Button type="button" size="icon" variant="ghost" className="h-7 w-7" aria-label="复制主机记录" title="复制主机记录" onClick={() => copyField("主机记录", record.name)}><Copy className="h-3.5 w-3.5" /></Button>
+      </div>
+      <div className="grid grid-cols-[4.5rem_minmax(0,1fr)_1.75rem] items-start gap-2">
+        <span className="pt-1 text-foreground">记录值</span>
+        <code className="break-all pt-1 font-mono">{record.value}</code>
+        <Button type="button" size="icon" variant="ghost" className="h-7 w-7" aria-label="复制记录值" title="复制记录值" onClick={() => copyField("记录值", record.value)}><Copy className="h-3.5 w-3.5" /></Button>
+      </div>
+      <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-2">
+        <span className="text-foreground">TTL</span>
+        <code className="font-mono">{record.ttl} 秒</code>
+      </div>
     </div>
   </div>
 }

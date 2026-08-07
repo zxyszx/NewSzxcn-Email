@@ -208,7 +208,13 @@ export function MailPage() {
   }, [mailboxList.data?.items, selectedMailboxId])
   const isAllMailboxSelected = selectedMailboxId === "all"
   const activeMailboxId = selectedMailboxId === "all" ? "all" : selectedMailbox?.id || ""
-  const selectedComposeMailbox = selectedMailbox || (isAllMailboxSelected ? mailboxList.data?.items?.[0] : undefined)
+  const composeMailboxes = React.useMemo(() => (mailboxList.data?.items || []).filter((item) => item.status === "active"), [mailboxList.data?.items])
+  const accountMailbox = React.useMemo(() => {
+    const loginEmail = user?.email.trim().toLowerCase()
+    if (!loginEmail) return undefined
+    return composeMailboxes.find((item) => item.address.trim().toLowerCase() === loginEmail)
+  }, [composeMailboxes, user?.email])
+  const selectedComposeMailbox = selectedMailbox?.status === "active" ? selectedMailbox : (isAllMailboxSelected ? accountMailbox || composeMailboxes[0] : undefined)
   const hasMailboxes = (mailboxList.data?.items.length || 0) > 0
   const canManageFolders = canOrganizeMail && hasMailboxes
   const showMailboxCopy = !!selectedMailbox && !isAllMailboxSelected
@@ -797,11 +803,11 @@ export function MailPage() {
   }
   function openReply(message: MailMessage) {
     if (!canSendMail) return
-    openCompose({ key: `reply-${message.id}-${Date.now()}`, to: message.from, subject: withPrefix(message.subject, "Re:"), text: quoteMessage(message) })
+    openCompose({ key: `reply-${message.id}-${Date.now()}`, mailboxId: message.mailboxId, to: message.from, subject: withPrefix(message.subject, "Re:"), text: quoteMessage(message) })
   }
   function openForward(message: MailMessage) {
     if (!canSendMail) return
-    openCompose({ key: `forward-${message.id}-${Date.now()}`, subject: withPrefix(message.subject, "Fwd:"), text: quoteMessage(message) })
+    openCompose({ key: `forward-${message.id}-${Date.now()}`, mailboxId: message.mailboxId, subject: withPrefix(message.subject, "Fwd:"), text: quoteMessage(message) })
   }
   async function openDraft(message: MailMessage) {
     if (!canManageDrafts) return
@@ -1549,7 +1555,7 @@ export function MailPage() {
   ) : compactMailLayout ? (
     <CompactMailView
       title={viewTitle}
-      icon={mailView === "label" && selectedLabel ? <Badge variant="outline" className="gap-1.5 rounded-md font-normal"><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: generateLabelColor(selectedLabel.name).backgroundColor }} />{selectedLabel.name}</Badge> : undefined}
+      icon={mailView === "label" && selectedLabel ? <Badge variant="outline" className="gap-1.5 rounded-md font-normal"><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: labelDotColor(selectedLabel) }} />{selectedLabel.name}</Badge> : undefined}
       messages={visibleMessages}
       total={allMessages.length}
       selectedIds={compactSelectedIds}
@@ -1739,7 +1745,7 @@ export function MailPage() {
                     <div className="h-svh">{sidebarContent}</div>
                   </SheetContent>
                 </Sheet>
-                <div className="min-w-0 flex-1 text-sm font-semibold">{mailView === "label" && selectedLabel ? <Badge variant="outline" className="gap-1.5 rounded-md font-normal"><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: generateLabelColor(selectedLabel.name).backgroundColor }} />{selectedLabel.name}</Badge> : viewTitle}</div>
+                <div className="min-w-0 flex-1 text-sm font-semibold">{mailView === "label" && selectedLabel ? <Badge variant="outline" className="gap-1.5 rounded-md font-normal"><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: labelDotColor(selectedLabel) }} />{selectedLabel.name}</Badge> : viewTitle}</div>
                 {mailTransferTools}
                   {canSendMail && <Button type="button" size="icon" onClick={() => openCompose()} disabled={!selectedComposeMailbox} aria-label="写邮件"><PencilLine className="h-4 w-4" /></Button>}
                 <div className="relative basis-full">
@@ -1762,7 +1768,7 @@ export function MailPage() {
         )}
       </SidebarProvider>
 
-      <ComposeDialog mailbox={selectedComposeMailbox} open={composeOpen} draft={composeDraft} limits={user?.limits} canSend={canSendMail} canManageDrafts={canManageDrafts} canSchedule={canScheduleMail} canManageSignatures={canManageSignatures} onOpenChange={(open) => { setComposeOpen(open); if (!open) setComposeDraft(undefined) }} onSent={() => { setComposeOpen(false); setComposeDraft(undefined); qc.invalidateQueries({ queryKey: ["messages"] }); qc.invalidateQueries({ queryKey: ["folders"] }); qc.invalidateQueries({ queryKey: ["mail-stats"] }); qc.invalidateQueries({ queryKey: ["labels"] }); qc.invalidateQueries({ queryKey: ["scheduled-sends"] }); qc.invalidateQueries({ queryKey: ["send-queue"] }) }} />
+      <ComposeDialog mailboxes={composeMailboxes} mailbox={selectedComposeMailbox} open={composeOpen} draft={composeDraft} limits={user?.limits} canSend={canSendMail} canManageDrafts={canManageDrafts} canSchedule={canScheduleMail} canManageSignatures={canManageSignatures} onOpenChange={(open) => { setComposeOpen(open); if (!open) setComposeDraft(undefined) }} onSent={() => { setComposeOpen(false); setComposeDraft(undefined); qc.invalidateQueries({ queryKey: ["messages"] }); qc.invalidateQueries({ queryKey: ["folders"] }); qc.invalidateQueries({ queryKey: ["mail-stats"] }); qc.invalidateQueries({ queryKey: ["labels"] }); qc.invalidateQueries({ queryKey: ["scheduled-sends"] }); qc.invalidateQueries({ queryKey: ["send-queue"] }) }} />
       <Input ref={mailImportInputRef} type="file" accept=".eml,.mbox,message/rfc822,application/mbox" multiple className="hidden" onChange={importSelectedMailFiles} />
       <SendQueueAuditDialog
         open={!!sendQueueAuditId}
@@ -2625,11 +2631,10 @@ function MessageContextMenu({ state, labels, folders, canSend, canOrganize, canM
           <div className="max-h-44 overflow-y-auto">
             {labels.map((label) => {
               const active = (message.labels || []).some((item) => item.id === label.id)
-              const colors = generateLabelColor(label.name)
               return (
                 <Button key={label.id} type="button" variant="ghost" className={itemClass} disabled={labelPending} onClick={() => toggleLabel(label)}>
                   <Check className={cn("h-4 w-4", active ? "opacity-100" : "opacity-0")} />
-                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: colors.backgroundColor }} />
+                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: labelDotColor(label) }} />
                   <span className="min-w-0 flex-1 truncate text-left">{active ? `移除 ${label.name}` : label.name}</span>
                 </Button>
               )
@@ -3445,10 +3450,9 @@ function MessageMetaPanel({ message, availableLabels, onAddLabel, onRemoveLabel,
             <MessageMetaRow label="标签">
               <div className="flex flex-wrap items-center gap-1.5">
                 {labels.map((label) => {
-                  const colors = generateLabelColor(label.name)
                   return (
                     <Badge key={label.id} variant="outline" className="label-badge group/badge gap-1.5 rounded-md font-normal">
-                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: colors.backgroundColor }} />
+                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: labelDotColor(label) }} />
                       <span>{label.name}</span>
                       <button
                         type="button"
@@ -3476,7 +3480,6 @@ function MessageMetaPanel({ message, availableLabels, onAddLabel, onRemoveLabel,
                     {availableLabels.length === 0 && <DropdownMenuItem disabled>请先在侧栏新建标签</DropdownMenuItem>}
                     {availableLabels.map((label) => {
                       const active = labels.some((l) => l.id === label.id)
-                      const colors = generateLabelColor(label.name)
                       return (
                         <DropdownMenuCheckboxItem
                           key={label.id}
@@ -3486,7 +3489,7 @@ function MessageMetaPanel({ message, availableLabels, onAddLabel, onRemoveLabel,
                             active ? onRemoveLabel(label.id) : onAddLabel(label)
                           }}
                         >
-                          <span className="mr-2 h-2 w-2 rounded-full" style={{ backgroundColor: colors.backgroundColor }} />
+                          <span className="mr-2 h-2 w-2 rounded-full" style={{ backgroundColor: labelDotColor(label) }} />
                           <span>{label.name}</span>
                         </DropdownMenuCheckboxItem>
                       )
@@ -3618,10 +3621,9 @@ function MessageRow({
 }
 
 function MailLabelBadge({ label }: { label: MailLabel }) {
-  const colors = generateLabelColor(label.name)
   return (
     <Badge variant="outline" className="shrink-0 gap-1.5 rounded-md font-normal">
-      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: labelDotColor(label) || colors.backgroundColor }} />
+      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: labelDotColor(label) }} />
       {label.name}
     </Badge>
   )
@@ -3631,9 +3633,12 @@ function labelDotColor(label: MailLabel) {
   return label.color?.trim() || generateLabelColor(label.name).backgroundColor
 }
 
-function ComposeDialog({ mailbox, open, draft, limits, canSend, canManageDrafts, canSchedule, canManageSignatures, onOpenChange, onSent }: { mailbox?: Mailbox; open: boolean; draft?: ComposeDraft; limits?: PermissionLimits; canSend: boolean; canManageDrafts: boolean; canSchedule: boolean; canManageSignatures: boolean; onOpenChange: (v: boolean) => void; onSent: () => void }) {
+function ComposeDialog({ mailboxes, mailbox, open, draft, limits, canSend, canManageDrafts, canSchedule, canManageSignatures, onOpenChange, onSent }: { mailboxes: Mailbox[]; mailbox?: Mailbox; open: boolean; draft?: ComposeDraft; limits?: PermissionLimits; canSend: boolean; canManageDrafts: boolean; canSchedule: boolean; canManageSignatures: boolean; onOpenChange: (v: boolean) => void; onSent: () => void }) {
   const { toast } = useToast()
   const qc = useQueryClient()
+  const initialMailboxId = mailboxes.find((item) => item.id === draft?.mailboxId)?.id || mailboxes.find((item) => item.id === mailbox?.id)?.id || mailboxes[0]?.id || ""
+  const [senderMailboxId, setSenderMailboxId] = React.useState(initialMailboxId)
+  const senderMailbox = React.useMemo(() => mailboxes.find((item) => item.id === senderMailboxId) || mailboxes[0], [mailboxes, senderMailboxId])
   const [files, setFiles] = React.useState<File[]>([])
   const [draftAttachments, setDraftAttachments] = React.useState<SendPayload["attachments"]>([])
   const [attachmentsTouched, setAttachmentsTouched] = React.useState(false)
@@ -3648,14 +3653,15 @@ function ComposeDialog({ mailbox, open, draft, limits, canSend, canManageDrafts,
   const [sendIntent, setSendIntent] = React.useState<ComposeSendIntent | null>(null)
   const sendStartedRef = React.useRef(false)
   const lastSavedPayloadRef = React.useRef("")
+  const initializedSessionRef = React.useRef("")
   const [showCc, setShowCc] = React.useState(Boolean(draft?.cc))
   const [showBcc, setShowBcc] = React.useState(Boolean(draft?.bcc))
   const [sendSeparately, setSendSeparately] = React.useState(false)
-  const defaultSignature = useQuery({ queryKey: ["signature", "default", mailbox?.id], queryFn: () => api.defaultSignature(mailbox?.id), enabled: open && !!mailbox?.id && canManageSignatures })
+  const defaultSignature = useQuery({ queryKey: ["signature", "default", senderMailbox?.id], queryFn: () => api.defaultSignature(senderMailbox?.id), enabled: open && !!senderMailbox?.id && canManageSignatures })
   const signatureText = defaultSignature.data?.signature?.content || ""
   const composerText = draft?.html || (draft?.text !== undefined ? draft.text : signatureText ? `\n\n-- \n${signatureText}` : "")
   const [body, setBody] = React.useState<ComposerValue>(() => draft?.html !== undefined ? htmlComposerValue(draft.html) : plainTextComposerValue(composerText))
-  const activeMailboxId = draft?.mailboxId || mailbox?.id || ""
+  const activeMailboxId = senderMailbox?.id || ""
   const maxAttachmentBytes = attachmentLimitBytes(limits)
   const maxAttachmentText = maxAttachmentBytes > 0 ? formatBytes(maxAttachmentBytes) : "不限"
   const composePayload = React.useMemo<DraftPayload>(() => ({
@@ -3707,13 +3713,20 @@ function ComposeDialog({ mailbox, open, draft, limits, canSend, canManageDrafts,
   })
 
   React.useEffect(() => {
-    if (!open) return
+    if (!open) {
+      initializedSessionRef.current = ""
+      return
+    }
+    const sessionKey = draft?.key || draft?.id || "new"
+    if (initializedSessionRef.current === sessionKey) return
+    initializedSessionRef.current = sessionKey
     sendStartedRef.current = false
+    const nextMailboxId = mailboxes.find((item) => item.id === draft?.mailboxId)?.id || mailboxes.find((item) => item.id === mailbox?.id)?.id || mailboxes[0]?.id || ""
     const nextShowCc = Boolean(draft?.cc)
     const nextShowBcc = Boolean(draft?.bcc)
-    const nextBody = draft?.html !== undefined ? htmlComposerValue(draft.html) : plainTextComposerValue(composerText)
+    const nextBody = draft?.html !== undefined ? htmlComposerValue(draft.html) : plainTextComposerValue(draft?.text || "")
     lastSavedPayloadRef.current = JSON.stringify({
-      mailboxId: draft?.mailboxId || mailbox?.id || "",
+      mailboxId: nextMailboxId,
       to: splitEmails(draft?.to || ""),
       cc: nextShowCc ? splitEmails(draft?.cc || "") : [],
       bcc: nextShowBcc ? splitEmails(draft?.bcc || "") : [],
@@ -3722,6 +3735,7 @@ function ComposeDialog({ mailbox, open, draft, limits, canSend, canManageDrafts,
       html: nextBody.html || plainTextToHtml(nextBody.text),
       draftId: draft?.id || "",
     })
+    setSenderMailboxId(nextMailboxId)
     setDraftId(draft?.id || "")
     setToValue(draft?.to || "")
     setCcValue(draft?.cc || "")
@@ -3736,7 +3750,7 @@ function ComposeDialog({ mailbox, open, draft, limits, canSend, canManageDrafts,
     setFiles(draft?.files || [])
     setDraftAttachments([])
     setAttachmentsTouched(false)
-  }, [open, draft?.key, draft?.id, draft?.mailboxId, draft?.to, draft?.cc, draft?.bcc, draft?.subject, draft?.html, draft?.files, mailbox?.id, composerText])
+  }, [open, draft?.key, draft?.id, draft?.mailboxId, draft?.to, draft?.cc, draft?.bcc, draft?.subject, draft?.text, draft?.html, draft?.files, mailbox?.id, mailboxes])
 
   React.useEffect(() => {
     let cancelled = false
@@ -3814,7 +3828,7 @@ function ComposeDialog({ mailbox, open, draft, limits, canSend, canManageDrafts,
 
   async function prepareSend() {
     if (!canSend) return
-    if (!mailbox) return
+    if (!senderMailbox) return
     if (!attachmentsWithinLimit()) return
     const attachments = await Promise.all(files.map(fileToAttachment))
     const to = splitEmails(toValue)
@@ -3822,7 +3836,7 @@ function ComposeDialog({ mailbox, open, draft, limits, canSend, canManageDrafts,
     const bcc = showBcc ? splitEmails(bccValue) : []
     const text = body.text
     const html = body.html || plainTextToHtml(text)
-    const payload: SendPayload = { mailboxId: mailbox.id, to, cc, bcc, subject: subjectValue, text, html, attachments }
+    const payload: SendPayload = { mailboxId: senderMailbox.id, to, cc, bcc, subject: subjectValue, text, html, attachments }
     const separateRecipients = Array.from(new Set([...to, ...cc, ...bcc]))
     const payloads = sendSeparately && separateRecipients.length > 0
       ? separateRecipients.map((recipient): SendPayload => ({ ...payload, to: [recipient], cc: [], bcc: [] }))
@@ -3841,7 +3855,7 @@ function ComposeDialog({ mailbox, open, draft, limits, canSend, canManageDrafts,
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    if (!mailbox) {
+    if (!senderMailbox) {
       toast({ title: "请选择发件邮箱" })
       return
     }
@@ -3849,14 +3863,14 @@ function ComposeDialog({ mailbox, open, draft, limits, canSend, canManageDrafts,
   }
   async function scheduleAt(sendAt: string) {
     if (!canSchedule) return
-    if (!mailbox) {
+    if (!senderMailbox) {
       toast({ title: "请选择发件邮箱" })
       return
     }
     if (!attachmentsWithinLimit()) return
     const attachments = await Promise.all(files.map(fileToAttachment))
     const payload: SendPayload & { draftId?: string; sendAt: string } = {
-      mailboxId: mailbox.id,
+      mailboxId: senderMailbox.id,
       to: splitEmails(toValue),
       cc: showCc ? splitEmails(ccValue) : [],
       bcc: showBcc ? splitEmails(bccValue) : [],
@@ -3882,7 +3896,7 @@ function ComposeDialog({ mailbox, open, draft, limits, canSend, canManageDrafts,
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="flex h-svh w-screen max-w-none overflow-hidden p-0 sm:h-auto sm:max-h-[92vh] sm:w-[min(96vw,82rem)]"
+        className="flex h-svh w-screen max-w-none overflow-hidden p-0 sm:h-auto sm:max-h-[92vh] sm:w-[min(92vw,72rem)]"
         onInteractOutside={(event) => event.preventDefault()}
         onPointerDownOutside={(event) => event.preventDefault()}
       >
@@ -3897,7 +3911,18 @@ function ComposeDialog({ mailbox, open, draft, limits, canSend, canManageDrafts,
           </DialogHeader>
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
             <ComposeField label="发件邮箱">
-              <Input value={mailbox?.address || "未选择"} readOnly className="h-10 flex-1 rounded-none border-0 px-0 shadow-none focus-visible:ring-0" />
+              {mailboxes.length > 1 ? (
+                <Select value={senderMailbox?.id || ""} onValueChange={setSenderMailboxId}>
+                  <SelectTrigger aria-label="发件邮箱" className="h-10 flex-1 rounded-none border-0 px-0 shadow-none focus:ring-0">
+                    <SelectValue placeholder="选择发件邮箱" />
+                  </SelectTrigger>
+                  <SelectContent className="max-w-[calc(100vw-2rem)]">
+                    {mailboxes.map((item) => <SelectItem key={item.id} value={item.id}>{item.address}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input value={senderMailbox?.address || "未选择"} readOnly className="h-10 flex-1 rounded-none border-0 px-0 shadow-none focus-visible:ring-0" />
+              )}
             </ComposeField>
             <ComposeField
               label="收件人"
@@ -3940,8 +3965,8 @@ function ComposeDialog({ mailbox, open, draft, limits, canSend, canManageDrafts,
           </div>
           <DialogFooter className="grid grid-cols-3 gap-2 border-t bg-background px-4 py-3 sm:flex sm:flex-row sm:justify-end sm:px-6 sm:py-4">
             <Button type="button" variant="outline" className="min-h-10 px-3" onClick={() => onOpenChange(false)}>取消</Button>
-            {canSchedule && <Button type="button" variant="outline" className="min-h-10 px-3" disabled={send.isPending || scheduleSend.isPending || !mailbox} onClick={() => setScheduleDialogOpen(true)}><Calendar className="h-4 w-4" />定时</Button>}
-            {canSend && <Button className="min-h-10 px-4" disabled={send.isPending || !mailbox}><Send className="h-4 w-4" />{send.isPending ? "发送中..." : "发送"}</Button>}
+            {canSchedule && <Button type="button" variant="outline" className="min-h-10 px-3" disabled={send.isPending || scheduleSend.isPending || !senderMailbox} onClick={() => setScheduleDialogOpen(true)}><Calendar className="h-4 w-4" />定时</Button>}
+            {canSend && <Button className="min-h-10 px-4" disabled={send.isPending || !senderMailbox}><Send className="h-4 w-4" />{send.isPending ? "发送中..." : "发送"}</Button>}
           </DialogFooter>
         </form>
         <ScheduleSendDialog open={scheduleDialogOpen} pending={scheduleSend.isPending} onOpenChange={setScheduleDialogOpen} onConfirm={scheduleAt} />

@@ -546,11 +546,12 @@ func (a *App) handleMailMessages(w http.ResponseWriter, r *http.Request) {
 	if isAllMailboxID(r.URL.Query().Get("mailboxId")) {
 		user := currentUser(r)
 		if labelID := strings.TrimSpace(r.URL.Query().Get("labelId")); labelID != "" {
-			if !a.labelBelongsToUser(r.Context(), labelID, user.ID) {
+			labelName, ok := a.labelNameForUser(r.Context(), labelID, user.ID)
+			if !ok {
 				respondError(w, http.StatusNotFound, "label not found")
 				return
 			}
-			a.respondMailMessageList(w, r, `EXISTS (SELECT 1 FROM mailboxes mb WHERE mb.id=m.mailbox_id AND mb.user_id=? AND mb.status='active') AND EXISTS (SELECT 1 FROM message_labels ml WHERE ml.message_id=m.id AND ml.label_id=?)`, []any{user.ID, labelID})
+			a.respondMailMessageList(w, r, `EXISTS (SELECT 1 FROM mailboxes mb WHERE mb.id=m.mailbox_id AND mb.user_id=? AND mb.status='active') AND EXISTS (SELECT 1 FROM message_labels ml JOIN mail_labels l ON l.id=ml.label_id WHERE ml.message_id=m.id AND lower(l.name)=lower(?))`, []any{user.ID, labelName})
 			return
 		}
 		folder := r.URL.Query().Get("folder")
@@ -2605,7 +2606,7 @@ func (a *App) labelsForMailbox(ctx context.Context, mailboxID string) ([]MailLab
 		FROM mail_labels l LEFT JOIN message_labels ml ON ml.label_id=l.id
 		WHERE l.mailbox_id=?
 		GROUP BY l.id,l.mailbox_id,l.name,l.color
-		ORDER BY lower(l.name)`, mailboxID)
+		ORDER BY `+mailLabelOrderSQL("l")+`, lower(l.name)`, mailboxID)
 	if err != nil {
 		return nil, err
 	}
@@ -2622,13 +2623,13 @@ func (a *App) labelsForMailbox(ctx context.Context, mailboxID string) ([]MailLab
 }
 
 func (a *App) labelsForUser(ctx context.Context, userID string) ([]MailLabel, error) {
-	rows, err := a.db.QueryContext(ctx, `SELECT l.id,l.mailbox_id,l.name,l.color,COUNT(ml.message_id)
+	rows, err := a.db.QueryContext(ctx, `SELECT MIN(l.id),'',MIN(l.name),MIN(l.color),COUNT(ml.message_id)
 		FROM mail_labels l
 		JOIN mailboxes mb ON mb.id=l.mailbox_id
 		LEFT JOIN message_labels ml ON ml.label_id=l.id
 		WHERE mb.user_id=? AND mb.status='active'
-		GROUP BY l.id,l.mailbox_id,l.name,l.color
-		ORDER BY lower(l.name)`, userID)
+		GROUP BY lower(l.name)
+		ORDER BY `+mailLabelNameOrderSQL("MIN(l.name)")+`, lower(MIN(l.name))`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -2648,7 +2649,7 @@ func (a *App) labelsForMessage(ctx context.Context, messageID string) ([]MailLab
 	rows, err := a.db.QueryContext(ctx, `SELECT l.id,l.mailbox_id,l.name,l.color
 		FROM mail_labels l JOIN message_labels ml ON ml.label_id=l.id
 		WHERE ml.message_id=?
-		ORDER BY lower(l.name)`, messageID)
+		ORDER BY `+mailLabelOrderSQL("l")+`, lower(l.name)`, messageID)
 	if err != nil {
 		return nil, err
 	}
@@ -2679,7 +2680,7 @@ func (a *App) attachLabelsToMessages(ctx context.Context, items []MailMessage) e
 	rows, err := a.db.QueryContext(ctx, `SELECT ml.message_id,l.id,l.mailbox_id,l.name,l.color
 		FROM message_labels ml JOIN mail_labels l ON l.id=ml.label_id
 		WHERE ml.message_id IN (`+strings.Join(ids, ",")+`)
-		ORDER BY lower(l.name)`, args...)
+		ORDER BY `+mailLabelOrderSQL("l")+`, lower(l.name)`, args...)
 	if err != nil {
 		return err
 	}
@@ -2695,6 +2696,14 @@ func (a *App) attachLabelsToMessages(ctx context.Context, items []MailMessage) e
 		}
 	}
 	return rows.Err()
+}
+
+func mailLabelOrderSQL(alias string) string {
+	return mailLabelNameOrderSQL(alias + `.name`)
+}
+
+func mailLabelNameOrderSQL(expression string) string {
+	return `CASE ` + expression + ` WHEN '个人' THEN 10 WHEN '家人' THEN 20 WHEN '朋友' THEN 30 WHEN '工作' THEN 40 WHEN '重要' THEN 50 ELSE 100 END`
 }
 
 func (a *App) ensureLabel(ctx context.Context, mailboxID, name, color string) (MailLabel, error) {
@@ -2738,6 +2747,14 @@ func (a *App) labelBelongsToUser(ctx context.Context, labelID, userID string) bo
 	var count int
 	_ = a.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM mail_labels l JOIN mailboxes mb ON mb.id=l.mailbox_id WHERE l.id=? AND mb.user_id=?`, labelID, userID).Scan(&count)
 	return count > 0
+}
+
+func (a *App) labelNameForUser(ctx context.Context, labelID, userID string) (string, bool) {
+	var name string
+	if err := a.db.QueryRowContext(ctx, `SELECT l.name FROM mail_labels l JOIN mailboxes mb ON mb.id=l.mailbox_id WHERE l.id=? AND mb.user_id=? AND mb.status='active'`, labelID, userID).Scan(&name); err != nil {
+		return "", false
+	}
+	return name, true
 }
 
 func normalizeLabelName(name string) string {
