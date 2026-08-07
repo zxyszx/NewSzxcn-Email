@@ -258,7 +258,8 @@ test_service_commands_require_complete_installation() (
   temp_dir="$(mktemp -d)"
   INSTALL_DIR="${temp_dir}/install"
   mkdir -p "${INSTALL_DIR}"
-  # shellcheck disable=SC2329
+  # Invoked indirectly by the service command functions under test.
+  # shellcheck disable=SC2317,SC2329
   ensure_docker() { fail_test "service command checked Docker before installation"; }
   for command_name in do_update do_status do_logs do_restart do_certificate do_rollback do_reset_admin_password do_reset_admin_two_factor do_uninstall; do
     if ("${command_name}" >/dev/null 2>&1); then
