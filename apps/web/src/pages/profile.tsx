@@ -50,6 +50,8 @@ const accountSettingTabs: { key: AccountSettingsTab; label: string }[] = [
   { key: "clients", label: "通知与客户端" },
   { key: "security", label: "安全" },
 ]
+const forwardingTargetCollator = new Intl.Collator("en", { sensitivity: "base", numeric: true })
+
 export function ProfilePage() {
   const me = useMe()
   const qc = useQueryClient()
@@ -1093,13 +1095,14 @@ function MailboxManagement({
   const [mailboxSearch, setMailboxSearch] = React.useState("")
   const [forwardingMailbox, setForwardingMailbox] = React.useState<Mailbox | null>(null)
   const [forwardDraft, setForwardDraft] = React.useState<string[]>([])
+  const [forwardingTargetPreview, setForwardingTargetPreview] = React.useState<{ title: string; subtitle: string; source: string; targets: string[] } | null>(null)
   const [accountForwardTargets, setAccountForwardTargets] = React.useState<string[]>([])
   const [verifiedDialogOpen, setVerifiedDialogOpen] = React.useState(false)
   const [verifiedEmailDraft, setVerifiedEmailDraft] = React.useState("")
   const [pendingExternalDelete, setPendingExternalDelete] = React.useState<ExternalImapAccount | null>(null)
   const forwarding = useQuery({ queryKey: ["forwarding-settings"], queryFn: api.forwardingSettings, enabled: mailboxes.length > 0 })
-  const verifiedEmailItems = forwarding.data?.verifiedEmails || []
-  const verifiedEmails = React.useMemo(() => verifiedEmailItems.filter((item) => item.verified).map((item) => item.email), [verifiedEmailItems])
+  const verifiedEmailItems = React.useMemo(() => [...(forwarding.data?.verifiedEmails || [])].sort((a, b) => forwardingTargetCollator.compare(a.email, b.email)), [forwarding.data?.verifiedEmails])
+  const verifiedEmails = React.useMemo(() => sortForwardingTargets(verifiedEmailItems.filter((item) => item.verified).map((item) => item.email)), [verifiedEmailItems])
   const hasPendingVerifiedEmails = verifiedEmailItems.some((item) => !item.verified)
   const mailboxForwards = React.useMemo<Record<string, string[]>>(() => {
     const next: Record<string, string[]> = {}
@@ -1113,9 +1116,10 @@ function MailboxManagement({
   const domainOptions = applyOptions?.domains || []
   const selectedDomain = domainOptions.find((domain) => domain.id === domainId) || domainOptions[0]
   const selectedMailbox = mailboxes.find((mailbox) => mailbox.id === selectedMailboxId) || mailboxes[0]
+  const sortedMailboxes = React.useMemo(() => [...mailboxes].sort((a, b) => forwardingTargetCollator.compare(a.address, b.address)), [mailboxes])
   const filteredMailboxes = normalizedMailboxSearch
-    ? mailboxes.filter((mailbox) => mailbox.address.toLowerCase().includes(normalizedMailboxSearch))
-    : mailboxes
+    ? sortedMailboxes.filter((mailbox) => mailbox.address.toLowerCase().includes(normalizedMailboxSearch))
+    : sortedMailboxes
   const setForwardingCache = React.useCallback((settings: ForwardingSettings) => {
     qc.setQueryData(["forwarding-settings"], settings)
   }, [qc])
@@ -1203,13 +1207,14 @@ function MailboxManagement({
   }
 
   function openMailboxForward(mailbox: Mailbox) {
+    const mailboxTargets = mailboxForwards[mailbox.id]
     setForwardingMailbox(mailbox)
-    setForwardDraft(mailboxForwards[mailbox.id] || [])
+    setForwardDraft(withoutForwardingTargets(mailboxTargets || [], accountForwardTargets))
   }
 
   function saveMailboxForward() {
     if (!forwardingMailbox) return
-    saveMailboxForwarding.mutate({ mailboxId: forwardingMailbox.id, targetEmails: forwardDraft })
+    saveMailboxForwarding.mutate({ mailboxId: forwardingMailbox.id, targetEmails: withoutForwardingTargets(forwardDraft, accountForwardTargets) })
   }
 
   function submitVerifiedEmail(event: React.FormEvent<HTMLFormElement>) {
@@ -1275,9 +1280,11 @@ function MailboxManagement({
         <div className="divide-y">
           {filteredMailboxes.map((mailbox) => {
             const forwardTargets = mailboxForwards[mailbox.id] || []
-            const accountForwardTargetActive = forwardTargets.length === 0 && accountForwardTargets.length > 0
-            const effectiveForwardTargets = forwardTargets.length > 0 ? forwardTargets : accountForwardTargetActive ? accountForwardTargets : []
+            const effectiveForwardTargets = mergeForwardingTargets(accountForwardTargets, forwardTargets)
             const forwardingActive = effectiveForwardTargets.length > 0
+            const forwardingSource = accountForwardTargets.length > 0 && forwardTargets.length > 0 ? "账号级 + 邮箱单独" : accountForwardTargets.length > 0 ? "账号级" : "邮箱单独"
+            const forwardingSubtitle = accountForwardTargets.length > 0 && forwardTargets.length > 0 ? "账号级目标固定生效，并追加邮箱单独目标" : accountForwardTargets.length > 0 ? "继承账号级转发" : "邮箱单独转发"
+            const forwardingPrefix = accountForwardTargets.length > 0 && forwardTargets.length > 0 ? "转发：账号级+单独" : accountForwardTargets.length > 0 ? "转发：使用账号级" : "转发："
             return (
               <div key={mailbox.id} className={cn("grid gap-3 px-6 py-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center", selectedMailboxId === mailbox.id && "bg-muted/50")}>
                 <div className="flex min-w-0 items-center gap-4">
@@ -1291,8 +1298,13 @@ function MailboxManagement({
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                       <span>创建于 {formatDateTime(mailbox.createdAt)}</span>
-                      {forwardTargets.length > 0 && <span className="max-w-full truncate font-semibold text-foreground">转发：{forwardTargets.join("、")}</span>}
-                      {accountForwardTargetActive && <span className="max-w-full truncate font-semibold text-foreground">转发：使用账号级 {accountForwardTargets.join("、")}</span>}
+                      {effectiveForwardTargets.length > 0 && (
+                        <ForwardingTargetSummary
+                          prefix={forwardingPrefix}
+                          targets={effectiveForwardTargets}
+                          onView={() => setForwardingTargetPreview({ title: mailbox.address, subtitle: forwardingSubtitle, source: forwardingSource, targets: effectiveForwardTargets })}
+                        />
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1313,7 +1325,7 @@ function MailboxManagement({
         </div>
         <div className="rounded-xl bg-muted/20 px-5 py-5">
           <div className="mb-3 text-sm font-medium">账号级转发</div>
-          <div className="mb-4 text-sm text-muted-foreground">对所有邮箱生效，可同时转发到多个已验证邮箱；邮箱单独设置优先级更高</div>
+          <div className="mb-4 text-sm text-muted-foreground">对所有邮箱生效，可同时转发到多个已验证邮箱；单个邮箱可继续追加自己的转发目标</div>
           <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_72px] md:items-start">
             <ForwardingTargetPicker emails={verifiedEmails} selected={accountForwardTargets} onChange={setAccountForwardTargets} disabled={forwardingBusy} />
             <Button type="button" className="h-[37px]" disabled={forwardingBusy} onClick={() => saveAccountForwarding.mutate(accountForwardTargets)}>{saveAccountForwarding.isPending ? "保存中" : "保存"}</Button>
@@ -1333,7 +1345,7 @@ function MailboxManagement({
           </div>
         )}
         {verifiedEmails.length === 0 && <p className="mt-4 text-sm text-muted-foreground">暂未添加验证邮箱，请先点击「管理验证邮箱」添加。</p>}
-        <p className="mt-3 text-sm text-muted-foreground">提示：每个邮箱可单独设置多个转发目标（点击邮箱列表中的「转发」按钮），单独设置会覆盖账号级配置。</p>
+        <p className="mt-3 text-sm text-muted-foreground">提示：点击邮箱列表中的「转发」按钮，可在账号级目标之外追加该邮箱自己的转发目标。</p>
       </section>
 
       {externalImapEnabled && (
@@ -1390,13 +1402,39 @@ function MailboxManagement({
             <div className="space-y-2">
               <Label className="text-sm font-medium">转发到</Label>
               <div className="grid grid-cols-[minmax(0,1fr)_64px_64px] items-start gap-2">
-                <ForwardingTargetPicker emails={verifiedEmails} selected={forwardDraft} onChange={setForwardDraft} disabled={forwardingBusy} />
+                <ForwardingTargetPicker emails={verifiedEmails} selected={forwardDraft} lockedSelected={accountForwardTargets} lockedLabel="账号级" onChange={(targets) => setForwardDraft(withoutForwardingTargets(targets, accountForwardTargets))} disabled={forwardingBusy} />
                 <Button type="button" variant="outline" className="h-[37px] px-0" disabled={forwardingBusy} onClick={() => setForwardingMailbox(null)}>取消</Button>
                 <Button type="button" className="h-[37px] px-0" disabled={forwardingBusy} onClick={saveMailboxForward}>{saveMailboxForwarding.isPending ? "保存中" : "保存"}</Button>
               </div>
+              {accountForwardTargets.length > 0 && <p className="text-xs text-muted-foreground">账号级目标已置顶锁定，不能在单个邮箱里取消；下方可追加邮箱单独目标。</p>}
             </div>
             {verifiedEmails.length === 0 && <p className="text-sm text-muted-foreground">暂未添加验证邮箱，请先点击「管理验证邮箱」添加。</p>}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!forwardingTargetPreview} onOpenChange={(open) => { if (!open) setForwardingTargetPreview(null) }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader><DialogTitle>转发目标</DialogTitle></DialogHeader>
+          {forwardingTargetPreview && (
+            <div className="space-y-4">
+              <div className="min-w-0">
+                <div className="truncate text-sm text-muted-foreground">{forwardingTargetPreview.title}</div>
+                <div className="mt-2 flex items-center gap-2">
+                  <Badge variant="secondary">{forwardingTargetPreview.source}</Badge>
+                  <span className="text-sm text-muted-foreground">{forwardingTargetPreview.subtitle}</span>
+                </div>
+              </div>
+              <div className="max-h-[320px] overflow-y-auto rounded-lg border">
+                {forwardingTargetPreview.targets.map((email) => (
+                  <div key={email} className="flex min-h-11 items-center gap-3 border-b px-3 py-2 text-sm last:border-b-0">
+                    <span className="size-2 shrink-0 rounded-full bg-emerald-500" />
+                    <span className="min-w-0 break-all font-medium">{email}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -1632,36 +1670,81 @@ function formatDateTime(value: string) {
   return date.toLocaleString()
 }
 
+function ForwardingTargetSummary({ targets, prefix = "转发：", onView }: { targets: string[]; prefix?: string; onView: () => void }) {
+  if (targets.length === 0) return null
+  const prefixText = prefix.endsWith("：") ? prefix : `${prefix} `
+  return (
+    <span className="inline-flex min-w-0 max-w-full items-center gap-1 font-semibold text-foreground" title={`${prefixText}${targets.join("、")}`}>
+      <span className="min-w-0 truncate">{prefixText}{targets[0]}</span>
+      {targets.length > 1 && (
+        <Button type="button" variant="link" className="h-auto shrink-0 px-1 py-0 text-xs font-semibold" onClick={onView}>
+          查看全部 {targets.length} 个
+        </Button>
+      )}
+    </span>
+  )
+}
+
+function normalizeForwardingTarget(value: string) {
+  return value.trim().toLowerCase()
+}
+
+function sortForwardingTargets(targets: string[]) {
+  return Array.from(new Set(targets.map((item) => item.trim()).filter(Boolean))).sort((a, b) => forwardingTargetCollator.compare(a, b))
+}
+
+function mergeForwardingTargets(...groups: string[][]) {
+  const seen = new Set<string>()
+  const merged: string[] = []
+  for (const target of groups.flat()) {
+    const value = target.trim()
+    const key = normalizeForwardingTarget(value)
+    if (!value || seen.has(key)) continue
+    seen.add(key)
+    merged.push(value)
+  }
+  return sortForwardingTargets(merged)
+}
+
+function withoutForwardingTargets(targets: string[], lockedTargets: string[]) {
+  const locked = new Set(lockedTargets.map(normalizeForwardingTarget))
+  return sortForwardingTargets(targets.filter((target) => !locked.has(normalizeForwardingTarget(target))))
+}
+
 function forwardingTargetsFromRule(rule: { targetEmail?: string; targetEmails?: string[] }) {
   const targets = rule.targetEmails?.length ? rule.targetEmails : rule.targetEmail ? [rule.targetEmail] : []
-  return Array.from(new Set(targets.map((item) => item.trim()).filter(Boolean)))
+  return sortForwardingTargets(targets)
 }
 
 function forwardingTargetsFromSettings(settings?: ForwardingSettings) {
   const targets = settings?.accountTargetEmails?.length ? settings.accountTargetEmails : settings?.accountTargetEmail ? [settings.accountTargetEmail] : []
-  return Array.from(new Set(targets.map((item) => item.trim()).filter(Boolean)))
+  return sortForwardingTargets(targets)
 }
 
-function ForwardingTargetPicker({ emails, selected, onChange, disabled, placement = "bottom" }: { emails: string[]; selected: string[]; onChange: (targets: string[]) => void; disabled?: boolean; placement?: "bottom" | "top" }) {
+function ForwardingTargetPicker({ emails, selected, lockedSelected = [], lockedLabel = "账号级", onChange, disabled, placement = "bottom" }: { emails: string[]; selected: string[]; lockedSelected?: string[]; lockedLabel?: string; onChange: (targets: string[]) => void; disabled?: boolean; placement?: "bottom" | "top" }) {
   const [open, setOpen] = React.useState(false)
   const [query, setQuery] = React.useState("")
-  const selectedSet = React.useMemo(() => new Set(selected), [selected])
+  const lockedEmails = React.useMemo(() => sortForwardingTargets(lockedSelected), [lockedSelected])
+  const lockedSet = React.useMemo(() => new Set(lockedEmails.map(normalizeForwardingTarget)), [lockedEmails])
+  const selectedEmailsOnly = React.useMemo(() => withoutForwardingTargets(selected, lockedEmails), [lockedEmails, selected])
+  const selectedSet = React.useMemo(() => new Set(selectedEmailsOnly.map(normalizeForwardingTarget)), [selectedEmailsOnly])
   const sortedEmails = React.useMemo(() => {
-    const collator = new Intl.Collator("en", { sensitivity: "base", numeric: true })
-    return Array.from(new Set(emails.map((email) => email.trim()).filter(Boolean))).sort((a, b) => collator.compare(a, b))
+    return sortForwardingTargets(emails)
   }, [emails])
-  const selectedEmails = React.useMemo(() => sortedEmails.filter((email) => selectedSet.has(email)), [selectedSet, sortedEmails])
+  const regularEmails = React.useMemo(() => sortedEmails.filter((email) => !lockedSet.has(normalizeForwardingTarget(email))), [lockedSet, sortedEmails])
+  const selectedEmails = React.useMemo(() => [...lockedEmails, ...regularEmails.filter((email) => selectedSet.has(normalizeForwardingTarget(email)))], [lockedEmails, regularEmails, selectedSet])
   const normalizedQuery = query.trim().toLowerCase()
-  const filteredEmails = normalizedQuery ? sortedEmails.filter((email) => email.toLowerCase().includes(normalizedQuery)) : sortedEmails
+  const filteredLockedEmails = normalizedQuery ? lockedEmails.filter((email) => email.toLowerCase().includes(normalizedQuery)) : lockedEmails
+  const filteredEmails = normalizedQuery ? regularEmails.filter((email) => email.toLowerCase().includes(normalizedQuery)) : regularEmails
   const label = selectedEmails.length
     ? `已选择 ${selectedEmails.length} 个：${selectedEmails.slice(0, 2).join("、")}${selectedEmails.length > 2 ? ` 等 ${selectedEmails.length} 个` : ""}`
     : "不转发，点击选择邮箱"
   function toggle(email: string, checked: boolean) {
     if (disabled) return
-    const next = checked ? Array.from(new Set([...selected, email])) : selected.filter((item) => item !== email)
-    onChange(next)
+    const next = checked ? mergeForwardingTargets(selectedEmailsOnly, [email]) : selectedEmailsOnly.filter((item) => normalizeForwardingTarget(item) !== normalizeForwardingTarget(email))
+    onChange(withoutForwardingTargets(next, lockedEmails))
   }
-  if (emails.length === 0) {
+  if (sortedEmails.length === 0 && lockedEmails.length === 0) {
     return <div className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">暂无已验证邮箱</div>
   }
   return (
@@ -1704,8 +1787,18 @@ function ForwardingTargetPicker({ emails, selected, onChange, disabled, placemen
           </div>
           <div className="mt-2 max-h-[132px] overflow-y-auto pr-1">
             <div className="space-y-1">
+              {filteredLockedEmails.map((email) => (
+                <label
+                  key={`locked-${email}`}
+                  className="flex min-h-[36px] cursor-not-allowed items-center gap-2 rounded-md border border-border bg-muted/70 px-2.5 py-1.5 text-sm font-semibold text-muted-foreground"
+                >
+                  <Checkbox checked disabled />
+                  <span className="min-w-0 flex-1 truncate">{email}</span>
+                  <Badge variant="outline" className="h-5 shrink-0 rounded px-1.5 text-[10px]">{lockedLabel}</Badge>
+                </label>
+              ))}
               {filteredEmails.map((email) => {
-                const checked = selectedSet.has(email)
+                const checked = selectedSet.has(normalizeForwardingTarget(email))
                 return (
                   <label
                     key={email}
@@ -1719,7 +1812,7 @@ function ForwardingTargetPicker({ emails, selected, onChange, disabled, placemen
                   </label>
                 )
               })}
-              {filteredEmails.length === 0 && <div className="px-2 py-8 text-center text-sm text-muted-foreground">没有匹配的已验证邮箱</div>}
+              {filteredLockedEmails.length === 0 && filteredEmails.length === 0 && <div className="px-2 py-8 text-center text-sm text-muted-foreground">没有匹配的已验证邮箱</div>}
             </div>
           </div>
         </div>
