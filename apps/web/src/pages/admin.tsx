@@ -101,6 +101,14 @@ export function AdminPage() {
   const visibleSections = sectionKeys.filter((key) => hasAnyPermission(user, sectionPermissions[key]))
   const rawSection = params.get("section") as Section | null
   const section: Section = rawSection && visibleSections.includes(rawSection) ? rawSection : visibleSections[0] || "overview"
+  const sectionQuery = section === "overview" ? overview
+    : section === "users" ? users
+      : section === "permissionGroups" ? permissionGroups
+        : section === "domains" ? domains
+          : section === "mailboxes" ? mailboxes
+            : section === "aliases" ? aliases
+              : section === "settings" ? settings
+                : null
 
   async function refreshAdminPage() {
     if (refreshing) return
@@ -123,6 +131,8 @@ export function AdminPage() {
     <ScrollArea className="h-[calc(100svh-3rem)] md:h-svh">
       <main className="mx-auto w-full max-w-[1180px] px-3 pb-10 pt-3 sm:px-4 sm:pt-4">
         <AdminPageHeader section={section} refreshing={refreshing} onRefresh={refreshAdminPage} />
+
+        {sectionQuery?.isError && <QueryFailure error={sectionQuery.error} onRetry={() => { void sectionQuery.refetch() }} />}
 
         {section === "overview" && canOverview && (
           <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -397,7 +407,7 @@ function PermissionGroupsSection({ groups, catalog }: { groups: PermissionGroup[
                   <div className="mt-1 line-clamp-2 text-sm text-muted-foreground">{group.description || "未填写说明"}</div>
                 </div>
                 {(canUpdate || canDelete) && <DropdownMenu>
-                  <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                  <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`管理权限配置 ${group.name}`} title="更多操作"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem disabled={!isEditable(group) || !canUpdate} onSelect={() => setEditing(group)}>编辑权限配置</DropdownMenuItem>
                     <DropdownMenuSeparator />
@@ -903,7 +913,8 @@ function AdminMessagesSection({ mailboxes, systemAdmin }: { mailboxes: MailboxTy
           </Table>
         </div>
         {messages.isLoading && <Empty text="加载中..." />}
-        {!messages.isLoading && items.length === 0 && <Empty text="暂无邮件" />}
+        {messages.isError && <QueryFailure error={messages.error} onRetry={() => { void messages.refetch() }} compact />}
+        {!messages.isLoading && !messages.isError && items.length === 0 && <Empty text="暂无邮件" />}
         {!messages.isLoading && messages.hasNextPage && (
           <div className="flex justify-center">
             <Button variant="outline" size="sm" disabled={messages.isFetchingNextPage} onClick={() => messages.fetchNextPage()}>
@@ -1016,7 +1027,8 @@ function AdminSendAuditSection({ mailboxes }: { mailboxes: MailboxType[] }) {
           </Table>
         </div>
         {audit.isLoading && <Empty text="加载中..." />}
-        {!audit.isLoading && items.length === 0 && <Empty text="暂无发送记录" />}
+        {audit.isError && <QueryFailure error={audit.error} onRetry={() => { void audit.refetch() }} compact />}
+        {!audit.isLoading && !audit.isError && items.length === 0 && <Empty text="暂无发送记录" />}
         {!audit.isLoading && audit.hasNextPage && (
           <div className="flex justify-center">
             <Button variant="outline" size="sm" disabled={audit.isFetchingNextPage} onClick={() => audit.fetchNextPage()}>
@@ -1330,7 +1342,7 @@ function SystemSettingsSection({ settings, domains, mailboxes, initialTab }: { s
                     <div className="space-y-3 border-l-2 border-primary/50 py-1 pl-3">
                       <div className="flex items-center gap-2">
                         <code className="min-w-0 flex-1 font-mono text-sm font-semibold">{telegramPairing.code}</code>
-                        <Button type="button" variant="ghost" size="icon" title="复制绑定码" onClick={() => navigator.clipboard.writeText(telegramPairing.code)}>
+                        <Button type="button" variant="ghost" size="icon" aria-label="复制绑定码" title="复制绑定码" onClick={() => navigator.clipboard.writeText(telegramPairing.code)}>
                           <Copy className="h-4 w-4" />
                         </Button>
                       </div>
@@ -1429,7 +1441,8 @@ function SystemSettingsSection({ settings, domains, mailboxes, initialTab }: { s
         </CardContent>
       </Card>}
 
-      {settingsTab === "templates" && canViewTemplates && <MailTemplatesPanel templates={templates.data?.items || []} loading={templates.isLoading} canUpdate={canUpdateTemplates} canReset={canResetTemplates} />}
+      {settingsTab === "templates" && canViewTemplates && templates.isError && <QueryFailure error={templates.error} onRetry={() => { void templates.refetch() }} />}
+      {settingsTab === "templates" && canViewTemplates && !templates.isError && <MailTemplatesPanel templates={templates.data?.items || []} loading={templates.isLoading} canUpdate={canUpdateTemplates} canReset={canResetTemplates} />}
 
       {settingsTab === "security" && <Card>
         <CardHeader><CardTitle>安全设置</CardTitle></CardHeader>
@@ -1808,6 +1821,18 @@ function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; va
 }
 function InfoBox({ label, value }: { label: string; value: React.ReactNode }) { return <div className="rounded-lg border p-4"><div className="text-xl font-semibold tracking-tight sm:text-2xl">{value}</div><div className="text-xs text-muted-foreground">{label}</div></div> }
 function Empty({ text }: { text: string }) { return <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">{text}</div> }
+
+function QueryFailure({ error, onRetry, compact = false }: { error: unknown; onRetry: () => void; compact?: boolean }) {
+  return (
+    <div className={cn("mb-4 flex flex-col gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4 sm:flex-row sm:items-center sm:justify-between", compact && "mb-0")} role="alert">
+      <div className="min-w-0">
+        <div className="text-sm font-semibold text-destructive">数据读取失败</div>
+        <div className="mt-1 break-words text-sm text-muted-foreground">{queryErrorMessage(error)}</div>
+      </div>
+      <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={onRetry}><RefreshCcw className="h-4 w-4" />重试</Button>
+    </div>
+  )
+}
 function DomainBadgeRow({ domain }: { domain: Domain }) { return <div className="flex items-center justify-between rounded-lg border p-3"><span className="font-medium">{domain.name}</span><Badge variant={domain.dnsStatus === "ok" ? "default" : "secondary"}>{domain.dnsStatus === "ok" ? "正常" : domain.dnsStatus}</Badge></div> }
 function invalidateAdmin(qc: ReturnType<typeof useQueryClient>) { qc.invalidateQueries({ queryKey: ["admin"] }); qc.invalidateQueries({ queryKey: ["mailboxes"] }); qc.invalidateQueries({ queryKey: ["me"] }) }
 
@@ -1968,7 +1993,7 @@ function UserActions({ user, permissionGroups, onDelete }: { user: AdminUser; pe
     })
   }
   if (!canUpdate && !canResetPassword && !onDelete) return null
-  return <><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">{canUpdate && <DropdownMenuItem onSelect={() => setEditOpen(true)}>编辑账号</DropdownMenuItem>}{canResetPassword && <DropdownMenuItem onSelect={() => setPasswordOpen(true)}>重置密码</DropdownMenuItem>}{!user.protected && user.role !== "admin" && canUpdate && <><DropdownMenuSeparator /><DropdownMenuItem onSelect={() => quickPatch({ disabled: !user.disabled })}>{user.disabled ? "启用账号" : "停用账号"}</DropdownMenuItem></>}{!user.protected && user.role !== "admin" && onDelete && <><DropdownMenuSeparator /><DropdownMenuItem className="text-destructive" onSelect={onDelete}>删除账号</DropdownMenuItem></>}</DropdownMenuContent></DropdownMenu>{canUpdate && <EditUserDialog user={user} permissionGroups={permissionGroups} open={editOpen} onOpenChange={setEditOpen} />}{canResetPassword && <ResetPasswordDialog user={user} open={passwordOpen} onOpenChange={setPasswordOpen} />}</>
+  return <><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`管理账号 ${accountPrimaryEmail(user)}`} title="更多操作"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">{canUpdate && <DropdownMenuItem onSelect={() => setEditOpen(true)}>编辑账号</DropdownMenuItem>}{canResetPassword && <DropdownMenuItem onSelect={() => setPasswordOpen(true)}>重置密码</DropdownMenuItem>}{!user.protected && user.role !== "admin" && canUpdate && <><DropdownMenuSeparator /><DropdownMenuItem onSelect={() => quickPatch({ disabled: !user.disabled })}>{user.disabled ? "启用账号" : "停用账号"}</DropdownMenuItem></>}{!user.protected && user.role !== "admin" && onDelete && <><DropdownMenuSeparator /><DropdownMenuItem className="text-destructive" onSelect={onDelete}>删除账号</DropdownMenuItem></>}</DropdownMenuContent></DropdownMenu>{canUpdate && <EditUserDialog user={user} permissionGroups={permissionGroups} open={editOpen} onOpenChange={setEditOpen} />}{canResetPassword && <ResetPasswordDialog user={user} open={passwordOpen} onOpenChange={setPasswordOpen} />}</>
 }
 
 function CreateUserDialog(_props: { permissionGroups: PermissionGroup[] }) {
@@ -2012,12 +2037,12 @@ function CreateUserDialog(_props: { permissionGroups: PermissionGroup[] }) {
 function MailboxActions({ mailbox, users, canUpdate, onDelete }: { mailbox: MailboxType; users: AdminUser[]; canUpdate: boolean; onDelete?: () => void }) {
   const [open, setOpen] = React.useState(false)
   if (!canUpdate && !onDelete) return null
-  return <><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">{canUpdate && <DropdownMenuItem onSelect={() => setOpen(true)}>编辑邮箱</DropdownMenuItem>}{canUpdate && onDelete && <DropdownMenuSeparator />}{onDelete && <DropdownMenuItem className="text-destructive" onSelect={onDelete}>删除邮箱</DropdownMenuItem>}</DropdownMenuContent></DropdownMenu>{canUpdate && <EditMailboxDialog mailbox={mailbox} users={users} open={open} onOpenChange={setOpen} />}</>
+  return <><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`管理邮箱 ${mailbox.address}`} title="更多操作"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">{canUpdate && <DropdownMenuItem onSelect={() => setOpen(true)}>编辑邮箱</DropdownMenuItem>}{canUpdate && onDelete && <DropdownMenuSeparator />}{onDelete && <DropdownMenuItem className="text-destructive" onSelect={onDelete}>删除邮箱</DropdownMenuItem>}</DropdownMenuContent></DropdownMenu>{canUpdate && <EditMailboxDialog mailbox={mailbox} users={users} open={open} onOpenChange={setOpen} />}</>
 }
 
 function AliasActions({ alias, onToggle, onDelete }: { alias: Alias; onToggle?: () => void; onDelete?: () => void }) {
   if (!onToggle && !onDelete) return null
-  return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">{onToggle && <DropdownMenuItem onSelect={onToggle}>{alias.enabled ? "停用" : "启用"}</DropdownMenuItem>}{onToggle && onDelete && <DropdownMenuSeparator />}{onDelete && <DropdownMenuItem className="text-destructive" onSelect={onDelete}>删除转发</DropdownMenuItem>}</DropdownMenuContent></DropdownMenu>
+  return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`管理转发 ${alias.source}`} title="更多操作"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">{onToggle && <DropdownMenuItem onSelect={onToggle}>{alias.enabled ? "停用" : "启用"}</DropdownMenuItem>}{onToggle && onDelete && <DropdownMenuSeparator />}{onDelete && <DropdownMenuItem className="text-destructive" onSelect={onDelete}>删除转发</DropdownMenuItem>}</DropdownMenuContent></DropdownMenu>
 }
 
 function EditUserDialog({ user, permissionGroups, open, onOpenChange }: { user: AdminUser; permissionGroups: PermissionGroup[]; open: boolean; onOpenChange: (open: boolean) => void }) {
@@ -2146,20 +2171,34 @@ function DNSPanel({ domain, embedded = false }: { domain?: Domain; embedded?: bo
   const user = me.data?.user
   const canCheckDNS = hasPermission(user, "admin.dns.check")
   const { toast } = useToast(); const qc = useQueryClient(); const records = useQuery({ queryKey: ["dns-records", domain?.id], queryFn: () => api.dnsRecords(domain!.id), enabled: !!domain })
-  const check = useMutation({ mutationFn: () => api.checkDns(domain!.id), onSuccess: (res) => { qc.invalidateQueries({ queryKey: ["admin", "domains"] }); toast({ title: res.status === "ok" ? "DNS 检测通过" : "DNS 检测未通过", description: Object.values(res.checks).map((c) => c.message).join("；") }) } })
+  const check = useMutation({ mutationFn: () => api.checkDns(domain!.id), onSuccess: (res) => { qc.invalidateQueries({ queryKey: ["admin", "domains"] }); toast({ title: res.status === "ok" ? "DNS 检测通过" : "DNS 检测未通过", description: Object.values(res.checks).map((c) => c.message).join("；") }) }, onError: (error) => toast({ title: "DNS 检测失败", description: error.message }) })
   if (!domain) return <Card><CardContent className="p-6 text-muted-foreground">请选择域名</CardContent></Card>
   const content = <>
     <p className="mb-3 text-sm text-muted-foreground">以下为需要在域名 DNS 管理中添加的记录：</p>
-    <div className="space-y-3">{records.data?.items.map((r) => <DNSRecordRow key={`${r.type}-${r.name}`} record={r} />)}</div>
+    {records.isError ? <QueryFailure error={records.error} onRetry={() => { void records.refetch() }} compact /> : <div className="space-y-3">{records.data?.items.map((r) => <DNSRecordRow key={`${r.type}-${r.name}`} record={r} />)}</div>}
     {check.data && <>
       <Separator className="my-4" />
       <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground"><CheckCircle2 className="h-4 w-4" />检测结果</div>
-      <div className="mt-2 space-y-2">{Object.entries(check.data.checks).map(([k, v]) => <div key={k} className="flex items-center gap-2 text-sm"><CheckCircle2 className={`h-4 w-4 shrink-0 ${v.ok ? "text-green-600" : "text-destructive"}`} /><span className="font-medium">{k.toUpperCase()}:</span> {v.message}</div>)}</div>
+      <div className="mt-2 space-y-2">{Object.entries(check.data.checks).map(([k, v]) => <DNSCheckRow key={k} name={k} check={v} />)}</div>
     </>}</>
   const checkButton = canCheckDNS ? <Button variant="outline" size="sm" onClick={() => check.mutate()} disabled={check.isPending}><RefreshCcw className="h-4 w-4" />检测</Button> : null
   const header = <div className="flex items-center justify-between"><CardTitle>DNS 记录</CardTitle>{checkButton}</div>
   if (embedded) return <div className="space-y-4"><div className="flex items-center justify-between"><div className="font-medium">DNS 记录</div>{checkButton}</div>{content}</div>
   return <Card><CardHeader>{header}</CardHeader><CardContent>{content}</CardContent></Card>
+}
+
+function DNSCheckRow({ name, check }: { name: string; check: { ok: boolean; message: string; found?: string[] } }) {
+  const visibleRecords = check.found?.filter(Boolean) ?? []
+  return <div className="space-y-1 text-sm">
+    <div className="flex items-start gap-2">
+      <CheckCircle2 className={`mt-0.5 h-4 w-4 shrink-0 ${check.ok ? "text-green-600" : "text-destructive"}`} />
+      <div className="min-w-0"><span className="font-medium">{name.toUpperCase()}:</span> {check.message}</div>
+    </div>
+    {!check.ok && visibleRecords.length > 0 && <div className="ml-6 rounded-md bg-muted/60 px-3 py-2 font-mono text-xs text-muted-foreground">
+      <div className="mb-1 font-sans text-foreground">当前解析</div>
+      <div className="space-y-1">{visibleRecords.map((record, index) => <div key={`${name}-${index}`} className="break-all">{record}</div>)}</div>
+    </div>}
+  </div>
 }
 
 function dnsDescription(record: DNSRecord): string {
@@ -2212,19 +2251,25 @@ function fieldNumber(form: FormData, name: string, fallback: number) {
   return Number.isFinite(n) && n > 0 ? n : fallback
 }
 function SwitchRow({ label, checked, onCheckedChange, className = "" }: { label: string; checked: boolean; onCheckedChange: (checked: boolean) => void; className?: string }) {
+  const id = React.useId()
   return (
     <div className={`flex min-h-14 items-center justify-between gap-4 ${className}`}>
-      <Label className="text-base font-medium">{label}</Label>
-      <Switch checked={checked} onCheckedChange={onCheckedChange} />
+      <Label htmlFor={id} className="text-base font-medium">{label}</Label>
+      <Switch id={id} checked={checked} onCheckedChange={onCheckedChange} />
     </div>
   )
 }
-function Field({ label, required = true, ...props }: React.InputHTMLAttributes<HTMLInputElement> & { label: string }) { return <div className="space-y-2"><Label>{label}</Label><Input required={required} {...props} /></div> }
+function Field({ label, required = true, id: suppliedId, ...props }: React.InputHTMLAttributes<HTMLInputElement> & { label: string }) {
+  const generatedId = React.useId()
+  const id = suppliedId || generatedId
+  return <div className="space-y-2"><Label htmlFor={id}>{label}</Label><Input id={id} required={required} {...props} /></div>
+}
 function MailboxLimitField({ defaultValue }: { defaultValue: number }) {
+  const id = React.useId()
   return (
     <div className="space-y-2">
-      <Label>邮箱数量上限</Label>
-      <Input name="mailboxLimitOverride" type="number" min={0} step={1} defaultValue={String(defaultValue)} />
+      <Label htmlFor={id}>邮箱数量上限</Label>
+      <Input id={id} name="mailboxLimitOverride" type="number" min={0} step={1} defaultValue={String(defaultValue)} />
       <div className="text-xs text-muted-foreground">普通用户默认 9 个，填 0 表示不限制。</div>
     </div>
   )
@@ -2236,5 +2281,8 @@ function mailboxLimitFromForm(form: FormData, fallback = defaultMailboxLimitOver
 function effectiveMailboxLimit(user: AdminUser) {
   return user.mailboxLimitOverride ?? user.limits?.maxMailboxCount ?? defaultMailboxLimitOverride
 }
-function SelectField({ label, value, onValueChange, items, disabled = false }: { label: string; value: string; onValueChange: (value: string) => void; items: string[][]; disabled?: boolean }) { return <div className="space-y-2"><Label>{label}</Label><Select value={value} onValueChange={onValueChange} disabled={disabled}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{items.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></div> }
+function SelectField({ label, value, onValueChange, items, disabled = false }: { label: string; value: string; onValueChange: (value: string) => void; items: string[][]; disabled?: boolean }) {
+  const id = React.useId()
+  return <div className="space-y-2"><Label htmlFor={id}>{label}</Label><Select value={value} onValueChange={onValueChange} disabled={disabled}><SelectTrigger id={id}><SelectValue /></SelectTrigger><SelectContent>{items.map(([value, itemLabel]) => <SelectItem key={value} value={value}>{itemLabel}</SelectItem>)}</SelectContent></Select></div>
+}
 function DomainSelect({ domains, value, onChange }: { domains: Domain[]; value: string; onChange: (value: string) => void }) { return <div className="space-y-2"><Label>域名</Label><Select value={value} onValueChange={onChange}><SelectTrigger><SelectValue placeholder="选择域名" /></SelectTrigger><SelectContent>{domains.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}</SelectContent></Select></div> }

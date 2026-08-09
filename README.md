@@ -231,6 +231,8 @@ pnpm install
 pnpm run dev
 ```
 
+后端不在默认的 `http://localhost:8080` 时，可通过 `VITE_API_TARGET=http://localhost:18080 pnpm run dev` 指定本地代理目标。
+
 提交前建议运行：
 
 ```bash

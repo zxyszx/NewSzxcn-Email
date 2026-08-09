@@ -13,6 +13,7 @@ import { useToast } from "@/hooks/use-toast"
 import { PasswordInput } from "@/components/ui/password-input"
 import { TurnstileBox } from "@/components/turnstile-box"
 import { validatePasswordConfirm } from "@/lib/validation"
+import { AuthError, AuthLoading } from "@/components/auth-states"
 
 export function RegisterPage() {
   const me = useMe()
@@ -57,8 +58,10 @@ export function RegisterPage() {
   })
   const turnstileRequired = !!publicSettings.data?.turnstileEnabled
   if (me.data?.user) return <Navigate to="/" replace />
+  if (publicSettings.isLoading) return <AuthLoading />
+  if (publicSettings.isError) return <AuthError message={publicSettings.error.message} onRetry={() => { void publicSettings.refetch() }} />
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/20 px-4 py-10">
+    <main className="flex min-h-screen items-center justify-center bg-muted/20 px-4 py-10">
       <div className="w-full max-w-[420px]">
         <div className="mb-7 text-center">
           <h1 className="text-3xl font-semibold tracking-tight">NewSzxcn 邮箱</h1>
@@ -103,7 +106,6 @@ export function RegisterPage() {
               <div className="space-y-2">
                 <Label htmlFor="displayName" className="text-sm font-medium">显示名称</Label>
                 <Input id="displayName" name="displayName" autoComplete="name" required className="h-11 text-base" />
-                <p className="text-xs leading-5 text-muted-foreground">显示名称注册后不可自行修改，如需更换请联系管理员。</p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password" className="text-sm font-medium">密码</Label>
@@ -130,6 +132,6 @@ export function RegisterPage() {
           </div>
         )}
       </div>
-    </div>
+    </main>
   )
 }

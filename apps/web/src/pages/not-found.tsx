@@ -4,7 +4,7 @@ import { Home, MailQuestion } from "lucide-react"
 
 export function NotFoundPage() {
   return (
-    <div className="grid min-h-screen place-items-center bg-background px-4">
+    <main className="grid min-h-screen place-items-center bg-background px-4">
       <div className="w-full max-w-sm text-center">
         <div className="mb-6 flex justify-center">
           <div className="flex h-20 w-20 items-center justify-center rounded-full bg-muted">
@@ -24,6 +24,6 @@ export function NotFoundPage() {
           </Button>
         </div>
       </div>
-    </div>
+    </main>
   )
 }

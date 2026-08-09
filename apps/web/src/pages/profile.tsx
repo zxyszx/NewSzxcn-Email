@@ -32,6 +32,7 @@ import { useToast } from "@/hooks/use-toast"
 type Tab = "profile" | "mailboxes" | "contacts" | "cleanup" | "cleanupQueue" | "rules" | "blocked" | "stats" | "apiTokens"
 type AccountSettingsTab = "account" | "mail" | "clients" | "security"
 type PendingConfirm = { title: string; description?: string; confirmText: string; destructive?: boolean; onConfirm: () => void }
+type RetryableQuery = { isError: boolean; error: Error | null; refetch: () => Promise<unknown> }
 const tabs: Record<Tab, { label: string; icon: React.ReactNode }> = {
   profile: { label: "账号设置", icon: <Settings className="h-4 w-4" /> },
   mailboxes: { label: "邮箱管理", icon: <Mail className="h-4 w-4" /> },
@@ -178,7 +179,7 @@ export function ProfilePage() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["contacts"] }); toast({ title: "联系人已保存" }) },
     onError: (error) => toast({ title: "保存失败", description: error.message }),
   })
-  const deleteContact = useMutation({ mutationFn: api.deleteContact, onSuccess: () => { qc.invalidateQueries({ queryKey: ["contacts"] }); toast({ title: "联系人已删除" }) } })
+  const deleteContact = useMutation({ mutationFn: api.deleteContact, onSuccess: () => { qc.invalidateQueries({ queryKey: ["contacts"] }); toast({ title: "联系人已删除" }) }, onError: (error) => toast({ title: "删除失败", description: error.message }) })
   const createSignature = useMutation({
     mutationFn: (form: FormData) => api.createSignature({ mailboxId: String(form.get("mailboxId") || ""), name: String(form.get("name") || ""), content: String(form.get("content") || ""), isDefault: form.get("isDefault") === "on" }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["signatures"] }); qc.invalidateQueries({ queryKey: ["signature"] }); toast({ title: "签名已保存" }) },
@@ -194,7 +195,7 @@ export function ProfilePage() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["signatures"] }); qc.invalidateQueries({ queryKey: ["signature"] }); toast({ title: "默认签名已更新" }) },
     onError: (error) => toast({ title: "设置失败", description: error.message }),
   })
-  const deleteSignature = useMutation({ mutationFn: api.deleteSignature, onSuccess: () => { qc.invalidateQueries({ queryKey: ["signatures"] }); qc.invalidateQueries({ queryKey: ["signature"] }); toast({ title: "签名已删除" }) } })
+  const deleteSignature = useMutation({ mutationFn: api.deleteSignature, onSuccess: () => { qc.invalidateQueries({ queryKey: ["signatures"] }); qc.invalidateQueries({ queryKey: ["signature"] }); toast({ title: "签名已删除" }) }, onError: (error) => toast({ title: "删除失败", description: error.message }) })
   const createRule = useMutation({
     mutationFn: (payload: {
       mailboxId: string
@@ -216,7 +217,7 @@ export function ProfilePage() {
     },
     onError: (error) => toast({ title: "保存失败", description: error.message }),
   })
-  const deleteRule = useMutation({ mutationFn: api.deleteRule, onSuccess: () => { qc.invalidateQueries({ queryKey: ["rules"] }); toast({ title: "规则已删除" }) } })
+  const deleteRule = useMutation({ mutationFn: api.deleteRule, onSuccess: () => { qc.invalidateQueries({ queryKey: ["rules"] }); toast({ title: "规则已删除" }) }, onError: (error) => toast({ title: "删除失败", description: error.message }) })
   const updateRule = useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: Partial<RuleCreatePayload> }) => api.updateRule(id, payload),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["rules"] }); setRuleDialogOpen(false); toast({ title: "收件规则已更新" }) },
@@ -243,7 +244,7 @@ export function ProfilePage() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["blocked-senders"] }); toast({ title: "拦截规则已保存" }) },
     onError: (error) => toast({ title: "保存失败", description: error.message }),
   })
-  const deleteBlocked = useMutation({ mutationFn: api.deleteBlockedSender, onSuccess: () => { qc.invalidateQueries({ queryKey: ["blocked-senders"] }); toast({ title: "拦截规则已删除" }) } })
+  const deleteBlocked = useMutation({ mutationFn: api.deleteBlockedSender, onSuccess: () => { qc.invalidateQueries({ queryKey: ["blocked-senders"] }); toast({ title: "拦截规则已删除" }) }, onError: (error) => toast({ title: "删除失败", description: error.message }) })
   const createLabel = useMutation({
     mutationFn: (form: FormData) => api.createLabel({ mailboxId: activeMailboxId, name: String(form.get("name") || ""), color: String(form.get("color") || "") }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["labels"] }); toast({ title: "标签已创建" }) },
@@ -433,6 +434,15 @@ export function ProfilePage() {
     </div>
   )
   function renderTab() {
+    const failedQueries = visibleTabQueries().filter((query) => query.isError && query.error)
+    if (failedQueries.length > 0) {
+      return (
+        <ProfileQueryFailure
+          errors={failedQueries.map((query) => query.error!)}
+          onRetry={() => { void Promise.all(failedQueries.map((query) => query.refetch())) }}
+        />
+      )
+    }
     if (tab === "profile") return (
       <AccountSettingsSection
         activeTab={accountTab}
@@ -505,6 +515,22 @@ export function ProfilePage() {
     if (tab === "stats") return <StatsSection stats={dashboardStats.data} />
     if (tab === "apiTokens") return <ApiTokensSection items={apiTokens.data?.items || []} loading={apiTokens.isLoading} pending={createApiToken.isPending || updateApiToken.isPending || deleteApiToken.isPending} onCreate={(payload) => createApiToken.mutateAsync(payload)} onUpdate={(id, payload) => updateApiToken.mutate({ id, payload })} onDelete={(id) => deleteApiToken.mutate(id)} onCopy={copy} />
     return null
+  }
+  function visibleTabQueries(): RetryableQuery[] {
+    if (tab === "profile") {
+      if (accountTab === "security") return []
+      if (accountTab === "account") return [mailboxes, accountStats]
+      if (accountTab === "mail") return [mailboxes, labels, signatures]
+      return [mailboxes, publicSettings]
+    }
+    if (tab === "mailboxes") return [mailboxes, mailboxApplyOptions, publicSettings, externalImapAccounts, externalRunFolders, externalSyncRuns]
+    if (tab === "contacts") return [contacts]
+    if (tab === "cleanup" || tab === "cleanupQueue") return [mailboxes, mailboxStats]
+    if (tab === "rules") return [mailboxes, rules, ruleForwarding, labels]
+    if (tab === "blocked") return [mailboxes, blocked, blockedStats]
+    if (tab === "stats") return [mailboxes, dashboardStats]
+    if (tab === "apiTokens") return [apiTokens]
+    return []
   }
 }
 
@@ -677,7 +703,20 @@ function SettingsCard({ title, subtitle, action, children, className, contentCla
   )
 }
 
-function AccountTabSection({ user, stats, selectedMailbox, mailboxes, onOpenCleanup }: { user: AccountSettingsSectionProps["user"]; profile: AccountSettingsSectionProps["profile"]; stats?: MailStats; showStats: boolean; displayMode: DisplayMode; onDisplayModeChange: (mode: DisplayMode) => void; selectedMailbox?: Mailbox; mailboxes: Mailbox[]; onOpenCleanup: () => void }) {
+function ProfileQueryFailure({ errors, onRetry }: { errors: Error[]; onRetry: () => void }) {
+  const messages = Array.from(new Set(errors.map((error) => error.message).filter(Boolean)))
+  return (
+    <div className="rounded-lg border border-destructive/40 bg-destructive/5 px-6 py-8 text-center" role="alert">
+      <div className="text-base font-semibold text-destructive">页面数据读取失败</div>
+      <div className="mt-2 break-words text-sm text-muted-foreground">{messages.join("；") || "请检查网络连接后重试"}</div>
+      <Button type="button" variant="outline" className="mt-5" onClick={onRetry}>
+        <RefreshCcw className="h-4 w-4" />重新读取
+      </Button>
+    </div>
+  )
+}
+
+function AccountTabSection({ user, profile, stats, showStats, displayMode, onDisplayModeChange, selectedMailbox, mailboxes, onOpenCleanup }: { user: AccountSettingsSectionProps["user"]; profile: AccountSettingsSectionProps["profile"]; stats?: MailStats; showStats: boolean; displayMode: DisplayMode; onDisplayModeChange: (mode: DisplayMode) => void; selectedMailbox?: Mailbox; mailboxes: Mailbox[]; onOpenCleanup: () => void }) {
   const accountName = user.email
   const quotaBytes = stats?.quotaBytes || (selectedMailbox?.quotaMb ? selectedMailbox.quotaMb * 1024 * 1024 : 0)
   const storageBytes = stats?.storageBytes || 0
@@ -685,26 +724,35 @@ function AccountTabSection({ user, stats, selectedMailbox, mailboxes, onOpenClea
   return (
     <div className="space-y-6">
       <SettingsCard title="账号信息">
-        <div className="space-y-5">
+        <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); profile.mutate(new FormData(event.currentTarget)) }}>
           <InfoLine label="主登录邮箱" value={accountName} />
           <div className="grid gap-2 sm:grid-cols-[10rem_minmax(0,1fr)] sm:items-center">
-            <Label className="text-base font-normal text-muted-foreground">时区</Label>
-            <Select defaultValue="Asia/Shanghai">
-              <SelectTrigger className="h-[29px] sm:ml-auto sm:w-[236px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Asia/Shanghai">Asia/Shanghai (UTC+8)</SelectItem>
-                <SelectItem value="Asia/Tokyo">Asia/Tokyo (UTC+9)</SelectItem>
-                <SelectItem value="Asia/Singapore">Asia/Singapore (UTC+8)</SelectItem>
-                <SelectItem value="UTC">UTC (UTC+0)</SelectItem>
-              </SelectContent>
-            </Select>
+            <Label htmlFor="profile-display-name" className="text-base font-normal text-muted-foreground">显示名称</Label>
+            <div className="flex flex-col gap-2 sm:ml-auto sm:w-[320px] sm:flex-row">
+              <Input id="profile-display-name" name="displayName" defaultValue={user.displayName} maxLength={80} required className="h-9" />
+              <Button type="submit" size="sm" disabled={profile.isPending}>{profile.isPending ? "保存中..." : "保存"}</Button>
+            </div>
           </div>
+        </form>
+      </SettingsCard>
+
+      <SettingsCard title="邮件列表显示">
+        <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1" role="group" aria-label="邮件列表显示模式">
+          {(["detailed", "compact"] as DisplayMode[]).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              className={cn("h-9 rounded-md px-3 text-sm font-medium transition-colors", displayMode === mode ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
+              aria-pressed={displayMode === mode}
+              onClick={() => onDisplayModeChange(mode)}
+            >
+              {mode === "detailed" ? "标准布局" : "紧凑布局"}
+            </button>
+          ))}
         </div>
       </SettingsCard>
 
-      <SettingsCard title="存储容量" action={<Button type="button" variant="outline" size="sm" onClick={onOpenCleanup}>邮件清理</Button>}>
+      {showStats && <SettingsCard title="存储容量" action={<Button type="button" variant="outline" size="sm" onClick={onOpenCleanup}>邮件清理</Button>}>
         <div className="mb-2 flex items-center justify-between text-sm text-muted-foreground">
           <span>{quotaBytes > 0 ? `${formatBytes(storageBytes)} / ${formatBytes(quotaBytes)}` : formatBytes(storageBytes)}</span>
           <span>{quotaBytes > 0 ? `${quotaPct}%` : "不限"}</span>
@@ -712,7 +760,7 @@ function AccountTabSection({ user, stats, selectedMailbox, mailboxes, onOpenClea
         <div className="h-2 overflow-hidden rounded-full bg-muted">
           <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${quotaBytes > 0 ? quotaPct : 12}%` }} />
         </div>
-      </SettingsCard>
+      </SettingsCard>}
 
       <SettingsCard title="账号配额" action={<span className="pt-1 text-sm text-muted-foreground">实时按当前账号配置计算</span>}>
         <div className="grid gap-3 md:grid-cols-2">
@@ -862,8 +910,8 @@ function MailPreferencesSection({
                   </div>
                   <div className="flex shrink-0 gap-1">
                     {!item.isDefault && <Button type="button" variant="outline" size="sm" disabled={signaturesPending} onClick={() => onSetDefaultSignature(item.id)}>设为默认</Button>}
-                    <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => setEditingSignature(item)}><PencilLine className="h-4 w-4" /></Button>
-                    <Button type="button" variant="ghost" size="icon" className="size-8 text-destructive" onClick={() => setPendingConfirm({ title: "删除签名？", description: `签名“${item.name}”将被删除。`, confirmText: "删除签名", destructive: true, onConfirm: () => { onDeleteSignature(item.id); setPendingConfirm(null) } })}><Trash2 className="h-4 w-4" /></Button>
+                    <Button type="button" variant="ghost" size="icon" className="size-8" aria-label={`编辑签名 ${item.name}`} title="编辑签名" onClick={() => setEditingSignature(item)}><PencilLine className="h-4 w-4" /></Button>
+                    <Button type="button" variant="ghost" size="icon" className="size-8 text-destructive" aria-label={`删除签名 ${item.name}`} title="删除签名" onClick={() => setPendingConfirm({ title: "删除签名？", description: `签名“${item.name}”将被删除。`, confirmText: "删除签名", destructive: true, onConfirm: () => { onDeleteSignature(item.id); setPendingConfirm(null) } })}><Trash2 className="h-4 w-4" /></Button>
                   </div>
                 </div>
               </div>
@@ -923,7 +971,7 @@ function SecuritySettingsSection({ user, password, passwordFormRef, twoFactorFor
           <div className="flex size-10 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><ShieldCheck className="h-5 w-5" /></div>
           <div>
             <div className="font-semibold">{user.email}</div>
-            <div className="text-sm text-muted-foreground">上次登录：刚刚</div>
+            <div className="text-sm text-muted-foreground">当前已登录账号</div>
           </div>
         </div>
       </SettingsCard>
@@ -999,25 +1047,8 @@ function SecuritySettingsSection({ user, password, passwordFormRef, twoFactorFor
         )}
       </SettingsCard>
 
-      <SettingsCard title="临时发信申请">
-        <div className="space-y-3">
-          {[selectedRequestRow(user.email, "已批准", "6小时"), selectedRequestRow(user.email, "已过期", "24小时")].map((item, index) => (
-            <div key={`${item.status}-${index}`} className="rounded-lg border px-4 py-3 text-sm">
-              <div className="flex items-center justify-between gap-3">
-                <span className="font-medium">{item.email}</span>
-                <Badge variant="secondary">{item.status}</Badge>
-              </div>
-              <div className="mt-1 text-muted-foreground">申请时长：{item.duration} · 原因：临时客户端发信测试</div>
-            </div>
-          ))}
-        </div>
-      </SettingsCard>
     </div>
   )
-}
-
-function selectedRequestRow(email: string, status: string, duration: string) {
-  return { email, status, duration }
 }
 
 function CleanupQueueSection({ mailbox, stats }: { mailbox?: Mailbox; stats?: MailStats }) {
@@ -1776,7 +1807,7 @@ function ForwardingTargetPicker({ emails, selected, lockedSelected = [], lockedL
                 autoFocus
               />
               {query && (
-                <Button type="button" variant="ghost" size="icon" className="absolute right-0.5 top-0.5 size-7 text-muted-foreground" onClick={() => setQuery("")}>
+                <Button type="button" variant="ghost" size="icon" className="absolute right-0.5 top-0.5 size-7 text-muted-foreground" aria-label="清除搜索" title="清除搜索" onClick={() => setQuery("")}>
                   <X className="h-3.5 w-3.5" />
                 </Button>
               )}
@@ -1937,7 +1968,7 @@ function ClientSettingsSection({ mailboxes, selectedMailboxId, hostname, onSelec
                   <div className="text-muted-foreground">用户名</div>
                   <div className="flex min-w-0 items-center justify-between gap-2">
                     <span className="truncate text-right sm:text-left">{selected.address}</span>
-                    <Button type="button" variant="ghost" size="icon" className="size-7" onClick={() => onCopy(selected.address)}><Copy className="h-4 w-4" /></Button>
+                    <Button type="button" variant="ghost" size="icon" className="size-7" aria-label="复制邮箱地址" title="复制邮箱地址" onClick={() => onCopy(selected.address)}><Copy className="h-4 w-4" /></Button>
                   </div>
                   <div className="text-muted-foreground">密码</div>
                   <div>邮箱登录密码</div>
@@ -1961,7 +1992,7 @@ function ClientConfigRow({ label, value, security, onCopy }: { label: string; va
         <code className="truncate rounded border bg-background px-2 py-1 text-xs">{value}</code>
         <div className="flex shrink-0 items-center gap-1">
           <span className="text-xs font-medium text-emerald-600">{security}</span>
-          <Button type="button" variant="ghost" size="icon" className="size-7" onClick={() => onCopy(value)}><Copy className="h-4 w-4" /></Button>
+          <Button type="button" variant="ghost" size="icon" className="size-7" aria-label={`复制${label}`} title={`复制${label}`} onClick={() => onCopy(value)}><Copy className="h-4 w-4" /></Button>
         </div>
       </div>
     </div>
@@ -2128,8 +2159,8 @@ function ContactsSection({ items, loading, onCreate, onDelete, onCopy, pending }
                 <div className="truncate text-xs text-muted-foreground">{item.email}{item.note ? ` · ${item.note}` : ""}</div>
               </div>
               <div className="flex shrink-0 gap-1">
-                <Button variant="ghost" size="icon" className="size-8" onClick={() => onCopy(item.email)}><Copy className="h-4 w-4" /></Button>
-                <Button variant="ghost" size="icon" className="size-8 text-destructive" onClick={() => setPendingConfirm({ title: "删除联系人？", description: `${item.email} 将从联系人列表中移除。`, confirmText: "删除联系人", onConfirm: () => { onDelete(item.id); setPendingConfirm(null) } })}><Trash2 className="h-4 w-4" /></Button>
+                <Button variant="ghost" size="icon" className="size-8" aria-label={`复制联系人邮箱 ${item.email}`} title="复制邮箱" onClick={() => onCopy(item.email)}><Copy className="h-4 w-4" /></Button>
+                <Button variant="ghost" size="icon" className="size-8 text-destructive" aria-label={`删除联系人 ${item.email}`} title="删除联系人" onClick={() => setPendingConfirm({ title: "删除联系人？", description: `${item.email} 将从联系人列表中移除。`, confirmText: "删除联系人", onConfirm: () => { onDelete(item.id); setPendingConfirm(null) } })}><Trash2 className="h-4 w-4" /></Button>
               </div>
             </div>
           ))}
@@ -2297,8 +2328,8 @@ function RuleDialog({ open, onOpenChange, mailboxes, labels, verifiedEmails, pen
                       <SelectContent>{conditionOperatorsForField(condition.field).map((value) => <SelectItem key={value} value={value}>{conditionOperatorLabels[value]}</SelectItem>)}</SelectContent>
                     </Select>
                     <Input type={condition.field === "date" ? "date" : "text"} value={condition.value || ""} onChange={(event) => updateCondition(index, { value: event.target.value })} placeholder={conditionPlaceholder(condition.field)} />
-                    <Button type="button" variant="ghost" size="icon" className="text-muted-foreground" onClick={() => removeCondition(index)} disabled={conditions.length === 1}><X className="h-4 w-4" /></Button>
-                    <Button type="button" variant="ghost" size="icon" onClick={addCondition}><Plus className="h-4 w-4" /></Button>
+                    <Button type="button" variant="ghost" size="icon" className="text-muted-foreground" aria-label={`删除第 ${index + 1} 个条件`} title="删除条件" onClick={() => removeCondition(index)} disabled={conditions.length === 1}><X className="h-4 w-4" /></Button>
+                    <Button type="button" variant="ghost" size="icon" aria-label="添加条件" title="添加条件" onClick={addCondition}><Plus className="h-4 w-4" /></Button>
                   </div>
                 ))}
               </div>
@@ -2314,8 +2345,8 @@ function RuleDialog({ open, onOpenChange, mailboxes, labels, verifiedEmails, pen
                       <SelectContent>{(Object.keys(ruleActionLabels) as MailRuleAction["type"][]).map((value) => <SelectItem key={value} value={value}>{ruleActionLabels[value]}</SelectItem>)}</SelectContent>
                     </Select>
                     <RuleActionValue action={action} labels={availableLabels} verifiedEmails={verifiedEmails} onChange={(patch) => updateAction(index, patch)} />
-                    <Button type="button" variant="ghost" size="icon" className="text-muted-foreground" onClick={() => removeAction(index)} disabled={actions.length === 1}><X className="h-4 w-4" /></Button>
-                    {action.type !== "forward" && <Button type="button" variant="ghost" size="icon" onClick={addAction}><Plus className="h-4 w-4" /></Button>}
+                    <Button type="button" variant="ghost" size="icon" className="text-muted-foreground" aria-label={`删除第 ${index + 1} 个操作`} title="删除操作" onClick={() => removeAction(index)} disabled={actions.length === 1}><X className="h-4 w-4" /></Button>
+                    {action.type !== "forward" && <Button type="button" variant="ghost" size="icon" aria-label="添加操作" title="添加操作" onClick={addAction}><Plus className="h-4 w-4" /></Button>}
                   </div>
                 ))}
               </div>
@@ -2500,7 +2531,7 @@ function BlockedSection({ items, mailboxes, mailboxId, spamCount, onMailboxChang
               <div className="truncate text-sm font-semibold text-foreground">{item.email}</div>
               <div className="mt-0.5 truncate text-xs text-muted-foreground">{item.mailboxId ? mailboxes.find((m) => m.id === item.mailboxId)?.address : "全部邮箱"}{item.reason ? ` · ${item.reason}` : ""}</div>
             </div>
-            <Button variant="ghost" size="icon" className="size-8 shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => setPendingConfirm({ title: "移除拦截规则？", description: `${item.email} 之后将不再被此规则拦截。`, confirmText: "移除规则", onConfirm: () => { onDelete(item.id); setPendingConfirm(null) } })}><Trash2 className="h-4 w-4" /></Button>
+            <Button variant="ghost" size="icon" className="size-8 shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive" aria-label={`移除拦截规则 ${item.email}`} title="移除拦截规则" onClick={() => setPendingConfirm({ title: "移除拦截规则？", description: `${item.email} 之后将不再被此规则拦截。`, confirmText: "移除规则", onConfirm: () => { onDelete(item.id); setPendingConfirm(null) } })}><Trash2 className="h-4 w-4" /></Button>
           </div>
         ))}
         {items.length === 0 && <EmptyState icon={<ShieldCheck />} text="没有被拦截的邮件" description="当前没有发件人拦截规则，所有邮件都会按正常规则投递。" />}
@@ -2771,10 +2802,10 @@ function AccountHeader({ name, email, darkMode, onToggleTheme, onBack }: { name:
         <div className="min-w-0 truncate text-sm font-semibold leading-5">{displayName}</div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
-        <Button type="button" variant="ghost" size="icon" className="size-[28px] rounded-md text-muted-foreground" onClick={onToggleTheme}>
+        <Button type="button" variant="ghost" size="icon" className="size-[28px] rounded-md text-muted-foreground" aria-label={darkMode ? "切换浅色模式" : "切换深色模式"} title={darkMode ? "浅色模式" : "深色模式"} onClick={onToggleTheme}>
           {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>
-        <Button type="button" variant="ghost" size="icon" className="size-[28px] rounded-md text-muted-foreground" onClick={onBack}>
+        <Button type="button" variant="ghost" size="icon" className="size-[28px] rounded-md text-muted-foreground" aria-label="返回邮箱" title="返回邮箱" onClick={onBack}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
       </div>

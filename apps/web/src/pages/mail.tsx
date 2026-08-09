@@ -155,7 +155,6 @@ export function MailPage() {
   const [autoRefreshing, setAutoRefreshing] = React.useState(false)
   const [exportingMail, setExportingMail] = React.useState(false)
   const [importingMail, setImportingMail] = React.useState(false)
-  const [, setLastAutoRefreshAt] = React.useState<Date | null>(null)
   const [bulkPending, setBulkPending] = React.useState(false)
   const [pendingConfirm, setPendingConfirm] = React.useState<PendingConfirm | null>(null)
   const [cancelingScheduledId, setCancelingScheduledId] = React.useState("")
@@ -427,7 +426,7 @@ export function MailPage() {
     onSettled: () => { qc.invalidateQueries({ queryKey: ["labels"] }); qc.invalidateQueries({ queryKey: ["messages"] }) },
   })
   const del = useMutation({ mutationFn: (id: string) => api.delete(id), onSuccess: async () => { setSelectedId(null); setPendingConfirm(null); await qc.invalidateQueries({ queryKey: ["messages"] }); await qc.invalidateQueries({ queryKey: ["folders"] }); await qc.invalidateQueries({ queryKey: ["mailboxes"] }); await qc.invalidateQueries({ queryKey: ["mail-stats"] }); await qc.invalidateQueries({ queryKey: ["labels"] }); toast({ title: "已删除" }) }, onError: (error) => toast({ title: "删除失败", description: error.message }) })
-  const move = useMutation({ mutationFn: ({ id, folder }: { id: string; folder: string }) => api.move(id, folder), onSuccess: async () => { setSelectedId(null); await qc.invalidateQueries({ queryKey: ["messages"] }); await qc.invalidateQueries({ queryKey: ["folders"] }); await qc.invalidateQueries({ queryKey: ["mailboxes"] }); await qc.invalidateQueries({ queryKey: ["mail-stats"] }); await qc.invalidateQueries({ queryKey: ["labels"] }); toast({ title: "已移动" }) } })
+  const move = useMutation({ mutationFn: ({ id, folder }: { id: string; folder: string }) => api.move(id, folder), onSuccess: async () => { setSelectedId(null); await qc.invalidateQueries({ queryKey: ["messages"] }); await qc.invalidateQueries({ queryKey: ["folders"] }); await qc.invalidateQueries({ queryKey: ["mailboxes"] }); await qc.invalidateQueries({ queryKey: ["mail-stats"] }); await qc.invalidateQueries({ queryKey: ["labels"] }); toast({ title: "已移动" }) }, onError: (error) => toast({ title: "移动失败", description: error.message }) })
   const cancelScheduledSend = useMutation({
     mutationFn: (item: ScheduledSend) => api.cancelScheduledSend(item.id),
     onMutate: (item) => setCancelingScheduledId(item.id),
@@ -646,7 +645,6 @@ export function MailPage() {
         qc.invalidateQueries({ queryKey: ["send-queue"] }),
         qc.invalidateQueries({ queryKey: ["mail-notifications"] }),
       ]).finally(() => {
-        setLastAutoRefreshAt(new Date())
         window.setTimeout(() => setAutoRefreshing(false), 600)
       })
     }, mailRefreshInterval || 30000)
@@ -700,10 +698,12 @@ export function MailPage() {
   const compactAllSelected = visibleMessageIds.length > 0 && selectedCountOnPage === visibleMessageIds.length
   const compactSomeSelected = selectedCountOnPage > 0 && !compactAllSelected
   const mailMessagesLoading = mailView === "external" ? externalMessages.isLoading : mailView === "unknown" ? unknownMessages.isLoading : messages.isLoading
+  const mailMessagesError = mailView === "external" ? externalMessages.error : mailView === "unknown" ? unknownMessages.error : messages.error
   const mailMessagesLoadingMore = mailView === "external" ? externalMessages.isFetchingNextPage : mailView === "unknown" ? unknownMessages.isFetchingNextPage : messages.isFetchingNextPage
   const hasMoreMessages = mailView === "external" ? !!externalMessages.hasNextPage : mailView === "unknown" ? !!unknownMessages.hasNextPage : !!messages.hasNextPage
   const canLoadMore = hasMoreMessages && !mailMessagesLoadingMore
   const loadMoreMessages = () => mailView === "external" ? externalMessages.fetchNextPage() : mailView === "unknown" ? unknownMessages.fetchNextPage() : messages.fetchNextPage()
+  const refetchMessages = () => mailView === "external" ? externalMessages.refetch() : mailView === "unknown" ? unknownMessages.refetch() : messages.refetch()
   function toggleCompactSelectAll(checked: boolean) {
     setCompactSelectedIds(checked ? visibleMessageIds : [])
   }
@@ -1103,7 +1103,6 @@ export function MailPage() {
     try {
       await refreshMailData()
       const refreshedAt = new Date()
-      setLastAutoRefreshAt(refreshedAt)
       toast({ title: "邮件已刷新", description: `更新于 ${refreshedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` })
     } catch (error) {
       toast({ title: "刷新失败", description: error instanceof Error ? error.message : "请稍后重试" })
@@ -1263,6 +1262,7 @@ export function MailPage() {
         )}
       </SidebarHeader>
       <SidebarContent className="px-1">
+        {!sidebarCollapsed && publicSettings.isError && <SidebarQueryFailure label="邮箱设置读取失败" onRetry={() => { void publicSettings.refetch() }} />}
         <SidebarGroup>
           {!sidebarCollapsed && (
             <div className="flex items-center justify-between px-2 py-1">
@@ -1316,8 +1316,10 @@ export function MailPage() {
               )}
             </SidebarMenu>
             {folders.isLoading && <FolderSkeleton />}
+            {!sidebarCollapsed && folders.isError && <SidebarQueryFailure label="文件夹读取失败" onRetry={() => { void folders.refetch() }} />}
           </SidebarGroupContent>
         </SidebarGroup>
+        {!sidebarCollapsed && externalImapEnabled && externalMailAccounts.isError && <SidebarQueryFailure label="外部邮箱读取失败" onRetry={() => { void externalMailAccounts.refetch() }} />}
         {externalAccountItems.length > 0 && <SidebarGroup>
           {!sidebarCollapsed && <SidebarGroupLabel>外部邮箱</SidebarGroupLabel>}
           <SidebarGroupContent>
@@ -1360,6 +1362,7 @@ export function MailPage() {
                     </SidebarMenuItem>
                   ))}
                   {!sidebarCollapsed && expanded && externalFolders.isLoading && <FolderSkeleton />}
+                  {!sidebarCollapsed && expanded && account.id === selectedExternalAccountId && externalFolders.isError && <SidebarQueryFailure label="远端文件夹读取失败" onRetry={() => { void externalFolders.refetch() }} />}
                 </React.Fragment>
               )})}
             </SidebarMenu>
@@ -1370,7 +1373,7 @@ export function MailPage() {
             <div className="flex items-center justify-between px-2 py-1">
               <SidebarGroupLabel className="m-0 h-auto gap-1 p-0 text-xs font-semibold text-muted-foreground"><ChevronDown className="h-3 w-3" />文件夹</SidebarGroupLabel>
               {canManageFolders && (
-                <Button type="button" variant="ghost" size="icon" className="h-5 w-5 text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={() => setFolderDialogOpen(true)}>
+                <Button type="button" variant="ghost" size="icon" className="h-5 w-5 text-muted-foreground hover:bg-transparent hover:text-foreground" aria-label="新建文件夹" title="新建文件夹" onClick={() => setFolderDialogOpen(true)}>
                   <Plus className="h-3.5 w-3.5" />
                 </Button>
               )}
@@ -1430,11 +1433,11 @@ export function MailPage() {
               <SidebarGroupLabel className="m-0 h-auto gap-1 p-0 text-xs font-semibold text-muted-foreground"><ChevronDown className="h-3 w-3" />标签</SidebarGroupLabel>
               {canManageCurrentMailboxLabels && (
                 <div className="flex items-center gap-0.5">
-                <Button type="button" variant="ghost" size="icon" className="h-5 w-5 text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={() => { setNewLabelEditing(true); setLabelEditMode(true) }}>
+                <Button type="button" variant="ghost" size="icon" className="h-5 w-5 text-muted-foreground hover:bg-transparent hover:text-foreground" aria-label="新建标签" title="新建标签" onClick={() => { setNewLabelEditing(true); setLabelEditMode(true) }}>
                   <Plus className="h-3.5 w-3.5" />
                 </Button>
                 {labelEditMode && (
-                  <Button type="button" variant="ghost" size="icon" className="h-5 w-5 text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={() => setLabelEditMode((v) => !v)}>
+                  <Button type="button" variant="ghost" size="icon" className="h-5 w-5 text-muted-foreground hover:bg-transparent hover:text-foreground" aria-label="完成标签编辑" title="完成编辑" onClick={() => setLabelEditMode((v) => !v)}>
                     <Check className="h-3 w-3" />
                   </Button>
                 )}
@@ -1479,7 +1482,7 @@ export function MailPage() {
                   </SidebarMenuItem>
                 )
               })}
-              {canReadMail && !sidebarCollapsed && !labels.isLoading && labelItems.length === 0 && <div className="px-2 py-1 text-xs text-muted-foreground">暂无标签</div>}
+              {canReadMail && !sidebarCollapsed && !labels.isLoading && !labels.isError && labelItems.length === 0 && <div className="px-2 py-1 text-xs text-muted-foreground">暂无标签</div>}
               {canManageCurrentMailboxLabels && labelEditMode && newLabelEditing && (
                 <SidebarMenuItem>
                   <NewLabelButton collapsed={sidebarCollapsed} pending={createLabel.isPending} onCreate={(name) => { createLabel.mutate(name); setNewLabelEditing(false) }} editing={newLabelEditing} onEditingChange={setNewLabelEditing} />
@@ -1487,6 +1490,7 @@ export function MailPage() {
               )}
             </SidebarMenu>
             {labels.isLoading && <FolderSkeleton />}
+            {!sidebarCollapsed && labels.isError && <SidebarQueryFailure label="标签读取失败" onRetry={() => { void labels.refetch() }} />}
           </SidebarGroupContent>
         </SidebarGroup>}
       </SidebarContent>
@@ -1513,8 +1517,12 @@ export function MailPage() {
     <PermissionEmptyState title="无邮箱前台权限" description="当前账号未开启邮箱前台访问权限。" onOpenSettings={openSettings} />
   ) : !canReadMail ? (
     <PermissionEmptyState title="无邮件查看权限" description="当前账号可以访问邮箱前台，但未开启邮件查看权限。" onOpenSettings={openSettings} />
+  ) : mailboxList.isError ? (
+    <MailQueryFailure error={mailboxList.error} onRetry={() => { void mailboxList.refetch() }} />
   ) : !mailboxList.isLoading && !hasMailboxes && mailView !== "unknown" ? (
     <NoMailboxState onManageMailboxes={() => navigate("/profile?tab=mailboxes")} />
+  ) : mailView === "scheduled" && scheduledSends.isError ? (
+    <MailQueryFailure error={scheduledSends.error} onRetry={() => { void scheduledSends.refetch() }} />
   ) : mailView === "scheduled" && canScheduleMail ? (
     <ScheduledSendView
       compact={compactMailLayout}
@@ -1527,6 +1535,8 @@ export function MailPage() {
     />
   ) : mailView === "scheduled" ? (
     <PermissionEmptyState title="无定时发送权限" description="当前账号不能查看或管理定时发送任务。" onOpenSettings={openSettings} />
+  ) : mailView === "sendQueue" && sendQueue.isError ? (
+    <MailQueryFailure error={sendQueue.error} onRetry={() => { void sendQueue.refetch() }} />
   ) : mailView === "sendQueue" && canViewSendQueue ? (
     <SendQueueView
       compact={compactMailLayout}
@@ -1552,6 +1562,8 @@ export function MailPage() {
     />
   ) : mailView === "sendQueue" ? (
     <PermissionEmptyState title="无发送队列权限" description="当前账号不能查看发送队列。" onOpenSettings={openSettings} />
+  ) : mailMessagesError ? (
+    <MailQueryFailure error={mailMessagesError} onRetry={() => { void refetchMessages() }} />
   ) : compactMailLayout ? (
     <CompactMailView
       title={viewTitle}
@@ -1569,6 +1581,8 @@ export function MailPage() {
       selectedId={selectedId}
       selected={selected}
       detailLoading={detail.isLoading}
+      detailError={detail.error}
+      onRetryDetail={() => { void detail.refetch() }}
       labels={labelItems}
       labelPending={addLabel.isPending || removeLabel.isPending}
       onSelect={openMessage}
@@ -1690,7 +1704,8 @@ export function MailPage() {
             </div>
           )}
           {detail.isLoading && <div className="space-y-4 p-6"><Skeleton className="h-8 w-2/3" /><Skeleton className="h-4 w-1/3" /><Separator /><Skeleton className="h-40 w-full" /></div>}
-          {selected && <div className="flex h-full min-h-0 flex-col">
+          {detail.isError && <MailDetailFailure error={detail.error} onRetry={() => { void detail.refetch() }} />}
+          {!detail.isError && selected && <div className="flex h-full min-h-0 flex-col">
             <div className="border-b p-5">
               {isTwoPaneMailViewport && (
                 <Button variant="ghost" size="sm" className="-ml-2 mb-3 h-8 px-2 text-[13px] font-normal" onClick={() => setSelectedId(null)}>
@@ -1773,7 +1788,9 @@ export function MailPage() {
       <SendQueueAuditDialog
         open={!!sendQueueAuditId}
         loading={sendQueueAudit.isLoading}
+        error={sendQueueAudit.error}
         events={sendQueueAudit.data?.items || []}
+        onRetry={() => { void sendQueueAudit.refetch() }}
         onOpenChange={(open) => { if (!open) setSendQueueAuditId("") }}
       />
       <MessageContextMenu
@@ -2143,6 +2160,45 @@ function PermissionEmptyState({ title, description, onOpenSettings }: { title: s
   )
 }
 
+function MailQueryFailure({ error, onRetry }: { error: Error; onRetry: () => void }) {
+  return (
+    <div className="grid min-h-0 flex-1 place-items-center p-6" role="alert">
+      <div className="w-full max-w-md rounded-lg border border-destructive/40 bg-destructive/5 p-8 text-center">
+        <div className="text-lg font-semibold text-destructive">邮件数据读取失败</div>
+        <div className="mt-2 break-words text-sm text-muted-foreground">{error.message || "请检查网络连接后重试"}</div>
+        <Button type="button" variant="outline" className="mt-5" onClick={onRetry}>
+          <RefreshCcw className="h-4 w-4" />重新读取
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function MailDetailFailure({ error, onRetry }: { error: Error; onRetry: () => void }) {
+  return (
+    <div className="grid h-full min-h-[240px] place-items-center p-6" role="alert">
+      <div className="max-w-md text-center">
+        <div className="font-semibold text-destructive">邮件详情读取失败</div>
+        <div className="mt-2 break-words text-sm text-muted-foreground">{error.message || "请检查网络连接后重试"}</div>
+        <Button type="button" variant="outline" size="sm" className="mt-4" onClick={onRetry}>
+          <RefreshCcw className="h-4 w-4" />重新读取
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function SidebarQueryFailure({ label, onRetry }: { label: string; onRetry: () => void }) {
+  return (
+    <div className="mx-2 my-1 flex min-h-8 items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-2 text-xs text-destructive" role="alert">
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <Button type="button" variant="ghost" size="icon" className="h-6 w-6 shrink-0 text-destructive hover:text-destructive" aria-label={`重试${label}`} title="重新读取" onClick={onRetry}>
+        <RefreshCcw className="h-3.5 w-3.5" />
+      </Button>
+    </div>
+  )
+}
+
 function ScheduledSendView({ compact, items, total, loading, query, cancelingId, onCancel }: { compact: boolean; items: ScheduledSend[]; total: number; loading: boolean; query: string; cancelingId: string; onCancel: (item: ScheduledSend) => void }) {
   const empty = query.trim() ? "当前搜索没有匹配的定时邮件" : "没有待发送邮件"
   return (
@@ -2378,7 +2434,7 @@ function SendQueueStatusBadge({ status }: { status: SendQueueStatus }) {
   )
 }
 
-function SendQueueAuditDialog({ open, loading, events, onOpenChange }: { open: boolean; loading: boolean; events: SendQueueAuditEvent[]; onOpenChange: (open: boolean) => void }) {
+function SendQueueAuditDialog({ open, loading, error, events, onRetry, onOpenChange }: { open: boolean; loading: boolean; error: Error | null; events: SendQueueAuditEvent[]; onRetry: () => void; onOpenChange: (open: boolean) => void }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[min(92vw,42rem)] max-w-none">
@@ -2387,8 +2443,9 @@ function SendQueueAuditDialog({ open, loading, events, onOpenChange }: { open: b
         </DialogHeader>
         <div className="max-h-[60vh] overflow-auto pr-1">
           {loading && <div className="space-y-3">{Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-14 w-full" />)}</div>}
-          {!loading && events.length === 0 && <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">暂无投递事件</div>}
-          {!loading && events.length > 0 && (
+          {!loading && error && <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-6 text-center" role="alert"><div className="text-sm font-medium text-destructive">投递记录读取失败</div><div className="mt-1 break-words text-xs text-muted-foreground">{error.message}</div><Button type="button" variant="outline" size="sm" className="mt-4" onClick={onRetry}><RefreshCcw className="h-4 w-4" />重新读取</Button></div>}
+          {!loading && !error && events.length === 0 && <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">暂无投递事件</div>}
+          {!loading && !error && events.length > 0 && (
             <div className="space-y-3">
               {events.map((event) => (
                 <div key={event.id} className="rounded-lg border p-3">
@@ -2709,6 +2766,7 @@ function CompactMailView({
   selectedId,
   selected,
   detailLoading,
+  detailError,
   labels,
   labelPending,
   onSelect,
@@ -2716,6 +2774,7 @@ function CompactMailView({
   onToggleSelected,
   scheduledDraftIds,
   onLoadMore,
+  onRetryDetail,
   onCloseReader,
   onStar,
   onReply,
@@ -2750,6 +2809,7 @@ function CompactMailView({
   selectedId: string | null
   selected?: MailMessage
   detailLoading: boolean
+  detailError: Error | null
   labels: MailLabel[]
   labelPending: boolean
   onSelect: (id: string | null) => void
@@ -2757,6 +2817,7 @@ function CompactMailView({
   onToggleSelected: (id: string, checked: boolean) => void
   scheduledDraftIds: Set<string>
   onLoadMore: () => void
+  onRetryDetail: () => void
   onCloseReader: () => void
   onStar: (message: MailMessage) => void
   onReply: (message: MailMessage) => void
@@ -2786,11 +2847,13 @@ function CompactMailView({
       <CompactMessageDetail
         selected={selected}
         loading={detailLoading}
+        error={detailError}
         labels={labels}
         labelPending={labelPending}
         previousMessage={previousMessage}
         nextMessage={nextMessage}
         onBack={onCloseReader}
+        onRetry={onRetryDetail}
         onSelect={onSelect}
         onStar={onStar}
         onReply={onReply}
@@ -2853,11 +2916,13 @@ function CompactMailView({
 function CompactMessageDetail({
   selected,
   loading,
+  error,
   labels,
   labelPending,
   previousMessage,
   nextMessage,
   onBack,
+  onRetry,
   onSelect,
   onStar,
   onReply,
@@ -2876,11 +2941,13 @@ function CompactMessageDetail({
 }: {
   selected?: MailMessage
   loading: boolean
+  error: Error | null
   labels: MailLabel[]
   labelPending: boolean
   previousMessage?: MailMessage
   nextMessage?: MailMessage
   onBack: () => void
+  onRetry: () => void
   onSelect: (id: string | null) => void
   onStar: (message: MailMessage) => void
   onReply: (message: MailMessage) => void
@@ -2960,8 +3027,9 @@ function CompactMessageDetail({
         </div>
       </div>
         {loading && <div className="space-y-4 p-8"><Skeleton className="h-8 w-2/3" /><Skeleton className="h-4 w-1/3" /><Separator /><Skeleton className="h-64 w-full" /></div>}
-        {!loading && !selected && <div className="grid flex-1 place-items-center text-sm text-muted-foreground">邮件不存在</div>}
-        {selected && (
+        {!loading && error && <MailDetailFailure error={error} onRetry={onRetry} />}
+        {!loading && !error && !selected && <div className="grid flex-1 place-items-center text-sm text-muted-foreground">邮件不存在</div>}
+        {!error && selected && (
           <ScrollArea className="min-h-0 flex-1">
             <div className="w-full px-4 py-4 sm:px-8 sm:py-6">
               <div className="space-y-5 border-b pb-5">
@@ -3682,12 +3750,15 @@ function ComposeDialog({ mailboxes, mailbox, open, draft, limits, canSend, canMa
       return sent
     },
     onSuccess: async (_, payloads) => {
+      let draftDeleteFailed = false
       if (draftId) {
         try {
           await api.deleteDraft(draftId)
-        } catch {}
+        } catch {
+          draftDeleteFailed = true
+        }
       }
-      toast({ title: payloads.length > 1 ? `已分别发送 ${payloads.length} 封邮件` : "发送成功" })
+      toast({ title: payloads.length > 1 ? `已分别发送 ${payloads.length} 封邮件` : "发送成功", description: draftDeleteFailed ? "邮件已发送，但原草稿未能自动删除" : undefined })
       setFiles([])
       setDraftId("")
       onSent()
@@ -3952,6 +4023,14 @@ function ComposeDialog({ mailboxes, mailbox, open, draft, limits, canSend, canMa
             <ComposeField label="主　题">
               <Input name="subject" placeholder="输入主题" value={subjectValue} onChange={(event) => setSubjectValue(event.target.value)} className="h-10 flex-1 rounded-none border-0 px-0 shadow-none focus-visible:ring-0" />
             </ComposeField>
+            {defaultSignature.isError && (
+              <div className="flex items-center justify-between gap-3 border-b bg-destructive/5 px-4 py-2 text-xs text-destructive sm:px-6" role="alert">
+                <span>默认签名读取失败</span>
+                <Button type="button" variant="ghost" size="sm" className="h-7 text-destructive hover:text-destructive" onClick={() => { void defaultSignature.refetch() }}>
+                  <RefreshCcw className="h-3.5 w-3.5" />重新读取
+                </Button>
+              </div>
+            )}
             <MailBodyComposer
               defaultValue={composerText}
               defaultHtml={draft?.html}
@@ -4383,7 +4462,7 @@ function MailBodyComposer({ defaultValue, defaultHtml, files, signatureText, max
           <DropdownMenuContent align="start" className="w-64 p-2">
             <div className="grid grid-cols-8 gap-1">
               {composerEmojiOptions.map((emoji) => (
-                <Button key={emoji} type="button" variant="ghost" size="icon" className="h-8 w-8 rounded-md text-lg" onClick={() => insertEmoji(emoji)}>
+                <Button key={emoji} type="button" variant="ghost" size="icon" className="h-8 w-8 rounded-md text-lg" aria-label={`插入表情 ${emoji}`} title={`插入 ${emoji}`} onClick={() => insertEmoji(emoji)}>
                   {emoji}
                 </Button>
               ))}
@@ -4495,7 +4574,7 @@ function MailBodyComposer({ defaultValue, defaultHtml, files, signatureText, max
                 <Paperclip className="h-3.5 w-3.5" />
                 <span className="max-w-48 truncate">{file.name}</span>
                 <span className="text-muted-foreground">{formatBytes(file.size)}</span>
-                <Button type="button" variant="ghost" size="icon" className="h-5 w-5 rounded-md" onClick={() => onRemoveFile(index)}>
+                <Button type="button" variant="ghost" size="icon" className="h-5 w-5 rounded-md" aria-label={`移除附件 ${file.name}`} title="移除附件" onClick={() => onRemoveFile(index)}>
                   <X className="h-3.5 w-3.5" />
                 </Button>
               </Badge>

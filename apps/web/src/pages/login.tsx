@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Link, Navigate } from "react-router-dom"
+import { Link, Navigate, useLocation } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowRight, KeyRound, LockKeyhole } from "lucide-react"
 import { api } from "@/lib/api"
@@ -10,9 +10,12 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
+import { safeReturnPath } from "@/lib/navigation"
+import { AuthError, AuthLoading } from "@/components/auth-states"
 
 export function LoginPage() {
   const me = useMe()
+  const location = useLocation()
   const qc = useQueryClient()
   const { toast } = useToast()
   const publicSettings = useQuery({ queryKey: ["public-settings"], queryFn: api.publicSettings })
@@ -33,9 +36,12 @@ export function LoginPage() {
     onError: (e) => toast({ title: "登录失败", description: e.message }),
   })
   const turnstileRequired = !!publicSettings.data?.turnstileEnabled
-  if (me.data?.user) return <Navigate to="/" replace />
+  const returnPath = safeReturnPath((location.state as { from?: unknown } | null)?.from)
+  if (me.data?.user) return <Navigate to={returnPath} replace />
+  if (publicSettings.isLoading) return <AuthLoading />
+  if (publicSettings.isError) return <AuthError message={publicSettings.error.message} onRetry={() => { void publicSettings.refetch() }} />
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/20 px-4 py-10">
+    <main className="flex min-h-screen items-center justify-center bg-muted/20 px-4 py-10">
       <div className="w-full max-w-[420px]">
         <div className="mb-7 text-center">
           <h1 className="text-3xl font-semibold tracking-tight">NewSzxcn 邮箱</h1>
@@ -82,6 +88,6 @@ export function LoginPage() {
           </div>
         )}
       </div>
-    </div>
+    </main>
   )
 }

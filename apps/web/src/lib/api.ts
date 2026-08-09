@@ -4,6 +4,17 @@ export * from "./api-types"
 const REQUEST_TIMEOUT_MS = 15_000
 const MAIL_DELIVERY_TIMEOUT_MS = 60_000
 
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message)
+    this.name = "ApiError"
+  }
+}
+
+export function isUnauthorizedError(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 401
+}
+
 export type MailSearchParams = {
   q?: string
   from?: string
@@ -45,27 +56,34 @@ function appendMailSearchParams(params: URLSearchParams, search: MailSearchParam
 async function request<T>(path: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<T> {
   const { timeoutMs, ...requestInit } = init
   const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(), timeoutMs || REQUEST_TIMEOUT_MS)
+  let timedOut = false
+  const timeout = window.setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeoutMs || REQUEST_TIMEOUT_MS)
   const externalSignal = requestInit.signal
+  const abortFromExternalSignal = () => controller.abort()
   if (externalSignal) {
     if (externalSignal.aborted) controller.abort()
-    else externalSignal.addEventListener("abort", () => controller.abort(), { once: true })
+    else externalSignal.addEventListener("abort", abortFromExternalSignal, { once: true })
   }
   try {
     const res = await fetch(path, { credentials: "include", headers: { "Content-Type": "application/json", ...(requestInit.headers || {}) }, ...requestInit, signal: controller.signal })
     if (!res.ok) {
       let message = `${res.status} ${res.statusText}`
       try { const body = await res.json(); message = body.error || message } catch {}
-      throw new Error(message)
+      throw new ApiError(message, res.status)
     }
     return res.json() as Promise<T>
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
-      throw new Error("请求超时，请检查后端服务是否正常")
+      throw new Error(timedOut ? "请求超时，请检查后端服务是否正常" : "请求已取消")
     }
+    if (error instanceof TypeError) throw new Error("无法连接后端服务，请检查服务状态")
     throw error instanceof Error ? error : new Error("网络请求失败")
   } finally {
     window.clearTimeout(timeout)
+    externalSignal?.removeEventListener("abort", abortFromExternalSignal)
   }
 }
 
