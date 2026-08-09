@@ -2756,8 +2756,20 @@ func TestInboundForwardingSettingsAndDelivery(t *testing.T) {
 	if err := a.db.QueryRow(`SELECT recipients_json FROM send_queue WHERE source=? AND sent_message_id=?`, sendSourceForwarding, secondID).Scan(&recipientsJSON); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(recipientsJSON, "mailbox-forward@example.test") || !strings.Contains(recipientsJSON, "mailbox-forward-two@example.test") || strings.Contains(recipientsJSON, "account-forward@example.test") || strings.Contains(recipientsJSON, "account-forward-two@example.test") {
-		t.Fatalf("mailbox forwarding should override account target, recipients=%s", recipientsJSON)
+	if !strings.Contains(recipientsJSON, "account-forward@example.test") || !strings.Contains(recipientsJSON, "account-forward-two@example.test") || !strings.Contains(recipientsJSON, "mailbox-forward@example.test") || !strings.Contains(recipientsJSON, "mailbox-forward-two@example.test") {
+		t.Fatalf("mailbox forwarding should include account and mailbox targets, recipients=%s", recipientsJSON)
+	}
+
+	if code := admin.do("POST", "/api/me/forwarding/account", map[string]any{"targetEmails": []string{"account-forward-two@example.test"}}, &settings); code != http.StatusOK {
+		t.Fatalf("update account forwarding after mailbox forwarding code=%d settings=%+v", code, settings)
+	}
+	raw = []byte("From: sender@example.test\r\nTo: admin@lanqin.local\r\nSubject: account changed\r\nMessage-ID: <account-changed@example.test>\r\n\r\nbody")
+	thirdID := insertInbound("<account-changed@example.test>", "account changed", raw)
+	if err := a.db.QueryRow(`SELECT recipients_json FROM send_queue WHERE source=? AND sent_message_id=?`, sendSourceForwarding, thirdID).Scan(&recipientsJSON); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(recipientsJSON, "account-forward@example.test") || !strings.Contains(recipientsJSON, "account-forward-two@example.test") || !strings.Contains(recipientsJSON, "mailbox-forward@example.test") || !strings.Contains(recipientsJSON, "mailbox-forward-two@example.test") {
+		t.Fatalf("changing account forwarding should preserve mailbox targets, recipients=%s", recipientsJSON)
 	}
 
 	loopRaw := []byte("From: sender@example.test\r\nTo: admin@lanqin.local\r\nSubject: loop\r\n" + forwardingHeaderName + ": mail.example.test\r\nMessage-ID: <forward-loop@example.test>\r\n\r\nbody")
@@ -2766,8 +2778,8 @@ func TestInboundForwardingSettingsAndDelivery(t *testing.T) {
 	if err := a.db.QueryRow(`SELECT COUNT(1) FROM send_queue WHERE source=?`, sendSourceForwarding).Scan(&queueCount); err != nil {
 		t.Fatal(err)
 	}
-	if queueCount != 2 {
-		t.Fatalf("forwarding queue count=%d, want 2", queueCount)
+	if queueCount != 3 {
+		t.Fatalf("forwarding queue count=%d, want 3", queueCount)
 	}
 }
 

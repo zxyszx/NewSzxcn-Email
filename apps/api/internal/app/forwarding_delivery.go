@@ -138,10 +138,7 @@ func (a *App) inboundForwardingTargets(ctx context.Context, mailboxID string) (t
 	if err != nil {
 		return nil, "", "", err
 	}
-	targets := forwardingTargetsFromStored(mailboxTarget, mailboxTargetsJSON)
-	if len(targets) == 0 {
-		targets = forwardingTargetsFromStored(accountTarget, accountTargetsJSON)
-	}
+	targets := dedupeEmails(append(forwardingTargetsFromStored(accountTarget, accountTargetsJSON), forwardingTargetsFromStored(mailboxTarget, mailboxTargetsJSON)...))
 	if len(targets) == 0 {
 		return nil, userID, mailboxAddress, nil
 	}

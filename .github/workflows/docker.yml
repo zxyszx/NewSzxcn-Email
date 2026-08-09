@@ -289,18 +289,20 @@ jobs:
 
           sections = []
           for index, entry in enumerate(entries, 1):
-              parts = re.split(r"[，；。]", entry, maxsplit=1)
+              parts = re.split(r"[：:]", entry, maxsplit=1)
+              if len(parts) == 1:
+                  parts = re.split(r"[，；。]", entry, maxsplit=1)
               title = parts[0].strip()
               description = parts[1].strip() if len(parts) > 1 else ""
-              section = f"<b>{index:02d}  {html.escape(title)}</b>"
+              section = f"<b>{index:02d} · {html.escape(title)}</b>"
               if description:
-                  section += "\n" + html.escape(description.rstrip("。") + "。")
+                  section += "\n<blockquote>" + html.escape(description.rstrip("。") + "。") + "</blockquote>"
               sections.append(section)
 
           tag = os.environ["RELEASE_TAG"]
-          prefix = f"<b>NewSzxcn Email {html.escape(tag)}</b>\n新版本现已发布\n\n<b>本次更新</b>\n\n"
+          prefix = f"<b>NewSzxcn Email {html.escape(tag)}</b>\n<i>新版本现已发布</i>\n\n<b>更新内容 · {len(sections)} 项</b>\n\n"
           release_url = html.escape(os.environ["RELEASE_URL"], quote=True)
-          footer = f'\n\n🔗 <a href="{release_url}">查看本次更新</a>'
+          footer = f'\n\n<a href="{release_url}">查看完整更新说明 ↗</a>'
           available = max(0, 3600 - len(prefix) - len(footer))
           visible_sections = []
           used = 0
