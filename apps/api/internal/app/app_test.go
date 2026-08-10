@@ -4492,6 +4492,49 @@ func TestSubmissionTLSConfigReloadsCertificateFiles(t *testing.T) {
 	}
 }
 
+func TestSubmissionLoginAuthenticationWithAndWithoutInitialResponse(t *testing.T) {
+	a := newTestApp(t)
+	for _, withInitialResponse := range []bool{false, true} {
+		t.Run(fmt.Sprintf("initial-response-%t", withInitialResponse), func(t *testing.T) {
+			session := &submissionSession{app: a}
+			if mechanisms := strings.Join(session.AuthMechanisms(), " "); mechanisms != "PLAIN LOGIN" {
+				t.Fatalf("submission auth mechanisms=%q", mechanisms)
+			}
+			server, err := session.Auth(sasl.Login)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var response []byte
+			if withInitialResponse {
+				response = []byte("admin@lanqin.local")
+			}
+			challenge, done, err := server.Next(response)
+			if err != nil || done {
+				t.Fatalf("initial LOGIN response err=%v done=%t", err, done)
+			}
+			if !withInitialResponse {
+				if string(challenge) != "Username:" {
+					t.Fatalf("username challenge=%q", challenge)
+				}
+				challenge, done, err = server.Next([]byte("admin@lanqin.local"))
+				if err != nil || done {
+					t.Fatalf("username response err=%v done=%t", err, done)
+				}
+			}
+			if string(challenge) != "Password:" {
+				t.Fatalf("password challenge=%q", challenge)
+			}
+			challenge, done, err = server.Next([]byte("ChangeMe123!"))
+			if err != nil || !done || challenge != nil {
+				t.Fatalf("password response challenge=%q err=%v done=%t", challenge, err, done)
+			}
+			if session.user == nil || session.mailbox == nil {
+				t.Fatal("LOGIN authentication did not populate submission session")
+			}
+		})
+	}
+}
+
 func TestSubmissionServersAcceptStartTLSAndImplicitTLS(t *testing.T) {
 	a := newTestApp(t)
 	host, port, received := startCapturingSMTP(t, 2)
@@ -4529,7 +4572,7 @@ func TestSubmissionServersAcceptStartTLSAndImplicitTLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := client.Auth(sasl.NewPlainClient("", "admin@lanqin.local", "ChangeMe123!")); err != nil {
+	if err := client.Auth(sasl.NewLoginClient("admin@lanqin.local", "ChangeMe123!")); err != nil {
 		t.Fatal(err)
 	}
 	if err := client.SendMail("admin@lanqin.local", []string{"person@example.com"}, strings.NewReader(raw)); err != nil {

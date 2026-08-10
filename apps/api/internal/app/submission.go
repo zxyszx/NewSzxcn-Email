@@ -121,21 +121,59 @@ type submissionSession struct {
 }
 
 func (s *submissionSession) AuthMechanisms() []string {
-	return []string{sasl.Plain}
+	return []string{sasl.Plain, sasl.Login}
 }
 
 func (s *submissionSession) Auth(mech string) (sasl.Server, error) {
-	if !strings.EqualFold(mech, sasl.Plain) {
-		return nil, smtpserver.ErrAuthUnknownMechanism
-	}
-	return sasl.NewPlainServer(func(identity, username, password string) error {
+	authenticate := func(username, password string) error {
 		user, mailbox, err := s.app.authenticateSubmission(context.Background(), username, password)
 		if err != nil {
 			return smtpserver.ErrAuthFailed
 		}
 		s.user, s.mailbox = user, mailbox
 		return nil
-	}), nil
+	}
+	switch {
+	case strings.EqualFold(mech, sasl.Plain):
+		return sasl.NewPlainServer(func(_, username, password string) error {
+			return authenticate(username, password)
+		}), nil
+	case strings.EqualFold(mech, sasl.Login):
+		return &submissionLoginServer{authenticate: authenticate}, nil
+	default:
+		return nil, smtpserver.ErrAuthUnknownMechanism
+	}
+}
+
+type submissionLoginServer struct {
+	authenticate func(username, password string) error
+	username     string
+	step         int
+}
+
+func (s *submissionLoginServer) Next(response []byte) ([]byte, bool, error) {
+	switch s.step {
+	case 0:
+		if response == nil {
+			s.step = 1
+			return []byte("Username:"), false, nil
+		}
+		s.username = string(response)
+		s.step = 2
+		return []byte("Password:"), false, nil
+	case 1:
+		s.username = string(response)
+		s.step = 2
+		return []byte("Password:"), false, nil
+	case 2:
+		if err := s.authenticate(s.username, string(response)); err != nil {
+			return nil, false, err
+		}
+		s.step = 3
+		return nil, true, nil
+	default:
+		return nil, false, sasl.ErrUnexpectedClientResponse
+	}
 }
 
 func (s *submissionSession) Mail(from string, _ *smtpserver.MailOptions) error {
