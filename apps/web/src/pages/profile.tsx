@@ -1361,9 +1361,8 @@ function MailboxManagement({
       </section>
 
       <section id="mailbox-forwarding-section" className="rounded-lg border bg-card px-6 py-5">
-        <div className="mb-5 flex items-center justify-between gap-4">
+        <div className="mb-5 flex items-center gap-4">
           <h2 className="text-lg font-semibold leading-7">邮件转发</h2>
-          <Button type="button" variant="outline" size="sm" onClick={() => setVerifiedDialogOpen(true)}>管理验证邮箱</Button>
         </div>
         <div className="rounded-xl bg-muted/20 px-5 py-5">
           <div className="mb-3 text-sm font-medium">账号级转发</div>
@@ -1373,17 +1372,14 @@ function MailboxManagement({
             <Button type="button" className="h-[37px]" disabled={forwardingBusy} onClick={() => saveAccountForwarding.mutate(accountForwardTargets)}>{saveAccountForwarding.isPending ? "保存中" : "保存"}</Button>
           </div>
         </div>
-        {verifiedEmailItems.length > 0 && (
-          <Button type="button" variant="outline" className="mt-5 h-auto w-full justify-start gap-3 px-4 py-3 text-left font-normal shadow-none" onClick={() => setVerifiedDialogOpen(true)}>
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700"><MailCheck className="h-4 w-4" /></span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm font-medium">验证邮箱</span>
-              <span className="block truncate text-sm text-muted-foreground">已验证 {completedVerifiedEmailItems.length} 个{pendingVerifiedEmailItems.length > 0 ? `，待验证 ${pendingVerifiedEmailItems.length} 个` : ""}</span>
-            </span>
-            <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground" />
-          </Button>
-        )}
-        {verifiedEmails.length === 0 && <p className="mt-4 text-sm text-muted-foreground">暂未添加验证邮箱，请先点击「管理验证邮箱」添加。</p>}
+        <Button type="button" variant="outline" className="mt-5 h-auto w-full justify-start gap-3 px-4 py-3 text-left font-normal shadow-none" onClick={() => setVerifiedDialogOpen(true)}>
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700"><MailCheck className="h-4 w-4" /></span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-medium">管理验证邮箱</span>
+            <span className="block truncate text-sm text-muted-foreground">已验证 {completedVerifiedEmailItems.length} 个{pendingVerifiedEmailItems.length > 0 ? `，待验证 ${pendingVerifiedEmailItems.length} 个` : ""}</span>
+          </span>
+          <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground" />
+        </Button>
         <p className="mt-3 text-sm text-muted-foreground">提示：点击邮箱列表中的「转发」按钮，可在账号级目标之外追加该邮箱自己的转发目标。</p>
       </section>
 
