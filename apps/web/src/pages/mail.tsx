@@ -11,7 +11,7 @@ import TextAlign from "@tiptap/extension-text-align"
 import Placeholder from "@tiptap/extension-placeholder"
 import { BackgroundColor, Color, FontFamily, FontSize, TextStyle } from "@tiptap/extension-text-style"
 import { useNavigate } from "react-router-dom"
-import { AlignCenter, AlignLeft, AlignRight, Archive, ArrowLeft, Ban, Bold, Calendar, Check, ChevronDown, Clock3, Code2, Copy, Download, Ellipsis, Eraser, Eye, FileText, Folder, Forward, Highlighter, History, Image, Inbox, IndentDecrease, IndentIncrease, Italic, Link, List, ListOrdered, Mail, Mailbox as MailboxIcon, MailCheck, MailQuestion, Moon, PanelLeftOpen, Paperclip, PencilLine, Plus, Quote, Redo2, RefreshCcw, Reply, RotateCcw, Search, Send, Settings, ShieldCheck, Signature, SlidersHorizontal, Smile, Star, Strikethrough, Sun, Trash2, Type, Underline, Undo2, Upload, X } from "lucide-react"
+import { AlignCenter, AlignLeft, AlignRight, Archive, ArrowLeft, Ban, Bell, Bold, Bot, Briefcase, Calendar, Check, ChevronDown, Clock3, Code2, Copy, Download, Ellipsis, Eraser, Eye, FileText, Folder, Forward, GraduationCap, Heart, Highlighter, History, Image, Inbox, IndentDecrease, IndentIncrease, Italic, Link, List, ListOrdered, Mail, Mailbox as MailboxIcon, MailCheck, MailQuestion, Moon, PanelLeftOpen, Paperclip, PencilLine, Plane, Plus, Quote, Receipt, Redo2, RefreshCcw, Reply, RotateCcw, Search, Send, Settings, ShieldCheck, ShoppingBag, Signature, SlidersHorizontal, Smile, Sparkles, Star, Strikethrough, Sun, Tag, Trash2, Type, Underline, Undo2, Upload, Users, X } from "lucide-react"
 import { api, ExternalImapAccount, ListResponse, Mailbox, MailFolder, MailLabel, MailMessage, MailSearchParams, SendPayload, DraftPayload, ScheduledSend, SendQueueItem, SendQueueAuditEvent, SendQueueStatus, PermissionLimits } from "@/lib/api"
 import { cn, decodeMimeHeader, formatBytes, formatDate, formatDateTime, generateLabelColor } from "@/lib/utils"
 import { applyTheme, getInitialTheme } from "@/lib/theme"
@@ -49,6 +49,65 @@ import { useToast } from "@/hooks/use-toast"
 import { hasPermission } from "@/lib/permissions"
 
 const folderIcons: Record<string, React.ReactNode> = { inbox: <Inbox className="h-4 w-4" />, sent: <Send className="h-4 w-4" />, drafts: <FileText className="h-4 w-4" />, archive: <Archive className="h-4 w-4" />, spam: <Ban className="h-4 w-4" />, trash: <Trash2 className="h-4 w-4" /> }
+function NetflixFolderIcon({ className }: { className?: string }) {
+  return <span aria-hidden="true" className={cn("inline-flex items-center justify-center font-black text-red-600", className)}>N</span>
+}
+const customFolderIconOptions = [
+  { key: "folder", label: "文件夹", icon: Folder },
+  { key: "mail", label: "邮件", icon: Mail },
+  { key: "briefcase", label: "工作", icon: Briefcase },
+  { key: "users", label: "联系人", icon: Users },
+  { key: "receipt", label: "账单", icon: Receipt },
+  { key: "shopping", label: "购物", icon: ShoppingBag },
+  { key: "plane", label: "旅行", icon: Plane },
+  { key: "graduation", label: "学习", icon: GraduationCap },
+  { key: "heart", label: "收藏", icon: Heart },
+  { key: "star", label: "重要", icon: Star },
+  { key: "bell", label: "提醒", icon: Bell },
+  { key: "shield", label: "安全", icon: ShieldCheck },
+  { key: "tag", label: "分类", icon: Tag },
+  { key: "netflix", label: "Netflix", icon: NetflixFolderIcon },
+  { key: "chatgpt", label: "ChatGPT", icon: Bot },
+] as const
+function suggestedFolderIcon(name: string) {
+  const value = name.trim().toLocaleLowerCase()
+  if (/netflix|奈飞|网飞/.test(value)) return "netflix"
+  if (/chatgpt|openai|\bgpt\b/.test(value)) return "chatgpt"
+  if (/账单|发票|收据|bill|invoice|receipt/.test(value)) return "receipt"
+  if (/购物|订单|快递|shop|order|delivery/.test(value)) return "shopping"
+  if (/旅行|旅游|机票|酒店|travel|trip|flight|hotel/.test(value)) return "plane"
+  if (/学习|教育|课程|学校|study|school|course/.test(value)) return "graduation"
+  if (/联系人|团队|用户|contact|team|people/.test(value)) return "users"
+  if (/工作|项目|客户|work|project|business|client/.test(value)) return "briefcase"
+  if (/收藏|喜欢|favorite|favourite/.test(value)) return "heart"
+  if (/重要|紧急|important|urgent/.test(value)) return "star"
+  if (/安全|验证|密码|登录|security|verify|password|login/.test(value)) return "shield"
+  if (/提醒|通知|remind|notification/.test(value)) return "bell"
+  if (/邮件|邮箱|mail|email/.test(value)) return "mail"
+  return "folder"
+}
+
+async function prepareFolderIcon(file: File) {
+  if (!/^image\/(png|jpe?g|webp)$/i.test(file.type)) throw new Error("仅支持 PNG、JPG 或 WebP 图片")
+  if (file.size > 2 * 1024 * 1024) throw new Error("原图不能超过 2 MB")
+  const bitmap = await createImageBitmap(file)
+  try {
+    const canvas = document.createElement("canvas")
+    canvas.width = 64
+    canvas.height = 64
+    const context = canvas.getContext("2d")
+    if (!context) throw new Error("无法处理该图片")
+    const scale = Math.min(64 / bitmap.width, 64 / bitmap.height)
+    const width = Math.max(1, Math.round(bitmap.width * scale))
+    const height = Math.max(1, Math.round(bitmap.height * scale))
+    context.drawImage(bitmap, Math.round((64 - width) / 2), Math.round((64 - height) / 2), width, height)
+    const result = canvas.toDataURL("image/png")
+    if (result.length > 44_000) throw new Error("处理后的图标过大")
+    return result
+  } finally {
+    bitmap.close()
+  }
+}
 const folderLabels: Record<string, string> = {
   Inbox: "收件箱",
   Sent: "已发送",
@@ -438,7 +497,7 @@ export function MailPage() {
     onSettled: () => setCancelingScheduledId(""),
   })
   const createFolder = useMutation({
-    mutationFn: (name: string) => api.createFolder({ mailboxId: activeMailboxId, name }),
+    mutationFn: ({ name, icon }: { name: string; icon: string }) => api.createFolder({ mailboxId: activeMailboxId, name, icon }),
     onSuccess: (created) => {
       qc.invalidateQueries({ queryKey: ["folders"] })
       setFolderDialogOpen(false)
@@ -1844,7 +1903,7 @@ export function MailPage() {
         open={folderDialogOpen}
         pending={createFolder.isPending}
         onOpenChange={setFolderDialogOpen}
-        onCreate={(name) => createFolder.mutate(name)}
+        onCreate={(payload) => createFolder.mutate(payload)}
       />
       <ConfirmDialog
         open={!!pendingConfirm}
@@ -1862,7 +1921,7 @@ export function MailPage() {
 
 function buildMailMenuItems(folders: MailFolder[], starredCount: number, scheduledCount: number, includeScheduled: boolean, sendQueueCount: number, includeSendQueue: boolean, includeUnknown: boolean): MailMenuItem[] {
   const byName = new Map(folders.map((item) => [item.name, item]))
-  const normalizedFolders = ["Inbox", "Drafts", "Sent", "Archive", "Spam", "Trash"].map((name) => byName.get(name) || { id: `virtual-${name}`, name, role: name.toLowerCase(), sortOrder: 0, unreadCount: 0, totalCount: 0, uidValidity: 0, uidNext: 1, highestModseq: 1 })
+  const normalizedFolders = ["Inbox", "Drafts", "Sent", "Archive", "Spam", "Trash"].map((name) => byName.get(name) || { id: `virtual-${name}`, name, role: name.toLowerCase(), icon: "folder", sortOrder: 0, unreadCount: 0, totalCount: 0, uidValidity: 0, uidNext: 1, highestModseq: 1 })
   for (const item of folders) {
     if (!normalizedFolders.some((folder) => folder.name === item.name)) normalizedFolders.push(item)
   }
@@ -1872,7 +1931,7 @@ function buildMailMenuItems(folders: MailFolder[], starredCount: number, schedul
     folderId: item.id,
     folderName: item.name,
     label: folderLabels[item.name] || item.name,
-    icon: isCustomMailFolder(item) ? <Folder className="h-4 w-4" /> : folderIcons[item.role] || <Inbox className="h-4 w-4" />,
+    icon: isCustomMailFolder(item) ? customFolderIcon(item.icon) : folderIcons[item.role] || <Inbox className="h-4 w-4" />,
     count: item.name === "Drafts" ? item.totalCount : item.unreadCount,
     custom: isCustomMailFolder(item),
     order: isCustomMailFolder(item) ? item.sortOrder || 100000 : menuAnchorOrder(item.name),
@@ -1890,6 +1949,13 @@ function buildMailMenuItems(folders: MailFolder[], starredCount: number, schedul
 
 function isCustomMailFolder(folder: Pick<MailFolder, "name" | "id">) {
   return !folder.id.startsWith("virtual-") && !["inbox", "sent", "drafts", "archive", "spam", "trash"].includes(folder.name.trim().toLowerCase())
+}
+
+function customFolderIcon(iconKey: string | undefined, className = "h-4 w-4") {
+  if (iconKey?.startsWith("data:image/png;base64,")) return <img src={iconKey} alt="" className={cn("shrink-0 object-contain", className)} />
+  const option = customFolderIconOptions.find((item) => item.key === iconKey) || customFolderIconOptions[0]
+  const Icon = option.icon
+  return <Icon className={className} />
 }
 
 function compareMailFolders(a: MailFolder, b: MailFolder) {
@@ -2513,7 +2579,7 @@ function BulkActionToolbar({ pending, currentFolder, folders = [], readAction = 
           <DropdownMenuContent align="end" className="w-44">
             {movableFolders.map((folder) => (
               <DropdownMenuItem key={folder.id} onSelect={() => onMoveToFolder(folder.name)}>
-                {folderIcons[folder.role] || <Folder className="h-4 w-4" />}
+                {isCustomMailFolder(folder) ? customFolderIcon(folder.icon) : folderIcons[folder.role] || <Folder className="h-4 w-4" />}
                 <span className="min-w-0 flex-1 truncate">{folderLabels[folder.name] || folder.name}</span>
               </DropdownMenuItem>
             ))}
@@ -2673,7 +2739,7 @@ function MessageContextMenu({ state, labels, folders, canSend, canOrganize, canM
           <div className="max-h-44 overflow-y-auto">
             {movableFolders.map((folder) => (
               <Button key={folder.id} type="button" variant="ghost" className={itemClass} onClick={() => moveToFolder(folder.name)}>
-                {folderIcons[folder.role] || <Inbox className="h-4 w-4" />}
+                {isCustomMailFolder(folder) ? customFolderIcon(folder.icon) : folderIcons[folder.role] || <Inbox className="h-4 w-4" />}
                 <span className="min-w-0 flex-1 truncate text-left">{folderLabels[folder.name] || folder.name}</span>
                 {folder.totalCount > 0 && <span className="text-xs text-muted-foreground">{folder.totalCount}</span>}
               </Button>
@@ -2718,12 +2784,21 @@ function contextMenuPosition(x: number, y: number) {
   return { x: Math.min(Math.max(x, padding), maxX), y: Math.min(Math.max(y, padding), maxY) }
 }
 
-function CreateFolderDialog({ open, pending, onOpenChange, onCreate }: { open: boolean; pending: boolean; onOpenChange: (open: boolean) => void; onCreate: (name: string) => void }) {
+function CreateFolderDialog({ open, pending, onOpenChange, onCreate }: { open: boolean; pending: boolean; onOpenChange: (open: boolean) => void; onCreate: (payload: { name: string; icon: string }) => void }) {
   const [name, setName] = React.useState("")
+  const [icon, setIcon] = React.useState("auto")
+  const [uploadError, setUploadError] = React.useState("")
+  const iconInputRef = React.useRef<HTMLInputElement>(null)
   React.useEffect(() => {
-    if (open) setName("")
+    if (open) {
+      setName("")
+      setIcon("auto")
+      setUploadError("")
+    }
   }, [open])
   const trimmed = name.trim()
+  const suggestedIcon = suggestedFolderIcon(trimmed)
+  const resolvedIcon = icon === "auto" ? suggestedIcon : icon
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[min(92vw,28rem)] max-w-none">
@@ -2734,13 +2809,51 @@ function CreateFolderDialog({ open, pending, onOpenChange, onCreate }: { open: b
           className="space-y-4"
           onSubmit={(event) => {
             event.preventDefault()
-            if (trimmed) onCreate(trimmed)
+            if (trimmed) onCreate({ name: trimmed, icon: resolvedIcon })
           }}
         >
           <div className="space-y-2">
             <Label htmlFor="new-folder-name">文件夹名称</Label>
             <Input id="new-folder-name" autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：客户、账单、项目归档" />
           </div>
+          <fieldset className="space-y-2">
+            <legend className="text-sm font-medium">图标</legend>
+            <div className="grid grid-cols-7 gap-2">
+              <Button type="button" variant="outline" size="icon" className={cn("relative size-10 shadow-none", icon === "auto" && "border-primary bg-primary/10 text-primary ring-1 ring-primary")} onClick={() => setIcon("auto")} aria-label={`自动匹配：${customFolderIconOptions.find((item) => item.key === suggestedIcon)?.label || "文件夹"}`} title={`自动匹配：${customFolderIconOptions.find((item) => item.key === suggestedIcon)?.label || "文件夹"}`} aria-pressed={icon === "auto"}>
+                {customFolderIcon(suggestedIcon)}
+                <Sparkles className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-background" />
+              </Button>
+              {customFolderIconOptions.map((option) => {
+                const Icon = option.icon
+                return (
+                  <Button key={option.key} type="button" variant="outline" size="icon" className={cn("size-10 shadow-none", icon === option.key && "border-primary bg-primary/10 text-primary ring-1 ring-primary")} onClick={() => setIcon(option.key)} aria-label={option.label} title={option.label} aria-pressed={icon === option.key}>
+                    <Icon className="h-4 w-4" />
+                  </Button>
+                )
+              })}
+              <Button type="button" variant="outline" size="icon" className={cn("size-10 shadow-none", icon.startsWith("data:image/png;base64,") && "border-primary bg-primary/10 text-primary ring-1 ring-primary")} onClick={() => iconInputRef.current?.click()} aria-label="上传自定义图标" title="上传自定义图标" aria-pressed={icon.startsWith("data:image/png;base64,")}>
+                {icon.startsWith("data:image/png;base64,") ? customFolderIcon(icon) : <Upload className="h-4 w-4" />}
+              </Button>
+              <input
+                ref={iconInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={async (event) => {
+                  const file = event.target.files?.[0]
+                  event.target.value = ""
+                  if (!file) return
+                  try {
+                    setUploadError("")
+                    setIcon(await prepareFolderIcon(file))
+                  } catch (error) {
+                    setUploadError(error instanceof Error ? error.message : "无法处理该图片")
+                  }
+                }}
+              />
+            </div>
+            {uploadError && <p role="alert" className="text-xs text-destructive">{uploadError}</p>}
+          </fieldset>
           <DialogFooter className="gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
             <Button disabled={!trimmed || pending}>{pending ? "创建中..." : "创建"}</Button>

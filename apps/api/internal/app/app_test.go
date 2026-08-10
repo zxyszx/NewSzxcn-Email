@@ -1050,6 +1050,191 @@ func TestMailRulesForwardingAction(t *testing.T) {
 	}
 }
 
+func TestMailRulesExactSenderCustomFolderAndStopProcessing(t *testing.T) {
+	a := newTestApp(t)
+	ts := httptest.NewServer(a.Router())
+	defer ts.Close()
+	admin := &testClient{t: t, server: ts}
+
+	var login map[string]any
+	if code := admin.do("POST", "/api/auth/login", map[string]string{"email": "admin@lanqin.local", "password": "ChangeMe123!"}, &login); code != http.StatusOK {
+		t.Fatalf("admin login code=%d", code)
+	}
+	domainID := mustDefaultDomainID(t, a)
+	sender := createTestMailbox(t, admin, domainID, "rule-exact-sender", "Sender With Name", "Password123!", nil)
+	recipient := createTestMailbox(t, admin, domainID, "rule-custom-target", "Rule Target", "Password123!", nil)
+
+	rcpt := &testClient{t: t, server: ts}
+	if code := rcpt.do("POST", "/api/auth/login", map[string]string{"email": recipient.Address, "password": "Password123!"}, &login); code != http.StatusOK {
+		t.Fatalf("recipient login=%d", code)
+	}
+	var bad map[string]any
+	if code := rcpt.do("POST", "/api/me/rules", map[string]any{
+		"mailboxId":  recipient.ID,
+		"conditions": []map[string]string{{"field": "size", "operator": "contains", "value": "10"}},
+		"actions":    []map[string]string{{"type": "archive"}},
+	}, &bad); code != http.StatusBadRequest {
+		t.Fatalf("invalid field operator should be rejected code=%d body=%v", code, bad)
+	}
+
+	createRule := func(name string, action map[string]string, stop bool) {
+		t.Helper()
+		var rule MailRule
+		if code := rcpt.do("POST", "/api/me/rules", map[string]any{
+			"mailboxId":      recipient.ID,
+			"name":           name,
+			"conditions":     []map[string]string{{"field": "from", "operator": "equals", "value": sender.Address}},
+			"actions":        []map[string]string{action},
+			"stopProcessing": stop,
+		}, &rule); code != http.StatusCreated {
+			t.Fatalf("create rule %s code=%d rule=%+v", name, code, rule)
+		}
+	}
+	createRule("fallback archive", map[string]string{"type": "archive"}, false)
+	createRule("Netflix folder", map[string]string{"type": "move", "value": "Netflix 验证码"}, true)
+
+	senderClient := &testClient{t: t, server: ts}
+	if code := senderClient.do("POST", "/api/auth/login", map[string]string{"email": sender.Address, "password": "Password123!"}, &login); code != http.StatusOK {
+		t.Fatalf("sender login=%d", code)
+	}
+	var sent MailMessage
+	if code := senderClient.do("POST", "/api/mail/send", map[string]any{"to": []string{recipient.Address}, "subject": "Netflix code", "text": "123456"}, &sent); code != http.StatusCreated {
+		t.Fatalf("send code=%d sent=%+v", code, sent)
+	}
+	var custom struct {
+		Items []MailMessage `json:"items"`
+	}
+	if code := rcpt.do("GET", "/api/mail/messages?mailboxId="+recipient.ID+"&folder="+url.QueryEscape("Netflix 验证码"), nil, &custom); code != http.StatusOK || len(custom.Items) != 1 {
+		t.Fatalf("custom rule folder code=%d items=%+v", code, custom.Items)
+	}
+	var archived struct {
+		Items []MailMessage `json:"items"`
+	}
+	if code := rcpt.do("GET", "/api/mail/messages?mailboxId="+recipient.ID+"&folder=Archive", nil, &archived); code != http.StatusOK || len(archived.Items) != 0 {
+		t.Fatalf("stop processing should prevent fallback archive code=%d items=%+v", code, archived.Items)
+	}
+	var icon string
+	if err := a.db.QueryRow(`SELECT icon FROM folders WHERE mailbox_id=? AND name=?`, recipient.ID, "Netflix 验证码").Scan(&icon); err != nil || icon != "netflix" {
+		t.Fatalf("rule-created folder icon=%q err=%v", icon, err)
+	}
+}
+
+func TestFolderIconForName(t *testing.T) {
+	tests := []struct {
+		name      string
+		requested string
+		want      string
+	}{
+		{name: "Netflix 验证码", requested: "auto", want: "netflix"},
+		{name: "ChatGPT 通知", want: "chatgpt"},
+		{name: "OpenAI 账单", want: "chatgpt"},
+		{name: "项目归档", want: "briefcase"},
+		{name: "其他", want: "folder"},
+		{name: "Netflix", requested: "heart", want: "heart"},
+		{name: "Netflix", requested: "unknown", want: "folder"},
+		{name: "Custom", requested: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", want: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="},
+		{name: "Egypt archive", want: "folder"},
+		{name: "Custom", requested: "data:image/svg+xml;base64,PHN2Zz4=", want: "folder"},
+		{name: "Custom", requested: "data:image/png;base64,SGVsbG8=", want: "folder"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name+"/"+tt.requested, func(t *testing.T) {
+			if got := folderIconForName(tt.name, tt.requested); got != tt.want {
+				t.Fatalf("folderIconForName(%q, %q)=%q want %q", tt.name, tt.requested, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRuleFolderAutoIconPreservesManualSelection(t *testing.T) {
+	a := newTestApp(t)
+	ctx := context.Background()
+	admin := &testClient{t: t, server: httptest.NewServer(a.Router())}
+	defer admin.server.Close()
+
+	var login map[string]any
+	if code := admin.do("POST", "/api/auth/login", map[string]string{"email": "admin@lanqin.local", "password": "ChangeMe123!"}, &login); code != http.StatusOK {
+		t.Fatalf("admin login code=%d", code)
+	}
+	domainID := createTestDomain(t, admin, "manual-icon.test")
+	mailbox := createTestMailbox(t, admin, domainID.ID, "rules", "Rules", "Password123!", nil)
+	if _, err := a.ensureCustomFolder(ctx, mailbox.ID, "Netflix", "heart"); err != nil {
+		t.Fatalf("create custom folder: %v", err)
+	}
+	if _, err := a.ensureCustomFolder(ctx, mailbox.ID, "Netflix", "auto"); err != nil {
+		t.Fatalf("reuse custom folder: %v", err)
+	}
+	var icon string
+	if err := a.db.QueryRowContext(ctx, `SELECT icon FROM folders WHERE mailbox_id=? AND name='Netflix'`, mailbox.ID).Scan(&icon); err != nil || icon != "heart" {
+		t.Fatalf("manual icon should be preserved icon=%q err=%v", icon, err)
+	}
+}
+
+func TestMailRuleApplyExistingWhenDisabledExcludesSent(t *testing.T) {
+	a := newTestApp(t)
+	ts := httptest.NewServer(a.Router())
+	defer ts.Close()
+	admin := &testClient{t: t, server: ts}
+
+	var login map[string]any
+	if code := admin.do("POST", "/api/auth/login", map[string]string{"email": "admin@lanqin.local", "password": "ChangeMe123!"}, &login); code != http.StatusOK {
+		t.Fatalf("admin login code=%d", code)
+	}
+	domainID := mustDefaultDomainID(t, a)
+	sender := createTestMailbox(t, admin, domainID, "rule-existing-sender", "Existing Sender", "Password123!", nil)
+	recipient := createTestMailbox(t, admin, domainID, "rule-existing-recipient", "Existing Recipient", "Password123!", nil)
+	subject := "same inbound and sent subject"
+
+	senderClient := &testClient{t: t, server: ts}
+	if code := senderClient.do("POST", "/api/auth/login", map[string]string{"email": sender.Address, "password": "Password123!"}, &login); code != http.StatusOK {
+		t.Fatalf("sender login=%d", code)
+	}
+	var incomingSend MailMessage
+	if code := senderClient.do("POST", "/api/mail/send", map[string]any{"to": []string{recipient.Address}, "subject": subject, "text": "incoming"}, &incomingSend); code != http.StatusCreated {
+		t.Fatalf("incoming send code=%d", code)
+	}
+
+	rcpt := &testClient{t: t, server: ts}
+	if code := rcpt.do("POST", "/api/auth/login", map[string]string{"email": recipient.Address, "password": "Password123!"}, &login); code != http.StatusOK {
+		t.Fatalf("recipient login=%d", code)
+	}
+	var outgoing MailMessage
+	if code := rcpt.do("POST", "/api/mail/send", map[string]any{"to": []string{sender.Address}, "subject": subject, "text": "outgoing"}, &outgoing); code != http.StatusCreated {
+		t.Fatalf("outgoing send code=%d", code)
+	}
+	var rule MailRule
+	if code := rcpt.do("POST", "/api/me/rules", map[string]any{
+		"mailboxId":       recipient.ID,
+		"name":            "existing disabled",
+		"conditions":      []map[string]string{{"field": "subject", "operator": "equals", "value": subject}},
+		"actions":         []map[string]string{{"type": "star"}},
+		"applyToExisting": true,
+		"enabled":         false,
+	}, &rule); code != http.StatusCreated || rule.AppliedExistingCount != 1 || rule.Enabled {
+		t.Fatalf("create disabled existing rule code=%d rule=%+v", code, rule)
+	}
+	var inboundStarred, sentStarred int
+	if err := a.db.QueryRow(`SELECT is_starred FROM messages WHERE mailbox_id=? AND subject=? AND folder_id IN (SELECT id FROM folders WHERE mailbox_id=? AND lower(name)='inbox')`, recipient.ID, subject, recipient.ID).Scan(&inboundStarred); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.db.QueryRow(`SELECT is_starred FROM messages WHERE id=?`, outgoing.ID).Scan(&sentStarred); err != nil {
+		t.Fatal(err)
+	}
+	if inboundStarred != 1 || sentStarred != 0 {
+		t.Fatalf("existing rule starred inbound=%d sent=%d", inboundStarred, sentStarred)
+	}
+}
+
+func TestRuleAttachmentConditionUsesFilenameOnly(t *testing.T) {
+	msg := ruleMessage{AttachmentNames: "notes.txt"}
+	if ruleConditionMatches(MailRuleCondition{Field: "attachment", Operator: "contains", Value: "pdf"}, msg) {
+		t.Fatal("attachment condition must not match MIME type or unrelated extension")
+	}
+	if !ruleConditionMatches(MailRuleCondition{Field: "attachment", Operator: "ends-with", Value: ".txt"}, msg) {
+		t.Fatal("attachment condition should match filename")
+	}
+}
+
 func TestMailRulesMailboxIsolation(t *testing.T) {
 	a := newTestApp(t)
 	ts := httptest.NewServer(a.Router())
@@ -2293,7 +2478,7 @@ func TestCustomMailFoldersCreateAndMove(t *testing.T) {
 	}
 
 	var custom MailFolder
-	if code := admin.do("POST", "/api/mail/folders", map[string]string{"name": "客户归档"}, &custom); code != http.StatusCreated || custom.Name != "客户归档" || custom.Role != "客户归档" {
+	if code := admin.do("POST", "/api/mail/folders", map[string]string{"name": "客户归档", "icon": "netflix"}, &custom); code != http.StatusCreated || custom.Name != "客户归档" || custom.Role != "客户归档" || custom.Icon != "netflix" {
 		t.Fatalf("custom folder create code=%d folder=%+v", code, custom)
 	}
 	var folders struct {
@@ -2301,6 +2486,15 @@ func TestCustomMailFoldersCreateAndMove(t *testing.T) {
 	}
 	if code := admin.do("GET", "/api/mail/folders", nil, &folders); code != http.StatusOK || !folderListContains(folders.Items, "客户归档") {
 		t.Fatalf("folder list code=%d items=%+v", code, folders.Items)
+	}
+	foundIcon := ""
+	for _, folder := range folders.Items {
+		if folder.Name == "客户归档" {
+			foundIcon = folder.Icon
+		}
+	}
+	if foundIcon != "netflix" {
+		t.Fatalf("folder icon=%q, want netflix", foundIcon)
 	}
 
 	var sent MailMessage

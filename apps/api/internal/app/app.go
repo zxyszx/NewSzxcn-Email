@@ -317,6 +317,7 @@ func (a *App) migrate(ctx context.Context) error {
 			mailbox_id TEXT NOT NULL REFERENCES mailboxes(id) ON DELETE CASCADE,
 			name TEXT NOT NULL,
 			role TEXT NOT NULL,
+			icon TEXT NOT NULL DEFAULT 'folder',
 			sort_order INTEGER NOT NULL DEFAULT 0,
 			uid_validity INTEGER NOT NULL DEFAULT 0,
 			uid_next INTEGER NOT NULL DEFAULT 1,
@@ -688,6 +689,9 @@ func (a *App) migrate(ctx context.Context) error {
 		return err
 	}
 	if err := a.migrateFolderSortOrder(ctx); err != nil {
+		return err
+	}
+	if err := a.migrateFolderIcons(ctx); err != nil {
 		return err
 	}
 	if err := a.migrateExternalIMAP(ctx); err != nil {

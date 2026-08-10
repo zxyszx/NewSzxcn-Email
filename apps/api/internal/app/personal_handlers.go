@@ -534,12 +534,16 @@ func (a *App) handleCreateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	appliedCount := int64(0)
-	if req.ApplyToExisting && enabled {
-		appliedCount, _ = a.applyRuleToExistingMessages(r.Context(), user.ID, mailboxID, MailRule{
+	if req.ApplyToExisting {
+		appliedCount, err = a.applyRuleToExistingMessages(r.Context(), user.ID, mailboxID, MailRule{
 			ID: id, UserID: user.ID, MailboxID: mailboxID, Name: name, MatchMode: matchMode,
 			Conditions: conditions, Actions: actions, ApplyToExisting: req.ApplyToExisting, StopProcessing: req.StopProcessing,
 			FromContains: fromContains, SubjectContains: subjectContains, Action: action, Enabled: enabled,
 		})
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "rule saved but failed to apply to existing messages")
+			return
+		}
 	}
 	row := a.db.QueryRowContext(r.Context(), `SELECT id,user_id,mailbox_id,name,match_mode,conditions_json,actions_json,from_contains,subject_contains,action,apply_to_existing,stop_processing,enabled,created_at FROM mail_rules WHERE id=?`, id)
 	item, err := scanRule(row)
@@ -1330,7 +1334,9 @@ func (a *App) applyInboundControls(ctx context.Context, messageID, mailboxID, fr
 		if !ruleMatches(rule, msg) {
 			continue
 		}
-		_ = a.applyRuleActions(ctx, mailboxID, messageID, rule.Actions)
+		if err := a.applyRuleActions(ctx, mailboxID, messageID, rule.Actions); err != nil {
+			continue
+		}
 		if rule.StopProcessing {
 			break
 		}
@@ -1375,7 +1381,7 @@ type ruleMessage struct {
 func (a *App) ruleMessageByID(ctx context.Context, messageID string) (ruleMessage, bool) {
 	var msg ruleMessage
 	var toAddrs, ccAddrs, receivedAt string
-	err := a.db.QueryRowContext(ctx, `SELECT id,COALESCE(mailbox_id,''),trim(from_addr || ' ' || COALESCE(from_name,'')),to_addrs,cc_addrs,subject,snippet,body_text,size_bytes,received_at FROM messages WHERE id=?`, messageID).
+	err := a.db.QueryRowContext(ctx, `SELECT id,COALESCE(mailbox_id,''),from_addr,to_addrs,cc_addrs,subject,snippet,body_text,size_bytes,received_at FROM messages WHERE id=?`, messageID).
 		Scan(&msg.ID, &msg.MailboxID, &msg.From, &toAddrs, &ccAddrs, &msg.Subject, &msg.Snippet, &msg.BodyText, &msg.SizeBytes, &receivedAt)
 	if err != nil {
 		return ruleMessage{}, false
@@ -1407,7 +1413,7 @@ func (a *App) ruleAttachmentNames(ctx context.Context, messageID string) string 
 		if err := rows.Scan(&filename, &contentType); err != nil {
 			return strings.Join(parts, " ")
 		}
-		parts = append(parts, filename, contentType)
+		parts = append(parts, filename)
 	}
 	return strings.Join(parts, " ")
 }
@@ -1453,13 +1459,21 @@ func normalizeRuleCondition(item MailRuleCondition) (MailRuleCondition, bool) {
 	if operator == "" {
 		operator = "contains"
 	}
-	switch operator {
-	case "contains", "not-contains", "equals", "not-equals", "starts-with", "ends-with":
-	case "gt", "gte", "lt", "lte", "before", "after", "on":
-	default:
+	if !validRuleConditionOperator(field, operator) {
 		return MailRuleCondition{}, false
 	}
 	return MailRuleCondition{Field: field, Operator: operator, Value: value}, true
+}
+
+func validRuleConditionOperator(field, operator string) bool {
+	switch field {
+	case "size":
+		return operator == "gt" || operator == "gte" || operator == "lt" || operator == "lte" || operator == "equals" || operator == "not-equals"
+	case "date":
+		return operator == "before" || operator == "after" || operator == "on" || operator == "equals" || operator == "not-equals"
+	default:
+		return operator == "contains" || operator == "not-contains" || operator == "equals" || operator == "not-equals" || operator == "starts-with" || operator == "ends-with"
+	}
 }
 
 func normalizeRuleMatchMode(matchMode string) string {
@@ -1710,23 +1724,37 @@ func (a *App) applyRuleActions(ctx context.Context, mailboxID, messageID string,
 	for _, action := range normalizeRuleActions(actions, "") {
 		switch action.Type {
 		case "archive":
-			if folderID, err := a.ensureFolder(ctx, mailboxID, "Archive"); err == nil {
-				if err := a.moveMessageMaildir(ctx, messageID, folderID); err != nil {
-					return err
-				}
+			folderID, err := a.ensureFolder(ctx, mailboxID, "Archive")
+			if err != nil {
+				return err
+			}
+			if err := a.moveMessageMaildir(ctx, messageID, folderID); err != nil {
+				return err
 			}
 		case "trash":
-			if folderID, err := a.ensureFolder(ctx, mailboxID, "Trash"); err == nil {
-				if err := a.moveMessageMaildir(ctx, messageID, folderID); err != nil {
-					return err
-				}
+			folderID, err := a.ensureFolder(ctx, mailboxID, "Trash")
+			if err != nil {
+				return err
+			}
+			if err := a.moveMessageMaildir(ctx, messageID, folderID); err != nil {
+				return err
 			}
 		case "move":
-			target := ruleTargetFolder(action.Value)
-			if folderID, err := a.ensureFolder(ctx, mailboxID, target); err == nil {
-				if err := a.moveMessageMaildir(ctx, messageID, folderID); err != nil {
-					return err
-				}
+			target, err := normalizeFolderNameForUser(action.Value)
+			if err != nil {
+				return err
+			}
+			var folderID string
+			if isSystemFolderName(target) {
+				folderID, err = a.ensureFolder(ctx, mailboxID, target)
+			} else {
+				folderID, err = a.ensureCustomFolder(ctx, mailboxID, target, "auto")
+			}
+			if err != nil {
+				return err
+			}
+			if err := a.moveMessageMaildir(ctx, messageID, folderID); err != nil {
+				return err
 			}
 		case "star":
 			starred := true
@@ -1789,21 +1817,6 @@ func (a *App) applyRuleLabel(ctx context.Context, mailboxID, messageID string, a
 	return err
 }
 
-func ruleTargetFolder(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "inbox":
-		return "Inbox"
-	case "archive":
-		return "Archive"
-	case "spam":
-		return "Spam"
-	case "trash":
-		return "Trash"
-	default:
-		return "Archive"
-	}
-}
-
 func (a *App) applyRuleToExistingMessages(ctx context.Context, userID, mailboxID string, rule MailRule) (int64, error) {
 	args := []any{userID}
 	where := `mb.user_id=?`
@@ -1811,7 +1824,7 @@ func (a *App) applyRuleToExistingMessages(ctx context.Context, userID, mailboxID
 		where += ` AND m.mailbox_id=?`
 		args = append(args, mailboxID)
 	}
-	rows, err := a.db.QueryContext(ctx, `SELECT m.id FROM messages m JOIN mailboxes mb ON mb.id=m.mailbox_id WHERE `+where, args...)
+	rows, err := a.db.QueryContext(ctx, `SELECT m.id FROM messages m JOIN mailboxes mb ON mb.id=m.mailbox_id JOIN folders f ON f.id=m.folder_id WHERE `+where+` AND lower(f.name) NOT IN ('sent','drafts')`, args...)
 	if err != nil {
 		return 0, err
 	}

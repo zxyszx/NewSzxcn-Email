@@ -2273,7 +2273,7 @@ function RulesSection({ items, mailboxes, labels, verifiedEmails, open, onOpenCh
         <Button className="h-9 w-full rounded-md px-4 text-sm font-normal sm:w-auto" onClick={() => { setEditingRule(null); onOpenChange(true) }}>新建规则</Button>
       </div>
       <div className="space-y-3">
-        {items.map((item, index) => <RuleListItem key={item.id} item={item} index={index} count={items.length} pending={pending} onEdit={() => { setEditingRule(item); onOpenChange(true) }} onToggle={() => onToggle(item)} onMove={(direction) => onMove(item.id, direction)} onApply={() => onApply(item.id)} onDelete={onDelete} />)}
+        {items.map((item, index) => <RuleListItem key={item.id} item={item} index={index} count={items.length} mailboxLabel={item.mailboxId ? mailboxes.find((mailbox) => mailbox.id === item.mailboxId)?.address || "指定邮箱" : "全部邮箱"} pending={pending} onEdit={() => { setEditingRule(item); onOpenChange(true) }} onToggle={() => onToggle(item)} onMove={(direction) => onMove(item.id, direction)} onApply={() => onApply(item.id)} onDelete={onDelete} />)}
         {items.length === 0 && <EmptyState icon={<SlidersHorizontal />} text="暂无收件规则" description="新建规则后，可自动标记、移动或转发符合条件的邮件。" className="min-h-[180px] border-solid bg-card" />}
       </div>
       <RuleDialog open={open} onOpenChange={setDialogOpen} mailboxes={mailboxes} labels={labels} verifiedEmails={verifiedEmails} pending={pending} initialRule={editingRule} onSave={(payload) => editingRule ? onUpdate(editingRule.id, payload) : onCreate(payload)} />
@@ -2461,12 +2461,10 @@ function RuleCheckbox({ checked, onCheckedChange, label }: { checked: boolean; o
   return <div className="flex items-center gap-3"><Checkbox id={id} checked={checked} onCheckedChange={(value) => onCheckedChange(value === true)} /><Label htmlFor={id} className="text-base font-medium">{label}</Label></div>
 }
 
-function RuleListItem({ item, index, count, pending, onEdit, onToggle, onMove, onApply, onDelete }: { item: MailRule; index: number; count: number; pending: boolean; onEdit: () => void; onToggle: () => void; onMove: (direction: "up" | "down") => void; onApply: () => void; onDelete: (id: string) => void }) {
+function RuleListItem({ item, index, count, mailboxLabel, pending, onEdit, onToggle, onMove, onApply, onDelete }: { item: MailRule; index: number; count: number; mailboxLabel: string; pending: boolean; onEdit: () => void; onToggle: () => void; onMove: (direction: "up" | "down") => void; onApply: () => void; onDelete: (id: string) => void }) {
   const [confirmOpen, setConfirmOpen] = React.useState(false)
   const conditionText = ruleConditionSummary(item.conditions, item.fromContains, item.subjectContains)
   const actionText = item.actions.map(ruleActionSummary).filter(Boolean).join("；") || "无动作"
-  const moveDirection = index === 0 ? "down" : "up"
-  const canMove = count > 1
   return (
     <div className="grid min-h-[110px] grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg border bg-card px-4 py-4 transition-colors hover:bg-muted/20">
       <div className="min-w-0 space-y-1">
@@ -2475,12 +2473,14 @@ function RuleListItem({ item, index, count, pending, onEdit, onToggle, onMove, o
           <span className={cn("shrink-0 rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium", item.enabled ? "text-emerald-700" : "bg-muted text-muted-foreground")}>{item.enabled ? "已启用" : "已停用"}</span>
         </div>
         <div className="grid text-sm leading-6 text-muted-foreground">
+          <p className="truncate"><span className="text-muted-foreground">适用：</span> {mailboxLabel}</p>
           <p className="truncate"><span className="text-muted-foreground">条件：</span> {conditionText}</p>
           <p className="truncate"><span className="text-muted-foreground">动作：</span> {actionText}</p>
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1">
-        <Button type="button" variant="ghost" size="icon" className="size-7 text-muted-foreground" disabled={pending || !canMove} onClick={() => onMove(moveDirection)} aria-label={moveDirection === "up" ? "上移" : "下移"} title={moveDirection === "up" ? "上移" : "下移"}>{moveDirection === "up" ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</Button>
+        <Button type="button" variant="ghost" size="icon" className="size-7 text-muted-foreground" disabled={pending || index === 0} onClick={() => onMove("up")} aria-label="上移" title="上移"><ChevronUp className="h-4 w-4" /></Button>
+        <Button type="button" variant="ghost" size="icon" className="size-7 text-muted-foreground" disabled={pending || index === count - 1} onClick={() => onMove("down")} aria-label="下移" title="下移"><ChevronDown className="h-4 w-4" /></Button>
         <span className="mx-1 h-6 w-px bg-border" />
         <Button type="button" variant="ghost" size="icon" className={cn("size-7", item.enabled ? "text-emerald-600" : "text-muted-foreground")} disabled={pending} onClick={onToggle} aria-label={item.enabled ? "禁用规则" : "启用规则"} title={item.enabled ? "禁用规则" : "启用规则"}>{item.enabled ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}</Button>
         <Button type="button" variant="ghost" size="icon" className="size-7 text-muted-foreground" disabled={pending} onClick={onEdit} aria-label="编辑规则" title="编辑规则"><PencilLine className="h-4 w-4" /></Button>

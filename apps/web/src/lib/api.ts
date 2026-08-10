@@ -233,9 +233,9 @@ export const api = {
   externalMessage: (id: string, remoteId: string) => request<MailMessage>(`/api/mail/external-accounts/${id}/messages/${encodeURIComponent(remoteId)}`),
   markExternalRead: (id: string, remoteId: string, read: boolean) => request<{ ok: boolean }>(`/api/mail/external-accounts/${id}/messages/${encodeURIComponent(remoteId)}/mark-read`, { method: "POST", body: JSON.stringify({ read }) }),
   folders: (mailboxId?: string) => request<ListResponse<MailFolder>>(`/api/mail/folders${mailboxId ? `?mailboxId=${encodeURIComponent(mailboxId)}` : ""}`),
-  createFolder: (payload: { mailboxId?: string; name: string }) => {
+  createFolder: (payload: { mailboxId?: string; name: string; icon?: string }) => {
     const query = payload.mailboxId ? `?mailboxId=${encodeURIComponent(payload.mailboxId)}` : ""
-    return request<MailFolder>(`/api/mail/folders${query}`, { method: "POST", body: JSON.stringify({ name: payload.name }) })
+    return request<MailFolder>(`/api/mail/folders${query}`, { method: "POST", body: JSON.stringify({ name: payload.name, icon: payload.icon }) })
   },
   reorderFolders: (payload: { mailboxId?: string; folderIds: string[]; folders?: { id: string; sortOrder: number }[] }) => {
     const query = payload.mailboxId ? `?mailboxId=${encodeURIComponent(payload.mailboxId)}` : ""

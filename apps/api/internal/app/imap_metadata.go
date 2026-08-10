@@ -76,6 +76,10 @@ func (a *App) migrateFolderSortOrder(ctx context.Context) error {
 	return nil
 }
 
+func (a *App) migrateFolderIcons(ctx context.Context) error {
+	return a.ensureTableColumn(ctx, "folders", "icon", `ALTER TABLE folders ADD COLUMN icon TEXT NOT NULL DEFAULT 'folder'`)
+}
+
 func (a *App) ensureTableColumn(ctx context.Context, table, column, alterSQL string) error {
 	rows, err := a.db.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
 	if err != nil {

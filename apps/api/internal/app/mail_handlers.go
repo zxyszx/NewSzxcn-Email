@@ -1,12 +1,14 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image/png"
 	"io"
 	"net/http"
 	"net/textproto"
@@ -98,12 +100,12 @@ func (a *App) handleMailFolders(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusNotFound, "mailbox not found")
 		return
 	}
-	rows, err := a.db.QueryContext(r.Context(), `SELECT f.id,f.name,f.role,
+	rows, err := a.db.QueryContext(r.Context(), `SELECT f.id,f.name,f.role,f.icon,
 		COALESCE(SUM(CASE WHEN m.is_read=0 THEN 1 ELSE 0 END),0) AS unread,
 		COUNT(m.id) AS total,
 		f.sort_order,f.uid_validity,f.uid_next,f.highest_modseq
 		FROM folders f LEFT JOIN messages m ON m.folder_id=f.id
-		WHERE f.mailbox_id=? GROUP BY f.id,f.name,f.role,f.sort_order,f.uid_validity,f.uid_next,f.highest_modseq
+		WHERE f.mailbox_id=? GROUP BY f.id,f.name,f.role,f.icon,f.sort_order,f.uid_validity,f.uid_next,f.highest_modseq
 		ORDER BY CASE
 			WHEN lower(f.name)='inbox' THEN 1000
 			WHEN lower(f.name)='sent' THEN 5000
@@ -121,7 +123,7 @@ func (a *App) handleMailFolders(w http.ResponseWriter, r *http.Request) {
 	items := []MailFolder{}
 	for rows.Next() {
 		var f MailFolder
-		if err := rows.Scan(&f.ID, &f.Name, &f.Role, &f.UnreadCount, &f.TotalCount, &f.SortOrder, &f.UIDValidity, &f.UIDNext, &f.HighestModSeq); err != nil {
+		if err := rows.Scan(&f.ID, &f.Name, &f.Role, &f.Icon, &f.UnreadCount, &f.TotalCount, &f.SortOrder, &f.UIDValidity, &f.UIDNext, &f.HighestModSeq); err != nil {
 			respondError(w, http.StatusInternalServerError, "failed to scan folders")
 			return
 		}
@@ -132,7 +134,7 @@ func (a *App) handleMailFolders(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleAllMailFolders(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r)
-	rows, err := a.db.QueryContext(r.Context(), `SELECT 'all-' || lower(f.name),f.name,f.role,
+	rows, err := a.db.QueryContext(r.Context(), `SELECT 'all-' || lower(f.name),f.name,f.role,MIN(f.icon),
 		COALESCE(SUM(CASE WHEN m.is_read=0 THEN 1 ELSE 0 END),0) AS unread,
 		COUNT(m.id) AS total,
 		MIN(f.sort_order),MAX(f.uid_validity),MAX(f.uid_next),MAX(f.highest_modseq)
@@ -158,7 +160,7 @@ func (a *App) handleAllMailFolders(w http.ResponseWriter, r *http.Request) {
 	items := []MailFolder{}
 	for rows.Next() {
 		var f MailFolder
-		if err := rows.Scan(&f.ID, &f.Name, &f.Role, &f.UnreadCount, &f.TotalCount, &f.SortOrder, &f.UIDValidity, &f.UIDNext, &f.HighestModSeq); err != nil {
+		if err := rows.Scan(&f.ID, &f.Name, &f.Role, &f.Icon, &f.UnreadCount, &f.TotalCount, &f.SortOrder, &f.UIDValidity, &f.UIDNext, &f.HighestModSeq); err != nil {
 			respondError(w, http.StatusInternalServerError, "failed to scan folders")
 			return
 		}
@@ -266,6 +268,7 @@ func (a *App) handleReorderMailFolders(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleCreateMailFolder(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name string `json:"name"`
+		Icon string `json:"icon"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		badRequest(w, err)
@@ -280,6 +283,7 @@ func (a *App) handleCreateMailFolder(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, errors.New("system folder already exists"))
 		return
 	}
+	icon := folderIconForName(name, req.Icon)
 	if isAllMailboxID(r.URL.Query().Get("mailboxId")) {
 		user := currentUser(r)
 		rows, err := a.db.QueryContext(r.Context(), `SELECT id FROM mailboxes WHERE user_id=? AND status='active' ORDER BY created_at,id`, user.ID)
@@ -308,12 +312,12 @@ func (a *App) handleCreateMailFolder(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, mailboxID := range mailboxIDs {
-			if _, err := a.ensureCustomFolder(r.Context(), mailboxID, name); err != nil {
+			if _, err := a.ensureCustomFolder(r.Context(), mailboxID, name, icon); err != nil {
 				respondError(w, http.StatusInternalServerError, "failed to create folder")
 				return
 			}
 		}
-		respondJSON(w, http.StatusCreated, MailFolder{ID: "all-" + strings.ToLower(name), Name: name, Role: strings.ToLower(name), SortOrder: customFolderDefaultSortOrderBase})
+		respondJSON(w, http.StatusCreated, MailFolder{ID: "all-" + strings.ToLower(name), Name: name, Role: strings.ToLower(name), Icon: icon, SortOrder: customFolderDefaultSortOrderBase})
 		return
 	}
 	mb, err := a.mailboxForCurrentUser(r)
@@ -321,7 +325,7 @@ func (a *App) handleCreateMailFolder(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusNotFound, "mailbox not found")
 		return
 	}
-	folderID, err := a.ensureCustomFolder(r.Context(), mb.ID, name)
+	folderID, err := a.ensureCustomFolder(r.Context(), mb.ID, name, icon)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to create folder")
 		return
@@ -527,8 +531,88 @@ func (a *App) handleDeleteAllMailFolders(w http.ResponseWriter, r *http.Request,
 	respondJSON(w, http.StatusOK, map[string]any{"ok": true, "moved": moved})
 }
 
-func (a *App) ensureCustomFolder(ctx context.Context, mailboxID, name string) (string, error) {
-	return a.ensureFolder(ctx, mailboxID, name)
+func (a *App) ensureCustomFolder(ctx context.Context, mailboxID, name, icon string) (string, error) {
+	var existingID string
+	err := a.db.QueryRowContext(ctx, `SELECT id FROM folders WHERE mailbox_id=? AND lower(name)=lower(?)`, mailboxID, name).Scan(&existingID)
+	if err == nil && (strings.TrimSpace(icon) == "" || strings.EqualFold(strings.TrimSpace(icon), "auto")) {
+		return existingID, nil
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+	id, err := a.ensureFolder(ctx, mailboxID, name)
+	if err != nil {
+		return "", err
+	}
+	_, err = a.db.ExecContext(ctx, `UPDATE folders SET icon=? WHERE id=? AND mailbox_id=?`, folderIconForName(name, icon), id, mailboxID)
+	return id, err
+}
+
+func folderIconForName(name, requested string) string {
+	if icon := strings.TrimSpace(requested); icon != "" && !strings.EqualFold(icon, "auto") {
+		return normalizeFolderIcon(icon)
+	}
+	value := strings.ToLower(strings.TrimSpace(name))
+	for _, match := range []struct {
+		icon  string
+		terms []string
+	}{
+		{"netflix", []string{"netflix", "奈飞", "网飞"}},
+		{"chatgpt", []string{"chatgpt", "openai", "gpt"}},
+		{"receipt", []string{"账单", "发票", "收据", "bill", "invoice", "receipt"}},
+		{"shopping", []string{"购物", "订单", "快递", "shop", "order", "delivery"}},
+		{"plane", []string{"旅行", "旅游", "机票", "酒店", "travel", "trip", "flight", "hotel"}},
+		{"graduation", []string{"学习", "教育", "课程", "学校", "study", "school", "course"}},
+		{"users", []string{"联系人", "团队", "用户", "contact", "team", "people"}},
+		{"briefcase", []string{"工作", "项目", "客户", "work", "project", "business", "client"}},
+		{"heart", []string{"收藏", "喜欢", "favorite", "favourite"}},
+		{"star", []string{"重要", "紧急", "important", "urgent"}},
+		{"shield", []string{"安全", "验证", "密码", "登录", "security", "verify", "password", "login"}},
+		{"bell", []string{"提醒", "通知", "remind", "notification"}},
+		{"mail", []string{"邮件", "邮箱", "mail", "email"}},
+	} {
+		for _, term := range match.terms {
+			if folderNameContainsTerm(value, term) {
+				return match.icon
+			}
+		}
+	}
+	return "folder"
+}
+
+func folderNameContainsTerm(value, term string) bool {
+	if term != "gpt" {
+		return strings.Contains(value, term)
+	}
+	for _, token := range strings.FieldsFunc(value, func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
+	}) {
+		if token == term {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeFolderIcon(raw string) string {
+	icon := strings.TrimSpace(raw)
+	const customPrefix = "data:image/png;base64,"
+	if strings.HasPrefix(icon, customPrefix) {
+		data, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(icon, customPrefix))
+		config, configErr := png.DecodeConfig(bytes.NewReader(data))
+		validDimensions := config.Width > 0 && config.Width <= 128 && config.Height > 0 && config.Height <= 128
+		if err == nil && configErr == nil && validDimensions && len(data) <= 32*1024 {
+			return icon
+		}
+		return "folder"
+	}
+	icon = strings.ToLower(icon)
+	switch icon {
+	case "folder", "mail", "briefcase", "users", "receipt", "shopping", "plane", "graduation", "heart", "star", "bell", "shield", "tag", "netflix", "chatgpt":
+		return icon
+	default:
+		return "folder"
+	}
 }
 
 func (a *App) nextCustomFolderSortOrder(ctx context.Context, mailboxID string) (int, error) {
@@ -2232,14 +2316,14 @@ func (a *App) handleBulkMove(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) folderByID(ctx context.Context, folderID, mailboxID string) (*MailFolder, error) {
-	row := a.db.QueryRowContext(ctx, `SELECT f.id,f.name,f.role,
+	row := a.db.QueryRowContext(ctx, `SELECT f.id,f.name,f.role,f.icon,
 		COALESCE(SUM(CASE WHEN m.is_read=0 THEN 1 ELSE 0 END),0) AS unread,
 		COUNT(m.id) AS total,
 		f.sort_order,f.uid_validity,f.uid_next,f.highest_modseq
 		FROM folders f LEFT JOIN messages m ON m.folder_id=f.id
-		WHERE f.id=? AND f.mailbox_id=? GROUP BY f.id,f.name,f.role,f.sort_order,f.uid_validity,f.uid_next,f.highest_modseq`, folderID, mailboxID)
+		WHERE f.id=? AND f.mailbox_id=? GROUP BY f.id,f.name,f.role,f.icon,f.sort_order,f.uid_validity,f.uid_next,f.highest_modseq`, folderID, mailboxID)
 	var f MailFolder
-	if err := row.Scan(&f.ID, &f.Name, &f.Role, &f.UnreadCount, &f.TotalCount, &f.SortOrder, &f.UIDValidity, &f.UIDNext, &f.HighestModSeq); err != nil {
+	if err := row.Scan(&f.ID, &f.Name, &f.Role, &f.Icon, &f.UnreadCount, &f.TotalCount, &f.SortOrder, &f.UIDValidity, &f.UIDNext, &f.HighestModSeq); err != nil {
 		return nil, err
 	}
 	return &f, nil
