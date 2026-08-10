@@ -2613,6 +2613,25 @@ func TestMailSendQueuesSMTPFailureForRetry(t *testing.T) {
 	}
 }
 
+func TestForwardingVerificationPageDoesNotLinkToMailbox(t *testing.T) {
+	a := newTestApp(t)
+	recorder := httptest.NewRecorder()
+
+	a.renderForwardingVerificationPage(recorder, http.StatusOK, true, "friend@example.test", "该邮箱已通过转发验证")
+	body := recorder.Body.String()
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d", recorder.Code)
+	}
+	for _, forbidden := range []string{`href="/"`, "返回邮箱", "登录"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("verification page contains forbidden navigation %q: %s", forbidden, body)
+		}
+	}
+	if !strings.Contains(body, "可以关闭此页面") {
+		t.Fatalf("verification page is missing close guidance: %s", body)
+	}
+}
+
 func TestInboundForwardingSettingsAndDelivery(t *testing.T) {
 	a := newTestApp(t)
 	stopTestWorkers(a)

@@ -165,7 +165,7 @@ func (a *App) handleVerifyForwardingEmail(w http.ResponseWriter, r *http.Request
 		a.renderForwardingVerificationPage(w, http.StatusInternalServerError, false, email, "验证失败，请稍后重试")
 		return
 	}
-	a.renderForwardingVerificationPage(w, http.StatusOK, true, email, "验证完成，可以回到设置页选择此转发目标")
+	a.renderForwardingVerificationPage(w, http.StatusOK, true, email, "该邮箱已通过转发验证")
 }
 
 func (a *App) handleDeleteForwardingVerifiedEmail(w http.ResponseWriter, r *http.Request) {
@@ -439,14 +439,18 @@ func (a *App) renderForwardingVerificationPage(w http.ResponseWriter, status int
 	title := "邮箱转发验证"
 	heading := "验证失败"
 	color := "#dc2626"
+	statusMark := "!"
+	closingMessage := "请联系验证发起人重新发送链接"
 	if ok {
 		heading = "验证完成"
-		color = "#2563eb"
+		color = "#16a34a"
+		statusMark = "&#10003;"
+		closingMessage = "验证结果已记录，可以关闭此页面"
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
-	_, _ = fmt.Fprintf(w, `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>%s</title></head><body style="margin:0;background:#f8fafc;color:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif"><main style="min-height:100vh;display:grid;place-items:center;padding:24px"><section style="width:min(100%%,520px);background:white;border:1px solid #e2e8f0;border-radius:14px;padding:34px 30px;box-shadow:0 18px 45px rgba(15,23,42,.08)"><h1 style="margin:0 0 14px;font-size:28px">%s</h1><p style="margin:0 0 10px;font-size:17px;color:#475569">%s</p><p style="margin:0 0 26px;font-size:15px;color:#64748b">%s</p><a href="/" style="display:inline-block;border-radius:8px;background:%s;color:white;text-decoration:none;padding:12px 18px;font-weight:700">返回邮箱</a></section></main></body></html>`,
-		title, heading, htmlEscape(message), htmlEscape(email), color)
+	_, _ = fmt.Fprintf(w, `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>%s</title></head><body style="margin:0;background:#f8fafc;color:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif"><main style="min-height:100vh;display:grid;place-items:center;padding:24px"><section style="width:min(100%%,520px);background:white;border:1px solid #e2e8f0;border-radius:8px;padding:34px 30px;box-shadow:0 18px 45px rgba(15,23,42,.08)"><div aria-hidden="true" style="display:grid;place-items:center;width:44px;height:44px;margin:0 0 20px;border-radius:50%%;background:%s;color:white;font-size:24px;font-weight:700">%s</div><h1 style="margin:0 0 14px;font-size:28px">%s</h1><p style="margin:0 0 10px;font-size:17px;color:#475569">%s</p><p style="margin:0 0 24px;font-size:15px;color:#64748b;word-break:break-all">%s</p><p style="margin:0;padding-top:20px;border-top:1px solid #e2e8f0;font-size:15px;color:#64748b">%s</p></section></main></body></html>`,
+		title, color, statusMark, heading, htmlEscape(message), htmlEscape(email), htmlEscape(closingMessage))
 }
 
 func (a *App) cleanForwardingVerificationEmail(w http.ResponseWriter, r *http.Request, userID, value string) (string, bool) {

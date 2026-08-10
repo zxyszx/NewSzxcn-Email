@@ -1130,10 +1130,21 @@ function MailboxManagement({
   const [accountForwardTargets, setAccountForwardTargets] = React.useState<string[]>([])
   const [verifiedDialogOpen, setVerifiedDialogOpen] = React.useState(false)
   const [verifiedEmailDraft, setVerifiedEmailDraft] = React.useState("")
+  const [verifiedEmailsExpanded, setVerifiedEmailsExpanded] = React.useState(false)
   const [pendingExternalDelete, setPendingExternalDelete] = React.useState<ExternalImapAccount | null>(null)
   const forwarding = useQuery({ queryKey: ["forwarding-settings"], queryFn: api.forwardingSettings, enabled: mailboxes.length > 0 })
   const verifiedEmailItems = React.useMemo(() => [...(forwarding.data?.verifiedEmails || [])].sort((a, b) => forwardingTargetCollator.compare(a.email, b.email)), [forwarding.data?.verifiedEmails])
   const verifiedEmails = React.useMemo(() => sortForwardingTargets(verifiedEmailItems.filter((item) => item.verified).map((item) => item.email)), [verifiedEmailItems])
+  const pendingVerifiedEmailItems = React.useMemo(() => verifiedEmailItems.filter((item) => !item.verified), [verifiedEmailItems])
+  const completedVerifiedEmailItems = React.useMemo(() => verifiedEmailItems.filter((item) => item.verified), [verifiedEmailItems])
+  const normalizedVerifiedEmailDraft = verifiedEmailDraft.trim().toLowerCase()
+  const matchingPendingVerifiedEmailItems = React.useMemo(() => normalizedVerifiedEmailDraft
+    ? pendingVerifiedEmailItems.filter((item) => item.email.toLowerCase().includes(normalizedVerifiedEmailDraft))
+    : pendingVerifiedEmailItems, [normalizedVerifiedEmailDraft, pendingVerifiedEmailItems])
+  const matchingCompletedVerifiedEmailItems = React.useMemo(() => normalizedVerifiedEmailDraft
+    ? completedVerifiedEmailItems.filter((item) => item.email.toLowerCase().includes(normalizedVerifiedEmailDraft))
+    : completedVerifiedEmailItems, [completedVerifiedEmailItems, normalizedVerifiedEmailDraft])
+  const verifiedEmailDraftExists = verifiedEmailItems.some((item) => item.email.toLowerCase() === normalizedVerifiedEmailDraft)
   const hasPendingVerifiedEmails = verifiedEmailItems.some((item) => !item.verified)
   const mailboxForwards = React.useMemo<Record<string, string[]>>(() => {
     const next: Record<string, string[]> = {}
@@ -1363,17 +1374,14 @@ function MailboxManagement({
           </div>
         </div>
         {verifiedEmailItems.length > 0 && (
-          <div className="mt-5 flex flex-wrap gap-2">
-            {verifiedEmailItems.map((item) => {
-              const tone = forwardingEmailTone(item)
-              return (
-                <span key={item.id} className={cn("inline-flex max-w-full items-center gap-2 rounded-full px-3 py-1 text-sm", tone.chipClass)}>
-                  <span className={cn("size-2 shrink-0 rounded-full", tone.dotClass)} />
-                  <span className="min-w-0 truncate">{item.email} · {tone.shortLabel}</span>
-                </span>
-              )
-            })}
-          </div>
+          <Button type="button" variant="outline" className="mt-5 h-auto w-full justify-start gap-3 px-4 py-3 text-left font-normal shadow-none" onClick={() => setVerifiedDialogOpen(true)}>
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700"><MailCheck className="h-4 w-4" /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-medium">验证邮箱</span>
+              <span className="block truncate text-sm text-muted-foreground">已验证 {completedVerifiedEmailItems.length} 个{pendingVerifiedEmailItems.length > 0 ? `，待验证 ${pendingVerifiedEmailItems.length} 个` : ""}</span>
+            </span>
+            <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground" />
+          </Button>
         )}
         {verifiedEmails.length === 0 && <p className="mt-4 text-sm text-muted-foreground">暂未添加验证邮箱，请先点击「管理验证邮箱」添加。</p>}
         <p className="mt-3 text-sm text-muted-foreground">提示：点击邮箱列表中的「转发」按钮，可在账号级目标之外追加该邮箱自己的转发目标。</p>
@@ -1469,45 +1477,58 @@ function MailboxManagement({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={verifiedDialogOpen} onOpenChange={setVerifiedDialogOpen}>
+      <Dialog open={verifiedDialogOpen} onOpenChange={(open) => {
+        setVerifiedDialogOpen(open)
+        if (!open) setVerifiedEmailDraft("")
+      }}>
         <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-[640px]">
           <DialogHeader className="px-8 pt-8">
             <DialogTitle className="text-2xl leading-8">验证邮箱管理</DialogTitle>
           </DialogHeader>
-          <div className="px-8 pt-5 text-[17px] leading-8 text-muted-foreground">
-            添加并验证外部邮箱地址后，才能用作转发目标。这里只展示投递状态摘要，不展示验证邮件内容。
+          <div className="px-8 pt-4 text-sm leading-6 text-muted-foreground">
+            搜索已添加地址，或输入新的外部邮箱并发送验证邮件。
           </div>
           <form className="grid gap-3 px-8 pt-6 sm:grid-cols-[minmax(0,1fr)_96px]" onSubmit={submitVerifiedEmail}>
-            <Input type="email" value={verifiedEmailDraft} onChange={(event) => setVerifiedEmailDraft(event.target.value)} className="h-12 text-base shadow-none" placeholder="输入邮箱地址" disabled={forwardingBusy} />
-            <Button className="h-12 px-0 text-base" disabled={forwardingBusy || !verifiedEmailDraft.trim()}>{addVerifiedEmail.isPending ? "添加中" : "添加"}</Button>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input type="email" value={verifiedEmailDraft} onChange={(event) => setVerifiedEmailDraft(event.target.value)} className="h-12 pl-10 text-base shadow-none" placeholder="搜索或输入新邮箱" disabled={forwardingBusy} aria-label="搜索或输入新邮箱" />
+            </div>
+            <Button className="h-12 px-0 text-base" disabled={forwardingBusy || !verifiedEmailDraft.trim() || verifiedEmailDraftExists}>{addVerifiedEmail.isPending ? "添加中" : verifiedEmailDraftExists ? "已添加" : "添加"}</Button>
           </form>
-          <div className="mx-8 mt-6 max-h-[360px] overflow-y-auto rounded-lg border">
-            {verifiedEmailItems.map((item) => (
-              <div key={item.id} className="grid min-h-[82px] gap-3 border-b px-4 py-4 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-                <div className="min-w-0">
-                  <div className="truncate text-lg font-semibold leading-6">{item.email}</div>
-                  <div className="mt-1 text-sm text-muted-foreground">{item.verified ? `已验证 - ${formatDateTime(item.verifiedAt || item.createdAt)}` : "待验证"}</div>
-                  {!item.verified && (
-                    <div className={cn("mt-1 text-sm leading-5", forwardingEmailTone(item).detailClass)}>
-                      {forwardingEmailStatusText(item)}
-                    </div>
-                  )}
-                </div>
-                <div className="flex shrink-0 items-center justify-end gap-2">
-                  <span className={cn("size-2.5 rounded-full", forwardingEmailTone(item).dotClass)} />
-                  {!item.verified && (
-                    <Button type="button" variant="outline" className="h-10 px-4" disabled={forwardingBusy} onClick={() => resendVerification(item)}>重发</Button>
-                  )}
-                  <Button type="button" variant="outline" className="h-10 px-4 text-destructive hover:text-destructive" disabled={forwardingBusy} onClick={() => removeVerifiedEmail(item.id, item.email)} aria-label={`移除 ${item.email}`}>
-                    删除
-                  </Button>
-                </div>
+          <div className="mx-8 mt-6 max-h-[380px] space-y-4 overflow-y-auto pr-1">
+            {pendingVerifiedEmailItems.length > 0 && (
+              <div className="rounded-lg border">
+                <div className="border-b bg-muted/30 px-4 py-3 text-sm font-medium">待验证 ({pendingVerifiedEmailItems.length})</div>
+                {matchingPendingVerifiedEmailItems.map((item) => (
+                  <VerifiedEmailRow key={item.id} item={item} busy={forwardingBusy} onResend={resendVerification} onRemove={removeVerifiedEmail} />
+                ))}
+                {matchingPendingVerifiedEmailItems.length === 0 && <div className="px-4 py-8 text-center text-sm text-muted-foreground">待验证邮箱中没有匹配地址</div>}
               </div>
-            ))}
-            {verifiedEmailItems.length === 0 && <div className="py-10 text-center text-sm text-muted-foreground">暂无验证邮箱</div>}
+            )}
+            {completedVerifiedEmailItems.length > 0 && (
+              <div className="rounded-lg border">
+                <Button type="button" variant="ghost" className="h-12 w-full justify-start gap-3 rounded-none px-4 font-normal" onClick={() => setVerifiedEmailsExpanded((value) => !value)} aria-expanded={verifiedEmailsExpanded || !!normalizedVerifiedEmailDraft}>
+                  <MailCheck className="h-4 w-4 text-emerald-600" />
+                  <span className="flex-1 text-sm font-medium">已验证邮箱 ({completedVerifiedEmailItems.length})</span>
+                  {verifiedEmailsExpanded || normalizedVerifiedEmailDraft ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                </Button>
+                {(verifiedEmailsExpanded || !!normalizedVerifiedEmailDraft) && (
+                  <div className="border-t">
+                    {matchingCompletedVerifiedEmailItems.map((item) => (
+                      <VerifiedEmailRow key={item.id} item={item} busy={forwardingBusy} onResend={resendVerification} onRemove={removeVerifiedEmail} />
+                    ))}
+                    {matchingCompletedVerifiedEmailItems.length === 0 && <div className="px-4 py-8 text-center text-sm text-muted-foreground">已验证邮箱中没有匹配地址</div>}
+                  </div>
+                )}
+              </div>
+            )}
+            {verifiedEmailItems.length === 0 && <div className="rounded-lg border py-10 text-center text-sm text-muted-foreground">暂无验证邮箱</div>}
+            {normalizedVerifiedEmailDraft && !verifiedEmailDraftExists && matchingPendingVerifiedEmailItems.length === 0 && matchingCompletedVerifiedEmailItems.length === 0 && verifiedEmailItems.length > 0 && (
+              <div className="rounded-md bg-muted/40 px-4 py-3 text-sm text-muted-foreground">没有匹配地址，可点击「添加」发送验证邮件。</div>
+            )}
           </div>
           <DialogFooter className="border-t px-8 py-6">
-            <Button type="button" variant="outline" className="h-12 px-8 text-base" onClick={() => setVerifiedDialogOpen(false)}>关闭</Button>
+            <Button type="button" variant="outline" className="h-12 px-8 text-base" onClick={() => { setVerifiedDialogOpen(false); setVerifiedEmailDraft("") }}>关闭</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1852,35 +1873,55 @@ function ForwardingTargetPicker({ emails, selected, lockedSelected = [], lockedL
   )
 }
 
+function VerifiedEmailRow({ item, busy, onResend, onRemove }: {
+  item: ForwardingVerifiedEmail
+  busy: boolean
+  onResend: (item: ForwardingVerifiedEmail) => void
+  onRemove: (id: string, email: string) => void
+}) {
+  const tone = forwardingEmailTone(item)
+  return (
+    <div className="grid min-h-[72px] gap-3 border-b px-4 py-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <span className={cn("size-2 shrink-0 rounded-full", tone.dotClass)} />
+          <span className="min-w-0 truncate text-sm font-semibold" title={item.email}>{item.email}</span>
+        </div>
+        <div className={cn("mt-1 pl-4 text-xs leading-5", item.verified ? "text-muted-foreground" : tone.detailClass)}>
+          {item.verified ? `验证于 ${formatDateTime(item.verifiedAt || item.createdAt)}` : forwardingEmailStatusText(item)}
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center justify-end gap-2">
+        {!item.verified && (
+          <Button type="button" variant="outline" size="sm" className="h-9" disabled={busy} onClick={() => onResend(item)}>重发</Button>
+        )}
+        <Button type="button" variant="ghost" size="sm" className="h-9 text-destructive hover:bg-destructive/10 hover:text-destructive" disabled={busy} onClick={() => onRemove(item.id, item.email)} aria-label={`删除 ${item.email}`}>删除</Button>
+      </div>
+    </div>
+  )
+}
+
 function forwardingEmailTone(item: ForwardingVerifiedEmail) {
   if (item.verified) {
     return {
-      shortLabel: "已验证",
       dotClass: "bg-emerald-500",
-      chipClass: "bg-emerald-100 text-emerald-800",
       detailClass: "text-emerald-700",
     }
   }
   if (item.deliveryStatus === "failed") {
     return {
-      shortLabel: "发送失败",
       dotClass: "bg-destructive",
-      chipClass: "bg-destructive/10 text-destructive",
       detailClass: "text-destructive",
     }
   }
   if (item.deliveryStatus === "delivered") {
     return {
-      shortLabel: "待验证",
       dotClass: "bg-amber-500",
-      chipClass: "bg-amber-100 text-amber-800",
       detailClass: "text-amber-700",
     }
   }
   return {
-    shortLabel: "待验证",
     dotClass: "bg-muted-foreground",
-    chipClass: "bg-muted text-foreground",
     detailClass: "text-foreground",
   }
 }
