@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { ArrowLeft, BarChart3, Ban, Bell, BellOff, BookOpen, ChevronDown, ChevronUp, Clock3, Code2, Contact, Copy, HardDrive, Image, Info, KeyRound, LogOut, Mail, MailCheck, MailX, Moon, PanelLeftOpen, PencilLine, PlayCircle, Plus, RefreshCcw, Search, SendHorizontal, Settings, ShieldCheck, SlidersHorizontal, Sun, Trash2, Users, X } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
-import { api, APIToken, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapStorageMode, ExternalImapSyncRun, ExternalImapTlsMode, ForwardingSettings, ForwardingVerifiedEmail, MailLabel, MailRule, MailRuleAction, MailRuleCondition, Mailbox, MailboxApplyOptions, MailSignature, MailStats, PermissionLimits } from "@/lib/api"
+import { api, APIToken, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapStorageMode, ExternalImapSyncRun, ExternalImapTlsMode, ForwardingSettings, ForwardingVerifiedEmail, MailFolder, MailLabel, MailRule, MailRuleAction, MailRuleCondition, Mailbox, MailboxApplyOptions, MailSignature, MailStats, PermissionLimits } from "@/lib/api"
 import { cn, formatBytes } from "@/lib/utils"
 import { applyTheme, getInitialTheme } from "@/lib/theme"
 import { DisplayMode, useDisplayMode } from "@/lib/display-mode"
@@ -23,7 +23,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { ConfirmDialog } from "@/components/confirm-dialog"
@@ -2292,7 +2292,10 @@ function RuleDialog({ open, onOpenChange, mailboxes, labels, verifiedEmails, pen
   const [stopProcessing, setStopProcessing] = React.useState(false)
   const selectedMailboxId = mailboxId === "all" ? "" : mailboxId
   const labelQuery = useQuery({ queryKey: ["labels", "rule-dialog", selectedMailboxId], queryFn: () => api.labels(selectedMailboxId), enabled: !!selectedMailboxId })
+  const folderQueryMailboxId = selectedMailboxId || "all"
+  const folderQuery = useQuery({ queryKey: ["folders", "rule-dialog", folderQueryMailboxId], queryFn: () => api.folders(folderQueryMailboxId), enabled: open })
   const availableLabels = selectedMailboxId ? (labelQuery.data?.items || []) : labels
+  const availableFolders = folderQuery.data?.items || []
 
   React.useEffect(() => {
     if (!open) return
@@ -2383,7 +2386,7 @@ function RuleDialog({ open, onOpenChange, mailboxes, labels, verifiedEmails, pen
                       <SelectTrigger className="h-11 md:h-9"><SelectValue /></SelectTrigger>
                       <SelectContent>{(Object.keys(ruleActionLabels) as MailRuleAction["type"][]).map((value) => <SelectItem key={value} value={value}>{ruleActionLabels[value]}</SelectItem>)}</SelectContent>
                     </Select>
-                    <div className="min-w-0"><RuleActionValue action={action} labels={availableLabels} verifiedEmails={verifiedEmails} onChange={(patch) => updateAction(index, patch)} /></div>
+                    <div className="min-w-0"><RuleActionValue action={action} folders={availableFolders} labels={availableLabels} verifiedEmails={verifiedEmails} onChange={(patch) => updateAction(index, patch)} /></div>
                     <div className="flex justify-end gap-2 md:contents">
                       <Button type="button" variant="ghost" size="icon" className="size-11 text-muted-foreground md:size-9" aria-label={`删除第 ${index + 1} 个操作`} title="删除操作" onClick={() => removeAction(index)} disabled={actions.length === 1}><X className="h-4 w-4" /></Button>
                       <Button type="button" variant="outline" size="icon" className="size-11 md:size-9" aria-label="添加操作" title="添加操作" onClick={addAction}><Plus className="h-4 w-4" /></Button>
@@ -2414,7 +2417,7 @@ function RuleDialog({ open, onOpenChange, mailboxes, labels, verifiedEmails, pen
   )
 }
 
-function RuleActionValue({ action, labels, verifiedEmails, onChange }: { action: MailRuleAction; labels: MailLabel[]; verifiedEmails: string[]; onChange: (patch: Partial<MailRuleAction>) => void }) {
+function RuleActionValue({ action, folders, labels, verifiedEmails, onChange }: { action: MailRuleAction; folders: MailFolder[]; labels: MailLabel[]; verifiedEmails: string[]; onChange: (patch: Partial<MailRuleAction>) => void }) {
   if (action.type === "label") {
     if (labels.length > 0) {
       return (
@@ -2428,26 +2431,40 @@ function RuleActionValue({ action, labels, verifiedEmails, onChange }: { action:
   }
   if (action.type === "move") {
     const value = action.value || "Archive"
+    const customFolders = ruleCustomFolders(folders, value)
     return (
-      <div className="grid gap-2 md:grid-cols-[180px_minmax(0,1fr)]">
-        <Select value={commonRuleFolders.includes(value) ? value : "__custom"} onValueChange={(next) => onChange({ value: next === "__custom" ? "" : next })}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
-          <SelectContent>
+      <Select value={value} onValueChange={(next) => onChange({ value: next })}>
+        <SelectTrigger className="h-11 md:h-9"><SelectValue placeholder="选择文件夹" /></SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            <SelectLabel className="text-xs font-medium text-muted-foreground">系统文件夹</SelectLabel>
             <SelectItem value="Inbox">收件箱</SelectItem>
             <SelectItem value="Archive">归档</SelectItem>
             <SelectItem value="Spam">垃圾邮件</SelectItem>
-            <SelectItem value="Trash">回收站</SelectItem>
-            <SelectItem value="__custom">自定义文件夹</SelectItem>
-          </SelectContent>
-        </Select>
-        <Input value={value} onChange={(event) => onChange({ value: event.target.value })} placeholder="输入或选择文件夹名" />
-      </div>
+            <SelectItem value="Trash">已删除</SelectItem>
+          </SelectGroup>
+          <SelectSeparator />
+          <SelectGroup>
+            <SelectLabel className="text-xs font-medium text-muted-foreground">自定义文件夹</SelectLabel>
+            {customFolders.map((folder) => <SelectItem key={folder} value={folder}>{folder}</SelectItem>)}
+            {customFolders.length === 0 && <div className="px-2 py-2 text-sm text-muted-foreground">暂无自定义文件夹</div>}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
     )
   }
   if (action.type === "forward") {
     return <RuleForwardTargets value={action.value || ""} emails={verifiedEmails} onChange={(value) => onChange({ value })} />
   }
   return <Input value="无需填写" readOnly />
+}
+
+function ruleCustomFolders(folders: MailFolder[], selectedValue: string) {
+  const names = folders
+    .map((folder) => folder.name.trim())
+    .filter((name) => name && !commonRuleFolders.some((systemName) => systemName.toLowerCase() === name.toLowerCase()) && !["Sent", "Drafts"].some((systemName) => systemName.toLowerCase() === name.toLowerCase()))
+  if (selectedValue && !commonRuleFolders.includes(selectedValue) && !names.some((name) => name.toLowerCase() === selectedValue.toLowerCase())) names.push(selectedValue)
+  return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b, "zh-CN", { numeric: true, sensitivity: "base" }))
 }
 
 function RuleForwardTargets({ value, emails, onChange }: { value: string; emails: string[]; onChange: (value: string) => void }) {
