@@ -32,10 +32,10 @@ type PendingConfirm = { title: string; description?: string; confirmText: string
 
 const sectionMeta: Record<Section, { label: string; frontLabel: string; description: string }> = {
   overview: { label: "数据总览", frontLabel: "数据统计", description: "系统运行、DNS、邮箱和消息状态集中查看。" },
-  users: { label: "账号管理", frontLabel: "账号设置", description: "管理登录账号、身份状态、邮箱数量上限和绑定邮箱。" },
+  users: { label: "账号管理", frontLabel: "账号设置", description: "管理登录账号、身份状态、邮箱数量上限和共享存储容量。" },
   permissionGroups: { label: "权限配置", frontLabel: "账号权限", description: "配置自定义权限、发信频率、附件和邮箱创建额度。" },
   domains: { label: "域名管理", frontLabel: "邮箱地址", description: "维护邮件域名、DKIM 和 DNS 检测。" },
-  mailboxes: { label: "邮箱管理", frontLabel: "邮箱管理", description: "创建、分配、停用邮箱，保持与前台邮箱列表一致。" },
+  mailboxes: { label: "邮箱管理", frontLabel: "邮箱管理", description: "按归属账号查看和管理子邮箱，默认邮箱受保护。" },
   aliases: { label: "邮件转发", frontLabel: "邮件转发", description: "管理域名转发规则。" },
   messages: { label: "全部邮件", frontLabel: "全部邮箱", description: "按邮箱、文件夹和关键词查看全站邮件。" },
   sendAudit: { label: "发送队列", frontLabel: "发送队列", description: "查看发信投递、重试和失败记录。" },
@@ -58,8 +58,12 @@ const projectRepositoryUrl = "https://github.com/zxyszx/NewSzxcn-Email"
 const projectTelegramUrl = "https://t.me/+EhII7MSyi3QwNDQ5"
 const defaultPermissionLimits: PermissionLimits = { maxAttachmentMb: 25, maxMailboxCount: 9, smtpDailyLimit: 200, smtpMinuteLimit: 20, imapMinuteLimit: 200, pop3MinuteLimit: 150 }
 const defaultMailboxLimitOverride = 9
+const defaultUserStorageQuotaMb = 100
+const defaultAdminStorageQuotaMb = 1024
+const superAdminPermissionGroupId = "pg_super_admin"
+const regularUserPermissionGroupId = "pg_regular_user"
+const defaultStorageQuotaMb = (role: AdminUser["role"]) => role === "admin" ? defaultAdminStorageQuotaMb : defaultUserStorageQuotaMb
 const accountPrimaryEmail = (user: Pick<AdminUser, "email" | "loginName">) => user.email || user.loginName || ""
-
 function compareAdminUsers(left: AdminUser, right: AdminUser) {
   if (left.role === "admin" && right.role !== "admin") return -1
   if (left.role !== "admin" && right.role === "admin") return 1
@@ -86,7 +90,7 @@ export function AdminPage() {
   const overview = useQuery({ queryKey: ["admin", "overview"], queryFn: api.adminOverview, enabled: !!user && canOverview })
   const users = useQuery({ queryKey: ["admin", "users"], queryFn: api.users, enabled: !!user && (canUsersView || canMailboxesView) })
   const permissionGroups = useQuery({ queryKey: ["admin", "permission-groups"], queryFn: api.permissionGroups, enabled: !!user && (canPermissionGroupsView || canUsersView) })
-  const domains = useQuery({ queryKey: ["admin", "domains"], queryFn: api.domains, enabled: !!user && (canDomainsView || canDNSView || canMailboxesView || canAliasesView || canSettingsView || canTemplatesView) })
+  const domains = useQuery({ queryKey: ["admin", "domains"], queryFn: api.domains, enabled: !!user && (canUsersView || canDomainsView || canDNSView || canMailboxesView || canAliasesView || canSettingsView || canTemplatesView) })
   const mailboxes = useQuery({ queryKey: ["admin", "mailboxes"], queryFn: api.mailboxes, enabled: !!user && (canMailboxesView || canMessagesView || canSettingsView) })
   const aliases = useQuery({ queryKey: ["admin", "aliases"], queryFn: api.aliases, enabled: !!user && canAliasesView })
   const settings = useQuery({ queryKey: ["admin", "settings"], queryFn: api.systemSettings, enabled: !!user && canSettingsView })
@@ -97,7 +101,7 @@ export function AdminPage() {
   const mailboxItems = mailboxes.data?.items || []
   const aliasItems = aliases.data?.items || []
   const userItems = users.data?.items || []
-  const assignablePermissionGroups = (permissionGroups.data?.items || []).filter((group) => group.id !== "pg_super_admin" && group.id !== "pg_regular_user")
+  const assignablePermissionGroups = (permissionGroups.data?.items || []).filter((group) => group.id !== superAdminPermissionGroupId && group.id !== regularUserPermissionGroupId)
   const visibleSections = sectionKeys.filter((key) => hasAnyPermission(user, sectionPermissions[key]))
   const rawSection = params.get("section") as Section | null
   const section: Section = rawSection && visibleSections.includes(rawSection) ? rawSection : visibleSections[0] || "overview"
@@ -129,7 +133,7 @@ export function AdminPage() {
 
   return (
     <ScrollArea className="h-[calc(100svh-3rem)] md:h-svh">
-      <main className="mx-auto w-full max-w-[1180px] px-3 pb-10 pt-3 sm:px-4 sm:pt-4">
+      <main className="admin-page mx-auto w-full max-w-[1180px] px-3 pb-10 pt-3 sm:px-4 sm:pt-4">
         <AdminPageHeader section={section} refreshing={refreshing} onRefresh={refreshAdminPage} />
 
         {sectionQuery?.isError && <QueryFailure error={sectionQuery.error} onRetry={() => { void sectionQuery.refetch() }} />}
@@ -144,7 +148,7 @@ export function AdminPage() {
         )}
 
         {section === "overview" && <OverviewSection overview={overview.data} domains={domainItems} settings={settings.data} visibleSections={visibleSections} onSectionChange={(next) => setParams(next === "overview" ? {} : { section: next })} />}
-        {section === "users" && <UsersSection users={userItems} permissionGroups={assignablePermissionGroups} />}
+        {section === "users" && <UsersSection users={userItems} permissionGroups={assignablePermissionGroups} domains={domainItems} />}
         {section === "permissionGroups" && <PermissionGroupsSection groups={permissionGroups.data?.items || []} catalog={permissionGroups.data?.catalog || []} />}
         {section === "domains" && <DomainsSection domains={domainItems} />}
         {section === "mailboxes" && <MailboxesSection mailboxes={mailboxItems} users={userItems} domains={domainItems} />}
@@ -175,7 +179,6 @@ function AdminPageHeader({ section, refreshing, onRefresh }: { section: Section;
           <Button type="button" variant="outline" size="icon" className="h-8 w-8 shadow-none" onClick={onRefresh} disabled={refreshing} aria-label="刷新后台数据" title="刷新后台数据">
             <RefreshCcw className={cn("h-4 w-4", refreshing && "animate-spin")} />
           </Button>
-          <Badge variant="outline" className="h-7 rounded-md px-2.5 font-normal">NewSzxcn</Badge>
         </div>
       </div>
     </div>
@@ -252,7 +255,7 @@ function InfoLine({ label, value }: { label: string; value: React.ReactNode }) {
   return <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2"><span>{label}</span><span className="min-w-0 truncate font-medium text-foreground">{value}</span></div>
 }
 
-function UsersSection({ users, permissionGroups }: { users: AdminUser[]; permissionGroups: PermissionGroup[] }) {
+function UsersSection({ users, permissionGroups, domains }: { users: AdminUser[]; permissionGroups: PermissionGroup[]; domains: Domain[] }) {
   const me = useMe()
   const user = me.data?.user
   const qc = useQueryClient()
@@ -279,7 +282,9 @@ function UsersSection({ users, permissionGroups }: { users: AdminUser[]; permiss
       <CardHeader>
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <CardTitle>账号管理</CardTitle>
-          {canCreate && <CreateUserDialog permissionGroups={permissionGroups} />}
+          <div className="flex flex-wrap gap-2">
+            {canCreate && <CreateUserDialog permissionGroups={permissionGroups} domains={domains} />}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -317,8 +322,8 @@ function UsersSection({ users, permissionGroups }: { users: AdminUser[]; permiss
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 <RoleBadge user={user} />
-                <Badge variant={user.disabled ? "secondary" : "default"}>{user.disabled ? "停用" : "正常"}</Badge>
-                <Badge variant="outline">{new Date(user.createdAt).toLocaleDateString()}</Badge>
+                <AccountStatus user={user} />
+                <span className="text-xs text-muted-foreground">{new Date(user.createdAt).toLocaleDateString()}</span>
               </div>
               <div className="mt-3"><UserPermissionGroupsCell user={user} /></div>
               <div className="mt-3"><UserMailboxCell user={user} /></div>
@@ -338,7 +343,7 @@ function UsersSection({ users, permissionGroups }: { users: AdminUser[]; permiss
                   <TableCell><RoleBadge user={user} /></TableCell>
                   <TableCell><UserPermissionGroupsCell user={user} /></TableCell>
                   <TableCell className="w-[22rem] max-w-[22rem]"><UserMailboxCell user={user} /></TableCell>
-                  <TableCell><Badge variant={user.disabled ? "secondary" : "default"}>{user.disabled ? "停用" : "正常"}</Badge></TableCell>
+                  <TableCell><AccountStatus user={user} /></TableCell>
                   <TableCell className="text-muted-foreground">{new Date(user.createdAt).toLocaleDateString()}</TableCell>
                   <TableCell><UserActions user={user} permissionGroups={permissionGroups} onDelete={canDelete ? () => setPendingConfirm({ title: "删除账号？", description: `将删除 ${accountPrimaryEmail(user)} 及其关联数据。`, confirmText: "删除账号", onConfirm: () => remove.mutate(user.id) }) : undefined} /></TableCell>
                 </TableRow>
@@ -360,6 +365,7 @@ function PermissionGroupsSection({ groups, catalog }: { groups: PermissionGroup[
   const { toast } = useToast()
   const [query, setQuery] = React.useState("")
   const [editing, setEditing] = React.useState<PermissionGroup | null>(null)
+  const [viewing, setViewing] = React.useState<PermissionGroup | null>(null)
   const [pendingConfirm, setPendingConfirm] = React.useState<PendingConfirm | null>(null)
   const canCreate = hasPermission(user, "admin.permission_groups.create")
   const canUpdate = hasPermission(user, "admin.permission_groups.update")
@@ -378,14 +384,16 @@ function PermissionGroupsSection({ groups, catalog }: { groups: PermissionGroup[
     if (!keyword) return true
     return [group.name, group.description, ...group.permissions].some((value) => value.toLowerCase().includes(keyword))
   })
-  const isEditable = (group: PermissionGroup) => !group.system
+  const isEditable = (group: PermissionGroup) => !group.system || group.id === regularUserPermissionGroupId
   const isDeletable = (group: PermissionGroup) => !group.system && group.userCount === 0
   return (
     <Card>
       <CardHeader>
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <CardTitle>权限配置</CardTitle>
-          {canCreate && <PermissionGroupDialog catalog={catalog} />}
+          <div className="flex flex-wrap gap-2">
+            {canCreate && <PermissionGroupDialog catalog={catalog} />}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -400,26 +408,21 @@ function PermissionGroupsSection({ groups, catalog }: { groups: PermissionGroup[
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="font-medium">{group.name}</div>
-                    {group.system && <Badge variant="outline">系统组</Badge>}
-                    {!group.system && <Badge variant="secondary">自定义</Badge>}
-                    <Badge variant="outline">{group.userCount} 人</Badge>
+                    <span className="text-xs text-muted-foreground">{group.system ? "系统配置" : "自定义配置"} · {group.userCount} 个账号</span>
                   </div>
                   <div className="mt-1 line-clamp-2 text-sm text-muted-foreground">{group.description || "未填写说明"}</div>
                 </div>
-                {(canUpdate || canDelete) && <DropdownMenu>
-                  <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`管理权限配置 ${group.name}`} title="更多操作"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem disabled={!isEditable(group) || !canUpdate} onSelect={() => setEditing(group)}>编辑权限配置</DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      className="text-destructive"
-                      disabled={!isDeletable(group) || !canDelete}
-                      onSelect={() => setPendingConfirm({ title: "删除权限配置？", description: `${group.name} 删除后不能再分配给账号。`, confirmText: "删除权限配置", onConfirm: () => remove.mutate(group.id) })}
-                    >
-                      删除权限配置
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>}
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button type="button" variant="outline" size="sm" onClick={() => setViewing(group)}>查看全部权限</Button>
+                  {((isEditable(group) && canUpdate) || (isDeletable(group) && canDelete)) && <DropdownMenu>
+                    <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`管理权限配置 ${group.name}`} title="更多操作"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {isEditable(group) && canUpdate && <DropdownMenuItem onSelect={() => setEditing(group)}>{group.id === regularUserPermissionGroupId ? "编辑普通用户权限" : "编辑权限配置"}</DropdownMenuItem>}
+                      {isEditable(group) && canUpdate && isDeletable(group) && canDelete && <DropdownMenuSeparator />}
+                      {isDeletable(group) && canDelete && <DropdownMenuItem className="text-destructive" onSelect={() => setPendingConfirm({ title: "删除权限配置？", description: `${group.name} 删除后不能再分配给账号。`, confirmText: "删除权限配置", onConfirm: () => remove.mutate(group.id) })}>删除权限配置</DropdownMenuItem>}
+                    </DropdownMenuContent>
+                  </DropdownMenu>}
+                </div>
               </div>
               <PermissionBadges permissions={group.permissions} catalog={catalog} />
               <PermissionLimitBadges limits={group.limits} />
@@ -429,6 +432,7 @@ function PermissionGroupsSection({ groups, catalog }: { groups: PermissionGroup[
         {filtered.length === 0 && <Empty text="暂无匹配的权限配置" />}
       </CardContent>
       {editing && <PermissionGroupDialog group={editing} catalog={catalog} open={!!editing} onOpenChange={(open) => { if (!open) setEditing(null) }} />}
+      {viewing && <PermissionGroupDetailsDialog group={viewing} catalog={catalog} open={!!viewing} onOpenChange={(open) => { if (!open) setViewing(null) }} />}
       <ConfirmDialog open={!!pendingConfirm} title={pendingConfirm?.title || ""} description={pendingConfirm?.description} confirmText={pendingConfirm?.confirmText || "删除"} destructive pending={remove.isPending} onOpenChange={(open) => { if (!open) setPendingConfirm(null) }} onConfirm={() => pendingConfirm?.onConfirm()} />
     </Card>
   )
@@ -440,6 +444,7 @@ function PermissionGroupDialog({ group, catalog, open, onOpenChange }: { group?:
   const [internalOpen, setInternalOpen] = React.useState(false)
   const dialogOpen = open ?? internalOpen
   const setDialogOpen = onOpenChange ?? setInternalOpen
+  const fixedIdentity = group?.id === regularUserPermissionGroupId
   const defaultLimitsQuery = useQuery({ queryKey: ["admin", "permission-limits", "defaults"], queryFn: api.defaultPermissionLimits, enabled: dialogOpen })
   const defaultLimits = defaultLimitsQuery.data || defaultPermissionLimits
   const [permissions, setPermissions] = React.useState<PermissionKey[]>(group?.permissions || [])
@@ -469,18 +474,18 @@ function PermissionGroupDialog({ group, catalog, open, onOpenChange }: { group?:
   })
   const trigger = group ? null : (
     <DialogTrigger asChild>
-      <Button size="sm">权限配置</Button>
+      <Button size="sm" className="self-start">添加权限配置</Button>
     </DialogTrigger>
   )
   return (
     <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
       {trigger}
       <DialogContent className="max-h-[86vh] overflow-y-auto sm:max-w-3xl">
-        <DialogHeader><DialogTitle>{group ? "编辑权限配置" : "创建权限配置"}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{fixedIdentity ? "编辑普通用户权限" : group ? "编辑权限配置" : "创建权限配置"}</DialogTitle></DialogHeader>
         <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); mutation.mutate(new FormData(event.currentTarget)) }}>
           <div className="grid gap-4 md:grid-cols-2">
-            <Field name="name" label="名称" defaultValue={group?.name || ""} placeholder="例如：客服主管" />
-            <Field name="description" label="说明" defaultValue={group?.description || ""} required={false} />
+            <Field name="name" label="名称" defaultValue={group?.name || ""} placeholder="例如：客服主管" readOnly={fixedIdentity} />
+            <Field name="description" label="说明" defaultValue={group?.description || ""} required={false} readOnly={fixedIdentity} />
           </div>
           <PermissionLimitEditor value={limits} onChange={setLimits} />
           <PermissionPicker catalog={catalog} value={permissions} onChange={setPermissions} />
@@ -491,7 +496,20 @@ function PermissionGroupDialog({ group, catalog, open, onOpenChange }: { group?:
   )
 }
 
-function PermissionPicker({ catalog, value, onChange }: { catalog: PermissionInfo[]; value: PermissionKey[]; onChange: (value: PermissionKey[]) => void }) {
+function PermissionGroupDetailsDialog({ group, catalog, open, onOpenChange }: { group: PermissionGroup; catalog: PermissionInfo[]; open: boolean; onOpenChange: (open: boolean) => void }) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[86vh] overflow-y-auto sm:max-w-3xl">
+        <DialogHeader><DialogTitle>{group.name}的全部权限</DialogTitle></DialogHeader>
+        <p className="text-sm text-muted-foreground">共 {group.permissions.length} 项权限。{group.id === superAdminPermissionGroupId ? "管理员权限由账号身份决定，不能修改。" : ""}</p>
+        <PermissionLimitBadges limits={group.limits} />
+        <PermissionPicker catalog={catalog} value={group.permissions} onChange={() => undefined} readOnly />
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function PermissionPicker({ catalog, value, onChange, readOnly = false }: { catalog: PermissionInfo[]; value: PermissionKey[]; onChange: (value: PermissionKey[]) => void; readOnly?: boolean }) {
   const grouped = groupPermissionCatalog(catalog)
   function toggle(permission: PermissionKey, checked: boolean) {
     onChange(checked ? Array.from(new Set([...value, permission])) : value.filter((item) => item !== permission))
@@ -504,24 +522,25 @@ function PermissionPicker({ catalog, value, onChange }: { catalog: PermissionInf
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
         <Label>菜单与操作权限</Label>
-        <Badge variant="outline">{value.length} 项</Badge>
+        <span className="text-xs tabular-nums text-muted-foreground">已选 {value.length} 项</span>
       </div>
       <div className="space-y-3">
         {grouped.map(({ category, items }) => {
           const allChecked = items.every((item) => value.includes(item.key))
+          const selectedCount = items.filter((item) => value.includes(item.key)).length
           return (
             <div key={category} className="rounded-lg border">
               <div className="flex items-center justify-between gap-3 border-b px-3 py-2">
-                <label className="flex items-center gap-2 font-medium">
-                  <Checkbox checked={allChecked} onCheckedChange={(next) => toggleCategory(items, next === true)} />
+                <label className={cn("flex items-center gap-2 font-medium", readOnly && "cursor-default")}>
+                  <Checkbox className={cn(readOnly && "disabled:opacity-100")} disabled={readOnly} checked={allChecked ? true : selectedCount > 0 ? "indeterminate" : false} onCheckedChange={(next) => toggleCategory(items, next === true)} />
                   {category}
                 </label>
-                <span className="text-xs text-muted-foreground">{items.filter((item) => value.includes(item.key)).length}/{items.length}</span>
+                <span className="text-xs text-muted-foreground">{selectedCount}/{items.length}</span>
               </div>
               <div className="grid gap-2 p-3 md:grid-cols-2">
                 {items.map((item) => (
-                  <label key={item.key} className="flex min-h-16 items-start gap-3 rounded-md border px-3 py-2">
-                    <Checkbox checked={value.includes(item.key)} onCheckedChange={(next) => toggle(item.key, next === true)} />
+                  <label key={item.key} className={cn("flex min-h-16 items-start gap-3 rounded-md border px-3 py-2", readOnly && "cursor-default")}>
+                    <Checkbox className={cn(readOnly && "disabled:opacity-100")} disabled={readOnly} checked={value.includes(item.key)} onCheckedChange={(next) => toggle(item.key, next === true)} />
                     <span className="min-w-0">
                       <span className="block text-sm font-medium">{item.label}</span>
                       <span className="line-clamp-2 text-xs text-muted-foreground">{item.description}</span>
@@ -545,7 +564,7 @@ function PermissionLimitEditor({ value, onChange }: { value: PermissionLimits; o
   return (
     <div className="space-y-3 rounded-lg border p-3">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-        <Label>账号配额</Label>
+        <Label>使用限制</Label>
         <span className="text-xs text-muted-foreground">填 0 表示不限制</span>
       </div>
       <div className="grid gap-3 md:grid-cols-3">
@@ -581,29 +600,14 @@ function PermissionLimitEditor({ value, onChange }: { value: PermissionLimits; o
 function PermissionBadges({ permissions, catalog }: { permissions: PermissionKey[]; catalog: PermissionInfo[] }) {
   const labelByKey = new Map(catalog.map((item) => [item.key, item.label]))
   if (permissions.length === 0) return <div className="mt-3 text-sm text-muted-foreground">无后台权限</div>
-  return (
-    <div className="mt-3 flex flex-wrap gap-1.5">
-      {permissions.slice(0, 10).map((permission) => (
-        <Badge key={permission} variant="outline" className="font-normal">{labelByKey.get(permission) || permission}</Badge>
-      ))}
-      {permissions.length > 10 && <Badge variant="secondary">+{permissions.length - 10}</Badge>}
-    </div>
-  )
+  const visible = permissions.slice(0, 5).map((permission) => labelByKey.get(permission) || permission)
+  return <div className="mt-3 line-clamp-2 text-sm leading-6 text-muted-foreground">权限：{visible.join("、")}{permissions.length > visible.length ? ` 等 ${permissions.length} 项` : ""}</div>
 }
 
 function PermissionLimitBadges({ limits }: { limits?: PermissionLimits }) {
   const defaultLimitsQuery = useQuery({ queryKey: ["admin", "permission-limits", "defaults"], queryFn: api.defaultPermissionLimits })
   const value = limits || defaultLimitsQuery.data || defaultPermissionLimits
-  return (
-    <div className="mt-3 flex flex-wrap gap-1.5">
-      <Badge variant="secondary" className="font-normal">附件 {limitText(value.maxAttachmentMb, "MB")}</Badge>
-      <Badge variant="secondary" className="font-normal">邮箱 {limitText(value.maxMailboxCount, "个")}</Badge>
-      <Badge variant="secondary" className="font-normal">SMTP 每日 {limitText(value.smtpDailyLimit, "封")}</Badge>
-      <Badge variant="secondary" className="font-normal">SMTP 每分钟 {limitText(value.smtpMinuteLimit, "封")}</Badge>
-      <Badge variant="secondary" className="font-normal">IMAP 每分钟 {limitText(value.imapMinuteLimit, "次")}</Badge>
-      <Badge variant="secondary" className="font-normal">POP3 每分钟 {limitText(value.pop3MinuteLimit, "次")}</Badge>
-    </div>
-  )
+  return <div className="mt-2 text-xs leading-5 text-muted-foreground">限制：邮箱 {limitText(value.maxMailboxCount, "个")} · 附件 {limitText(value.maxAttachmentMb, "MB")} · SMTP {limitText(value.smtpDailyLimit, "封/日")} · IMAP {limitText(value.imapMinuteLimit, "次/分钟")} · POP3 {limitText(value.pop3MinuteLimit, "次/分钟")}</div>
 }
 
 function limitText(value: number, unit: string) {
@@ -651,8 +655,8 @@ function DomainsSection({ domains }: { domains: Domain[] }) {
               <div className="text-xs text-muted-foreground">selector: {domain.dkimSelector}</div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant={domain.status === "active" ? "default" : "secondary"}>{domain.status === "active" ? "启用" : "停用"}</Badge>
-              <Badge variant={domain.dnsStatus === "ok" ? "default" : "secondary"}>{domain.dnsStatus === "ok" ? "DNS 正常" : domain.dnsStatus}</Badge>
+              <StatusText active={domain.status === "active"} activeLabel="启用" inactiveLabel="停用" />
+              <StatusText active={domain.dnsStatus === "ok"} activeLabel="DNS 正常" inactiveLabel={domain.dnsStatus || "未检测"} />
               {canViewDNS && <DomainDNSDialog domain={domain} />}
               {canUpdate && <Button variant="outline" size="sm" onClick={() => update.mutate({ id: domain.id, status: domain.status === "active" ? "disabled" : "active" })}>{domain.status === "active" ? "停用" : "启用"}</Button>}
               {canDelete && <Button variant="outline" size="sm" onClick={() => setPendingConfirm({ title: "删除域名？", description: `将删除 ${domain.name}，相关邮箱、转发和邮件也可能受影响。`, confirmText: "删除域名", onConfirm: () => remove.mutate(domain.id) })}><Trash2 className="h-4 w-4" />删除</Button>}
@@ -685,56 +689,96 @@ function MailboxesSection({ mailboxes, users, domains }: { mailboxes: MailboxTyp
   const user = me.data?.user
   const qc = useQueryClient()
   const { toast } = useToast()
+  const [query, setQuery] = React.useState("")
+  const [expandedOwners, setExpandedOwners] = React.useState<string[]>([])
   const [pendingConfirm, setPendingConfirm] = React.useState<PendingConfirm | null>(null)
   const canCreate = hasPermission(user, "admin.mailboxes.create")
   const canUpdate = hasPermission(user, "admin.mailboxes.update")
   const canDelete = hasPermission(user, "admin.mailboxes.delete")
+  const update = useMutation({
+    mutationFn: ({ mailbox, status }: { mailbox: MailboxType; status: "active" | "disabled" }) => api.updateMailbox(mailbox.id, { userId: mailbox.userId, displayName: mailbox.displayName || mailbox.address, quotaMb: mailbox.quotaMb, status }),
+    onSuccess: (mailbox) => { invalidateAdmin(qc); toast({ title: mailbox.status === "active" ? "邮箱已启用" : "邮箱已停用" }) },
+    onError: (e) => toast({ title: "状态更新失败", description: e.message }),
+  })
   const remove = useMutation({ mutationFn: api.deleteMailbox, onSuccess: () => { setPendingConfirm(null); invalidateAdmin(qc); toast({ title: "邮箱已删除" }) }, onError: (e) => toast({ title: "删除失败", description: e.message }) })
+  const keyword = query.trim().toLowerCase()
+  const knownOwnerIDs = new Set(users.map((item) => item.id))
+  const mailboxGroups: Array<{ owner?: AdminUser; mailboxes: MailboxType[] }> = [
+    ...users.slice().sort(compareAdminUsers).map((owner) => ({ owner, mailboxes: mailboxes.filter((mailbox) => mailbox.userId === owner.id).sort((left, right) => left.address.localeCompare(right.address, "en")) })),
+    ...mailboxes.filter((mailbox) => !knownOwnerIDs.has(mailbox.userId)).map((mailbox) => ({ owner: undefined, mailboxes: [mailbox] })),
+  ]
+    .filter((group) => group.mailboxes.length > 0)
+    .filter((group) => !keyword || [group.owner ? accountPrimaryEmail(group.owner) : "", group.owner?.displayName || "", ...group.mailboxes.map((mailbox) => mailbox.address)].some((value) => value.toLowerCase().includes(keyword)))
+  const toggleOwner = (ownerID: string) => setExpandedOwners((current) => current.includes(ownerID) ? current.filter((id) => id !== ownerID) : [...current, ownerID])
   return (
     <Card>
       <CardHeader>
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <CardTitle>邮箱管理</CardTitle>
-          {canCreate && <CreateMailboxDialog domains={domains} users={users} />}
+          <div className="flex items-center gap-2">
+            <span className="text-sm tabular-nums text-muted-foreground">{mailboxes.length} 个邮箱</span>
+            {canCreate && <CreateMailboxDialog domains={domains} users={users} />}
+          </div>
         </div>
       </CardHeader>
-      <CardContent>
-        <div className="space-y-3 md:hidden">
-          {mailboxes.map((mailbox) => (
-            <div key={mailbox.id} className="rounded-lg border p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate font-medium">{mailbox.address}</div>
-                  <div className="truncate text-xs text-muted-foreground">{mailbox.userEmail || mailbox.userId}</div>
-                </div>
-                <MailboxActions mailbox={mailbox} users={users} canUpdate={canUpdate} onDelete={canDelete ? () => setPendingConfirm({ title: "删除邮箱？", description: `将删除 ${mailbox.address} 和其中邮件。`, confirmText: "删除邮箱", onConfirm: () => remove.mutate(mailbox.id) }) : undefined} />
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Badge variant={mailbox.status === "active" ? "default" : "secondary"}>{mailbox.status === "active" ? "启用" : "停用"}</Badge>
-                <Badge variant="outline">{mailbox.quotaMb} MB</Badge>
-                <Badge variant="outline">{mailbox.displayName || "未命名"}</Badge>
-              </div>
-            </div>
-          ))}
+      <CardContent className="space-y-4">
+        <div className="relative">
+          <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索账号或邮箱" className="pl-9" />
         </div>
-        <div className="hidden md:block">
-          <Table>
-            <TableHeader><TableRow><TableHead>地址</TableHead><TableHead>归属账号</TableHead><TableHead>名称</TableHead><TableHead>配额</TableHead><TableHead>状态</TableHead><TableHead className="w-16"></TableHead></TableRow></TableHeader>
-            <TableBody>
-              {mailboxes.map((mailbox) => (
-                <TableRow key={mailbox.id}>
-                  <TableCell className="font-medium">{mailbox.address}</TableCell>
-                  <TableCell className="text-muted-foreground">{mailbox.userEmail || mailbox.userId}</TableCell>
-                  <TableCell>{mailbox.displayName}</TableCell>
-                  <TableCell>{mailbox.quotaMb} MB</TableCell>
-                  <TableCell><Badge variant={mailbox.status === "active" ? "default" : "secondary"}>{mailbox.status === "active" ? "启用" : "停用"}</Badge></TableCell>
-                  <TableCell><MailboxActions mailbox={mailbox} users={users} canUpdate={canUpdate} onDelete={canDelete ? () => setPendingConfirm({ title: "删除邮箱？", description: `将删除 ${mailbox.address} 和其中邮件。`, confirmText: "删除邮箱", onConfirm: () => remove.mutate(mailbox.id) }) : undefined} /></TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+        <div className="divide-y overflow-hidden rounded-md border">
+          <div className="hidden grid-cols-[minmax(0,1fr)_9rem_8rem] gap-4 bg-muted/40 px-11 py-2 text-xs font-medium text-muted-foreground sm:grid">
+            <span>归属账号</span><span>权限管理</span><span>子邮箱</span>
+          </div>
+          {mailboxGroups.map((group) => {
+            const ownerID = group.owner?.id || group.mailboxes[0].userId
+            const expanded = expandedOwners.includes(ownerID) || !!keyword
+            return (
+              <div key={ownerID}>
+                <Button type="button" variant="ghost" className="grid h-auto min-h-16 w-full grid-cols-[auto_minmax(0,1fr)_auto] gap-3 rounded-none px-4 py-3 text-left font-normal sm:grid-cols-[auto_minmax(0,1fr)_9rem_8rem]" onClick={() => toggleOwner(ownerID)} aria-expanded={expanded}>
+                  <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", !expanded && "-rotate-90")} />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium">{group.owner ? accountPrimaryEmail(group.owner) : group.mailboxes[0].userEmail || "未知账号"}</div>
+                    <div className="truncate text-xs text-muted-foreground">{group.owner?.displayName || "账号信息不可用"}</div>
+                  </div>
+                  <span className="hidden sm:block">{group.owner ? <RoleBadge user={group.owner} /> : "-"}</span>
+                  <span className="flex items-center justify-end gap-2 text-sm tabular-nums text-muted-foreground"><span>{group.mailboxes.length} 个</span><span className="hidden text-xs lg:inline">查看邮箱</span></span>
+                </Button>
+                {expanded && (
+                  <div className="border-t bg-muted/20 px-4 py-2 sm:pl-11">
+                    {group.mailboxes.map((mailbox) => (
+                      <div key={mailbox.id} className="flex min-h-14 items-center gap-3 border-b py-2 last:border-b-0">
+                        <Mail className="hidden h-4 w-4 shrink-0 text-muted-foreground sm:block" />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-medium">{mailbox.address}</div>
+                          <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                            <span className="truncate">{mailbox.displayName || "未命名"}</span>
+                            {mailbox.primary && <span className="shrink-0">默认邮箱</span>}
+                          </div>
+                        </div>
+                        <span className={cn("w-10 shrink-0 text-right text-xs font-medium", mailbox.status === "active" ? "text-emerald-600 dark:text-emerald-400" : "text-destructive")}>{mailbox.status === "active" ? "启用" : "停用"}</span>
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center">
+                          {!mailbox.primary && (canUpdate || canDelete) && (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label={`管理邮箱 ${mailbox.address}`} title="更多操作"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                {canUpdate && <DropdownMenuItem disabled={mailbox.status === "active" || update.isPending} onSelect={() => update.mutate({ mailbox, status: "active" })}>启用</DropdownMenuItem>}
+                                {canUpdate && <DropdownMenuItem disabled={mailbox.status === "disabled" || update.isPending} onSelect={() => update.mutate({ mailbox, status: "disabled" })}>停用</DropdownMenuItem>}
+                                {canUpdate && canDelete && !mailbox.primary && <DropdownMenuSeparator />}
+                                {canDelete && !mailbox.primary && <DropdownMenuItem className="text-destructive" onSelect={() => setPendingConfirm({ title: "删除邮箱？", description: `将删除 ${mailbox.address} 和其中邮件。此操作无法撤销。`, confirmText: "确认删除", onConfirm: () => remove.mutate(mailbox.id) })}>删除邮箱</DropdownMenuItem>}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
-        {mailboxes.length === 0 && <Empty text="暂无邮箱" />}
+        {mailboxGroups.length === 0 && <Empty text={query ? "没有匹配的账号或邮箱" : "暂无邮箱"} />}
       </CardContent>
       <ConfirmDialog open={!!pendingConfirm} title={pendingConfirm?.title || ""} description={pendingConfirm?.description} confirmText={pendingConfirm?.confirmText || "删除"} destructive pending={remove.isPending} onOpenChange={(open) => { if (!open) setPendingConfirm(null) }} onConfirm={() => pendingConfirm?.onConfirm()} />
     </Card>
@@ -772,7 +816,7 @@ function AliasesSection({ aliases, domains }: { aliases: Alias[]; domains: Domai
                 <AliasActions alias={alias} onToggle={canUpdate ? () => update.mutate({ id: alias.id, payload: { source: alias.source, destination: alias.destination, enabled: !alias.enabled } }) : undefined} onDelete={canDelete ? () => setPendingConfirm({ title: "删除转发？", description: `${alias.source} 将不再转发到 ${alias.destination}。`, confirmText: "删除转发", onConfirm: () => remove.mutate(alias.id) }) : undefined} />
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
-                <Badge variant={alias.enabled ? "default" : "secondary"}>{alias.enabled ? "启用" : "停用"}</Badge>
+                <StatusText active={alias.enabled} activeLabel="启用" inactiveLabel="停用" />
                 <Badge variant="outline">{domains.find((d) => d.id === alias.domainId)?.name || alias.domainId}</Badge>
               </div>
             </div>
@@ -787,7 +831,7 @@ function AliasesSection({ aliases, domains }: { aliases: Alias[]; domains: Domai
                   <TableCell className="font-medium">{alias.source}</TableCell>
                   <TableCell>{alias.destination}</TableCell>
                   <TableCell className="text-muted-foreground">{domains.find((d) => d.id === alias.domainId)?.name || alias.domainId}</TableCell>
-                  <TableCell><Badge variant={alias.enabled ? "default" : "secondary"}>{alias.enabled ? "启用" : "停用"}</Badge></TableCell>
+                  <TableCell><StatusText active={alias.enabled} activeLabel="启用" inactiveLabel="停用" /></TableCell>
                   <TableCell><AliasActions alias={alias} onToggle={canUpdate ? () => update.mutate({ id: alias.id, payload: { source: alias.source, destination: alias.destination, enabled: !alias.enabled } }) : undefined} onDelete={canDelete ? () => setPendingConfirm({ title: "删除转发？", description: `${alias.source} 将不再转发到 ${alias.destination}。`, confirmText: "删除转发", onConfirm: () => remove.mutate(alias.id) }) : undefined} /></TableCell>
                 </TableRow>
               ))}
@@ -1855,7 +1899,8 @@ function UserMailboxCell({ user }: { user: AdminUser }) {
     return sortedMailboxes.filter((mailbox) => mailbox.toLowerCase().includes(normalizedQuery))
   }, [normalizedQuery, sortedMailboxes])
   const limit = user.role === "admin" ? "不限" : limitText(user.limits?.maxMailboxCount ?? defaultMailboxLimitOverride, "个")
-  const quota = <div className="text-[11px] text-muted-foreground">邮箱 {user.mailboxCount}/{limit}</div>
+  const storage = formatBytes((user.storageQuotaMb || defaultStorageQuotaMb(user.role)) * 1024 * 1024)
+  const quota = <div className="text-[11px] text-muted-foreground">邮箱 {user.mailboxCount}/{limit} · 共享存储容量 {storage}</div>
   async function copyMailbox(address: string) {
     if (!address) return
     await navigator.clipboard.writeText(address)
@@ -1872,7 +1917,6 @@ function UserMailboxCell({ user }: { user: AdminUser }) {
               className="h-8 min-w-0 flex-1 justify-start gap-1.5 overflow-hidden rounded-md border-input bg-background px-2 text-left font-normal shadow-none hover:bg-background"
               title={selectedAddress}
             >
-              <Mail className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{selectedAddress}</span>
               {sortedMailboxes.length > 0 && <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">{sortedMailboxes.length} 个</span>}
               <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -1898,7 +1942,6 @@ function UserMailboxCell({ user }: { user: AdminUser }) {
                 onSelect={() => setSelectedAddress(mailbox)}
                 className={cn("h-8 min-w-0 gap-2 rounded-sm px-2 text-[13px] font-normal", selectedAddress === mailbox && "bg-accent text-accent-foreground")}
               >
-                <Mail className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 flex-1 truncate" title={mailbox}>{mailbox}</span>
               </DropdownMenuItem>
             ))}
@@ -1916,17 +1959,10 @@ function UserMailboxCell({ user }: { user: AdminUser }) {
 }
 
 function UserPermissionGroupsCell({ user }: { user: AdminUser }) {
-  const groups = user.permissionGroups || []
-  if (groups.length === 0) return <span className="text-muted-foreground">普通用户</span>
-  return (
-    <div className="flex max-w-md flex-wrap gap-1">
-      {groups.map((group) => (
-        <Badge key={group.id} variant={group.id === "pg_super_admin" ? "default" : "secondary"} className="font-normal">
-          {group.name}
-        </Badge>
-      ))}
-    </div>
-  )
+  const groups = (user.permissionGroups || []).filter((group) => group.id !== "pg_regular_user")
+  if (user.role === "admin") return <span className="text-sm text-muted-foreground">全部权限</span>
+  if (groups.length === 0) return <span className="text-muted-foreground">默认权限</span>
+  return <span className="line-clamp-2 text-sm text-muted-foreground">{groups.map((group) => group.name).join("、")}</span>
 }
 
 function assignableUserGroupIDs(user: AdminUser) {
@@ -1934,6 +1970,7 @@ function assignableUserGroupIDs(user: AdminUser) {
 }
 
 function PermissionGroupPicker({ groups, value, onChange }: { groups: PermissionGroup[]; value: string[]; onChange: (value: string[]) => void }) {
+  if (groups.length === 0) return null
   function toggle(groupID: string, checked: boolean) {
     onChange(checked ? Array.from(new Set([...value, groupID])) : value.filter((id) => id !== groupID))
   }
@@ -1954,18 +1991,20 @@ function PermissionGroupPicker({ groups, value, onChange }: { groups: Permission
           )
         })}
       </div>
-      {groups.length === 0 && <Empty text="暂无可分配自定义权限配置" />}
     </div>
   )
 }
 
 function RoleBadge({ user }: { user: AdminUser }) {
-  return (
-    <div className="flex flex-wrap gap-1">
-      <Badge variant={user.role === "admin" ? "default" : "secondary"}>{user.role === "admin" ? "管理员" : "普通用户"}</Badge>
-      {user.protected && <Badge variant="outline">默认账号</Badge>}
-    </div>
-  )
+  return <span className="text-sm font-medium">{user.role === "admin" ? "管理员" : "普通用户"}</span>
+}
+
+function AccountStatus({ user }: { user: AdminUser }) {
+  return <StatusText active={!user.disabled} activeLabel="正常" inactiveLabel="停用" />
+}
+
+function StatusText({ active, activeLabel, inactiveLabel }: { active: boolean; activeLabel: string; inactiveLabel: string }) {
+  return <span className="inline-flex items-center gap-2 whitespace-nowrap text-sm"><span className={cn("h-1.5 w-1.5 rounded-full", active ? "bg-emerald-600" : "bg-muted-foreground")} />{active ? activeLabel : inactiveLabel}</span>
 }
 
 function UserActions({ user, permissionGroups, onDelete }: { user: AdminUser; permissionGroups: PermissionGroup[]; onDelete?: () => void }) {
@@ -1996,48 +2035,56 @@ function UserActions({ user, permissionGroups, onDelete }: { user: AdminUser; pe
   return <><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`管理账号 ${accountPrimaryEmail(user)}`} title="更多操作"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">{canUpdate && <DropdownMenuItem onSelect={() => setEditOpen(true)}>编辑账号</DropdownMenuItem>}{canResetPassword && <DropdownMenuItem onSelect={() => setPasswordOpen(true)}>重置密码</DropdownMenuItem>}{!user.protected && user.role !== "admin" && canUpdate && <><DropdownMenuSeparator /><DropdownMenuItem onSelect={() => quickPatch({ disabled: !user.disabled })}>{user.disabled ? "启用账号" : "停用账号"}</DropdownMenuItem></>}{!user.protected && user.role !== "admin" && onDelete && <><DropdownMenuSeparator /><DropdownMenuItem className="text-destructive" onSelect={onDelete}>删除账号</DropdownMenuItem></>}</DropdownMenuContent></DropdownMenu>{canUpdate && <EditUserDialog user={user} permissionGroups={permissionGroups} open={editOpen} onOpenChange={setEditOpen} />}{canResetPassword && <ResetPasswordDialog user={user} open={passwordOpen} onOpenChange={setPasswordOpen} />}</>
 }
 
-function CreateUserDialog(_props: { permissionGroups: PermissionGroup[] }) {
+function CreateUserDialog({ permissionGroups, domains }: { permissionGroups: PermissionGroup[]; domains: Domain[] }) {
   const qc = useQueryClient()
   const { toast } = useToast()
   const [open, setOpen] = React.useState(false)
-  const [status, setStatus] = React.useState("active")
+  const [domainId, setDomainId] = React.useState("")
+  const [permissionGroupIds, setPermissionGroupIds] = React.useState<string[]>([])
+  React.useEffect(() => { if (!domainId && domains[0]) setDomainId(domains[0].id) }, [domainId, domains])
   const create = useMutation({
-    mutationFn: (form: FormData) => api.createUser({
-      email: String(form.get("email") || ""),
-      displayName: String(form.get("displayName") || ""),
-      password: String(form.get("password") || ""),
-      role: "user",
-      disabled: status === "disabled",
-      mailboxLimitOverride: mailboxLimitFromForm(form),
-    }),
+    mutationFn: (form: FormData) => {
+      const domain = domains.find((item) => item.id === domainId)
+      if (!domain) throw new Error("请选择邮箱域名")
+      const localPart = String(form.get("localPart") || "").trim()
+      if (!localPart) throw new Error("请输入邮箱前缀")
+      const email = `${localPart}@${domain.name}`
+      const inputPassword = String(form.get("password") || "")
+      const confirmPassword = String(form.get("confirmPassword") || "")
+      if (inputPassword !== confirmPassword) throw new Error("两次输入的密码不一致")
+      const password = inputPassword || email
+      if (password.length < 6) throw new Error("密码至少需要 6 位")
+      return api.createUser({ email, displayName: String(form.get("displayName") || ""), password, role: "user", disabled: false, mailboxLimitOverride: mailboxLimitFromForm(form), storageQuotaMb: Number(form.get("storageQuotaMb") || defaultUserStorageQuotaMb), permissionGroupIds })
+    },
     onSuccess: () => { invalidateAdmin(qc); setOpen(false); toast({ title: "账号已创建" }) },
     onError: (e) => toast({ title: "创建失败", description: e.message }),
   })
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild><Button size="sm">账号</Button></DialogTrigger>
+      <DialogTrigger asChild><Button size="sm">添加账号</Button></DialogTrigger>
       <DialogContent>
-        <DialogHeader><DialogTitle>创建账号</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>创建用户账号</DialogTitle></DialogHeader>
         <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); create.mutate(new FormData(event.currentTarget)) }}>
-          <Field name="email" label="主登录邮箱" type="email" autoComplete="off" placeholder="user@example.com" />
-          <Field name="displayName" label="显示名称" placeholder="账号名称" />
-          <Field name="password" label="初始密码" type="password" minLength={6} />
+          <DomainSelect domains={domains} value={domainId} onChange={setDomainId} />
           <div className="grid grid-cols-2 gap-3">
-            <SelectField label="身份" value="user" onValueChange={() => undefined} items={[["user", "普通用户"]]} disabled />
-            <SelectField label="状态" value={status} onValueChange={setStatus} items={[["active", "正常"], ["disabled", "停用"]]} />
+            <Field name="localPart" label="邮箱前缀" placeholder="user" />
+            <Field name="displayName" label="显示名称" placeholder="例如：SZX" />
           </div>
-          <MailboxLimitField defaultValue={defaultMailboxLimitOverride} />
-          <DialogFooter><Button disabled={create.isPending}>{create.isPending ? "创建中..." : "创建"}</Button></DialogFooter>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field name="password" label="密码（留空则使用邮箱账号）" type="password" required={false} autoComplete="new-password" />
+            <Field name="confirmPassword" label="再次输入密码" type="password" required={false} autoComplete="new-password" />
+          </div>
+          <SelectField label="身份" value="user" onValueChange={() => undefined} items={[["user", "普通用户"]]} disabled />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <MailboxLimitField defaultValue={defaultMailboxLimitOverride} />
+            <Field name="storageQuotaMb" label="共享存储容量（MB）" type="number" min={100} defaultValue={String(defaultUserStorageQuotaMb)} />
+          </div>
+          <PermissionGroupPicker groups={permissionGroups} value={permissionGroupIds} onChange={setPermissionGroupIds} />
+          <DialogFooter><Button disabled={create.isPending || !domainId}>{create.isPending ? "创建中..." : "创建用户账号"}</Button></DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
   )
-}
-
-function MailboxActions({ mailbox, users, canUpdate, onDelete }: { mailbox: MailboxType; users: AdminUser[]; canUpdate: boolean; onDelete?: () => void }) {
-  const [open, setOpen] = React.useState(false)
-  if (!canUpdate && !onDelete) return null
-  return <><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`管理邮箱 ${mailbox.address}`} title="更多操作"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">{canUpdate && <DropdownMenuItem onSelect={() => setOpen(true)}>编辑邮箱</DropdownMenuItem>}{canUpdate && onDelete && <DropdownMenuSeparator />}{onDelete && <DropdownMenuItem className="text-destructive" onSelect={onDelete}>删除邮箱</DropdownMenuItem>}</DropdownMenuContent></DropdownMenu>{canUpdate && <EditMailboxDialog mailbox={mailbox} users={users} open={open} onOpenChange={setOpen} />}</>
 }
 
 function AliasActions({ alias, onToggle, onDelete }: { alias: Alias; onToggle?: () => void; onDelete?: () => void }) {
@@ -2063,6 +2110,7 @@ function EditUserDialog({ user, permissionGroups, open, onOpenChange }: { user: 
       role,
       disabled: disabled === "disabled",
       mailboxLimitOverride: role === "user" ? mailboxLimitFromForm(form, effectiveMailboxLimit(user)) : undefined,
+      storageQuotaMb: Number(form.get("storageQuotaMb") || user.storageQuotaMb || defaultStorageQuotaMb(user.role)),
       permissionGroupIds: role === "user" ? permissionGroupIds : [],
     }),
     onSuccess: () => { invalidateAdmin(qc); onOpenChange(false); toast({ title: "账号已更新" }) },
@@ -2079,7 +2127,10 @@ function EditUserDialog({ user, permissionGroups, open, onOpenChange }: { user: 
             <SelectField label="身份" value={role} onValueChange={(value) => setRole(value as "admin" | "user")} items={user.role === "admin" ? [["admin", "管理员"]] : [["user", "普通用户"]]} disabled />
             <SelectField label="状态" value={disabled} onValueChange={setDisabled} items={[["active", "正常"], ["disabled", "停用"]]} disabled={user.protected || user.role === "admin"} />
           </div>
-          {role === "user" && !user.protected && <MailboxLimitField defaultValue={effectiveMailboxLimit(user)} />}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {role === "user" && !user.protected && <MailboxLimitField defaultValue={effectiveMailboxLimit(user)} />}
+            <Field name="storageQuotaMb" label="共享存储容量（MB）" type="number" min={100} defaultValue={String(user.storageQuotaMb || defaultStorageQuotaMb(user.role))} />
+          </div>
           {role === "user" && !user.protected && <PermissionGroupPicker groups={permissionGroups} value={permissionGroupIds} onChange={setPermissionGroupIds} />}
           <DialogFooter><Button disabled={mut.isPending}>{mut.isPending ? "保存中..." : "保存"}</Button></DialogFooter>
         </form>
@@ -2093,17 +2144,10 @@ function ResetPasswordDialog({ user, open, onOpenChange }: { user: AdminUser; op
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent><DialogHeader><DialogTitle>重置密码</DialogTitle></DialogHeader><form className="space-y-4" onSubmit={(e) => { e.preventDefault(); mut.mutate(new FormData(e.currentTarget)); e.currentTarget.reset() }}><Field name="email" label="主登录邮箱" value={accountPrimaryEmail(user)} readOnly /><Field name="password" label="新密码" type="password" minLength={6} /><DialogFooter><Button disabled={mut.isPending}>{mut.isPending ? "重置中..." : "重置"}</Button></DialogFooter></form></DialogContent></Dialog>
 }
 
-function EditMailboxDialog({ mailbox, users, open, onOpenChange }: { mailbox: MailboxType; users: AdminUser[]; open: boolean; onOpenChange: (open: boolean) => void }) {
-  const qc = useQueryClient(); const { toast } = useToast(); const [userId, setUserId] = React.useState(mailbox.userId); const [status, setStatus] = React.useState(mailbox.status)
-  React.useEffect(() => { setUserId(mailbox.userId); setStatus(mailbox.status) }, [mailbox, open])
-  const mut = useMutation({ mutationFn: (form: FormData) => api.updateMailbox(mailbox.id, { userId, displayName: String(form.get("displayName") || ""), quotaMb: Number(form.get("quotaMb") || 1024), status }), onSuccess: () => { invalidateAdmin(qc); onOpenChange(false); toast({ title: "邮箱已更新" }) }, onError: (e) => toast({ title: "更新失败", description: e.message }) })
-  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent><DialogHeader><DialogTitle>编辑邮箱</DialogTitle></DialogHeader><form className="space-y-4" onSubmit={(e) => { e.preventDefault(); mut.mutate(new FormData(e.currentTarget)) }}><Field name="address" label="邮箱地址" value={mailbox.address} readOnly /><SelectField label="归属账号" value={userId} onValueChange={setUserId} items={users.filter((u) => !u.disabled).map((u) => [u.id, u.email])} /><div className="grid grid-cols-2 gap-3"><Field name="displayName" label="显示名称" defaultValue={mailbox.displayName} /><Field name="quotaMb" label="配额 MB" type="number" defaultValue={String(mailbox.quotaMb)} /></div><SelectField label="状态" value={status} onValueChange={setStatus} items={[['active','启用'],['disabled','停用']]} /><DialogFooter><Button disabled={mut.isPending}>{mut.isPending ? "保存中..." : "保存"}</Button></DialogFooter></form></DialogContent></Dialog>
-}
-
 function CreateDomainDialog() {
   const qc = useQueryClient(); const { toast } = useToast(); const [open, setOpen] = React.useState(false)
   const mut = useMutation({ mutationFn: (form: FormData) => api.createDomain(String(form.get("name"))), onSuccess: () => { invalidateAdmin(qc); setOpen(false); toast({ title: "域名已创建" }) }, onError: (e) => toast({ title: "创建失败", description: e.message }) })
-  return <Dialog open={open} onOpenChange={setOpen}><DialogTrigger asChild><Button variant="outline">域名</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>添加域名</DialogTitle></DialogHeader><form className="space-y-4" onSubmit={(e) => { e.preventDefault(); mut.mutate(new FormData(e.currentTarget)) }}><Field name="name" label="域名" placeholder="example.com" /><DialogFooter><Button disabled={mut.isPending}>创建</Button></DialogFooter></form></DialogContent></Dialog>
+  return <Dialog open={open} onOpenChange={setOpen}><DialogTrigger asChild><Button className="self-start">添加域名</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>添加域名</DialogTitle></DialogHeader><form className="space-y-4" onSubmit={(e) => { e.preventDefault(); mut.mutate(new FormData(e.currentTarget)) }}><Field name="name" label="域名" placeholder="example.com" /><DialogFooter><Button disabled={mut.isPending}>创建</Button></DialogFooter></form></DialogContent></Dialog>
 }
 
 function CreateMailboxDialog({ domains, users }: { domains: Domain[]; users: AdminUser[] }) {
@@ -2111,7 +2155,6 @@ function CreateMailboxDialog({ domains, users }: { domains: Domain[]; users: Adm
   const { toast } = useToast()
   const [open, setOpen] = React.useState(false)
   const [domainId, setDomainId] = React.useState("")
-  const [ownerMode, setOwnerMode] = React.useState("new")
   const [userId, setUserId] = React.useState("")
   React.useEffect(() => {
     if (!domainId && domains[0]) setDomainId(domains[0].id)
@@ -2121,38 +2164,22 @@ function CreateMailboxDialog({ domains, users }: { domains: Domain[]; users: Adm
     mutationFn: (form: FormData) => api.createMailbox({
       domainId,
       localPart: String(form.get("localPart")),
-      displayName: String(form.get("displayName")),
-      password: String(form.get("password")),
-      quotaMb: Number(form.get("quotaMb") || 1024),
-      role: "user",
-      ownerEmail: String(form.get("ownerEmail") || ""),
-      userId: ownerMode === "existing" ? userId : "",
+      userId,
     }),
     onSuccess: () => { invalidateAdmin(qc); setOpen(false); toast({ title: "邮箱已创建" }) },
     onError: (e) => toast({ title: "创建失败", description: e.message }),
   })
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild><Button>邮箱</Button></DialogTrigger>
+      <DialogTrigger asChild><Button>添加邮箱</Button></DialogTrigger>
       <DialogContent>
         <DialogHeader><DialogTitle>创建邮箱</DialogTitle></DialogHeader>
         <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); mut.mutate(new FormData(e.currentTarget)) }}>
           <DomainSelect domains={domains} value={domainId} onChange={setDomainId} />
-          <div className="grid grid-cols-2 gap-3">
-            <Field name="localPart" label="邮箱前缀" placeholder="alice" />
-            <Field name="displayName" label="显示名" placeholder="Alice" />
-          </div>
-          <SelectField label="归属方式" value={ownerMode} onValueChange={setOwnerMode} items={[["new", "新建/按主登录邮箱匹配账号"], ["existing", "追加到已有账号"]]} />
-          {ownerMode === "existing" ? (
-            <SelectField label="已有账号" value={userId} onValueChange={setUserId} items={users.filter((u) => !u.disabled).map((u) => [u.id, accountPrimaryEmail(u)])} />
-          ) : (
-            <Field name="ownerEmail" label="主登录邮箱" placeholder="留空则使用新邮箱地址" required={false} />
-          )}
-          <div className="grid grid-cols-2 gap-3">
-            <Field name="password" label="密码" type="password" placeholder="至少 6 位" />
-            <Field name="quotaMb" label="配额 MB" type="number" defaultValue="1024" />
-          </div>
-          <DialogFooter><Button disabled={mut.isPending || !domainId}>创建</Button></DialogFooter>
+          <Field name="localPart" label="邮箱前缀" placeholder="alice" />
+          <SelectField label="绑定用户账号" value={userId} onValueChange={setUserId} items={users.filter((item) => !item.disabled).sort(compareAdminUsers).map((item) => [item.id, accountPrimaryEmail(item)])} />
+          <p className="text-xs text-muted-foreground">该邮箱使用绑定账号的登录密码；账号修改密码后会自动同步。</p>
+          <DialogFooter><Button disabled={mut.isPending || !domainId || !userId}>{mut.isPending ? "创建中..." : "创建邮箱"}</Button></DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -2163,7 +2190,7 @@ function CreateAliasDialog({ domains }: { domains: Domain[] }) {
   const qc = useQueryClient(); const { toast } = useToast(); const [open, setOpen] = React.useState(false); const [domainId, setDomainId] = React.useState("")
   React.useEffect(() => { if (!domainId && domains[0]) setDomainId(domains[0].id) }, [domains, domainId])
   const mut = useMutation({ mutationFn: (form: FormData) => api.createAlias({ domainId, source: String(form.get("source")), destination: String(form.get("destination")), enabled: true }), onSuccess: () => { invalidateAdmin(qc); setOpen(false); toast({ title: "转发已创建" }) }, onError: (e) => toast({ title: "创建失败", description: e.message }) })
-  return <Dialog open={open} onOpenChange={setOpen}><DialogTrigger asChild><Button variant="outline">转发</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>创建邮件转发</DialogTitle></DialogHeader><form className="space-y-4" onSubmit={(e) => { e.preventDefault(); mut.mutate(new FormData(e.currentTarget)) }}><DomainSelect domains={domains} value={domainId} onChange={setDomainId} /><Field name="source" label="来源" placeholder="sales 或 sales@example.com" /><Field name="destination" label="目标邮箱" placeholder="alice@example.com" /><DialogFooter><Button disabled={mut.isPending || !domainId}>创建</Button></DialogFooter></form></DialogContent></Dialog>
+  return <Dialog open={open} onOpenChange={setOpen}><DialogTrigger asChild><Button className="self-start">添加转发</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>创建邮件转发</DialogTitle></DialogHeader><form className="space-y-4" onSubmit={(e) => { e.preventDefault(); mut.mutate(new FormData(e.currentTarget)) }}><DomainSelect domains={domains} value={domainId} onChange={setDomainId} /><Field name="source" label="来源" placeholder="sales 或 sales@example.com" /><Field name="destination" label="目标邮箱" placeholder="alice@example.com" /><DialogFooter><Button disabled={mut.isPending || !domainId}>创建</Button></DialogFooter></form></DialogContent></Dialog>
 }
 
 function DNSPanel({ domain, embedded = false }: { domain?: Domain; embedded?: boolean }) {

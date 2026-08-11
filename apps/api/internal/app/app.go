@@ -40,6 +40,12 @@ type App struct {
 	telegramDeliveryMu sync.Mutex
 }
 
+const (
+	defaultUserStorageQuotaMB  = 100
+	defaultAdminStorageQuotaMB = 1024
+	minimumStorageQuotaMB      = 100
+)
+
 func (a *App) config() Config {
 	a.cfgMu.RLock()
 	defer a.cfgMu.RUnlock()
@@ -94,6 +100,10 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		return nil, err
 	}
 	if err := a.seed(context.Background()); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := a.normalizeAdministratorMailboxQuotas(context.Background()); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -168,6 +178,7 @@ func (a *App) migrate(ctx context.Context) error {
 			two_factor_secret TEXT NOT NULL DEFAULT '',
 			two_factor_enabled INTEGER NOT NULL DEFAULT 0,
 			mailbox_limit_override INTEGER,
+			storage_quota_mb INTEGER NOT NULL DEFAULT 100,
 			disabled INTEGER NOT NULL DEFAULT 0,
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
@@ -671,6 +682,9 @@ func (a *App) migrate(ctx context.Context) error {
 		return err
 	}
 	if err := a.migrateUserMailboxLimitOverride(ctx); err != nil {
+		return err
+	}
+	if err := a.migrateUserStorageQuota(ctx); err != nil {
 		return err
 	}
 	if err := a.migrateMailRulesBuilder(ctx); err != nil {
@@ -1335,6 +1349,39 @@ func (a *App) migrateUserMailboxLimitOverride(ctx context.Context) error {
 	return err
 }
 
+func (a *App) migrateUserStorageQuota(ctx context.Context) error {
+	rows, err := a.db.QueryContext(ctx, `PRAGMA table_info(users)`)
+	if err != nil {
+		return err
+	}
+	hasColumn := false
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notnull int
+		var dflt any
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		if name == "storage_quota_mb" {
+			hasColumn = true
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if hasColumn {
+		return nil
+	}
+	if _, err := a.db.ExecContext(ctx, `ALTER TABLE users ADD COLUMN storage_quota_mb INTEGER NOT NULL DEFAULT 100`); err != nil {
+		return err
+	}
+	_, err = a.db.ExecContext(ctx, `UPDATE users SET storage_quota_mb=? WHERE role='admin'`, defaultAdminStorageQuotaMB)
+	return err
+}
+
 func (a *App) migrateMessagesForUnregistered(ctx context.Context) error {
 	rows, err := a.db.QueryContext(ctx, `PRAGMA table_info(messages)`)
 	if err != nil {
@@ -1513,8 +1560,8 @@ func (a *App) seed(ctx context.Context) error {
 	}
 	now := a.now().UTC().Format(time.RFC3339Nano)
 	userID := newID("usr")
-	if _, err := a.db.ExecContext(ctx, `INSERT INTO users(id,login_name,email,display_name,role,password_hash,disabled,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?)`, userID, adminEmail, adminEmail, "NewSzxcn Admin", "admin", string(passwordHash), 0, now, now); err != nil {
+	if _, err := a.db.ExecContext(ctx, `INSERT INTO users(id,login_name,email,display_name,role,password_hash,disabled,storage_quota_mb,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?)`, userID, adminEmail, adminEmail, "NewSzxcn Admin", "admin", string(passwordHash), 0, defaultAdminStorageQuotaMB, now, now); err != nil {
 		return err
 	}
 	a.log.Warn("created default administrator; change LANQIN_ADMIN_PASSWORD in production", "email", adminEmail)
@@ -1535,7 +1582,7 @@ func (a *App) seed(ctx context.Context) error {
 	}
 
 	// Create mailbox for admin
-	mailboxID, err := a.createMailboxWithPasswordHash(ctx, userID, domainID, localPart, adminEmail, string(passwordHash), 1024, "active")
+	mailboxID, err := a.createMailboxWithPasswordHash(ctx, userID, domainID, localPart, adminEmail, string(passwordHash), 0, "active")
 	if err != nil {
 		return err
 	}
@@ -1656,7 +1703,7 @@ func (a *App) migrateConfiguredAdministratorIdentity(ctx context.Context) error 
 		if !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
-		mailboxID, err = a.createMailboxWithPasswordHashTx(ctx, tx, keeper.ID, domainID, localPart, adminEmail, keeper.PasswordHash, 1024, "active")
+		mailboxID, err = a.createMailboxWithPasswordHashTx(ctx, tx, keeper.ID, domainID, localPart, adminEmail, keeper.PasswordHash, 0, "active")
 		if err != nil {
 			return err
 		}
@@ -1871,8 +1918,15 @@ func (a *App) createMailboxWithPasswordHashTx(ctx context.Context, tx *sql.Tx, u
 	if localPart == "" {
 		return "", errors.New("invalid local part")
 	}
-	if quotaMB <= 0 {
-		quotaMB = 1024
+	if quotaMB < 0 {
+		return "", errors.New("quotaMb must be zero or greater")
+	}
+	var ownerRole string
+	if err := tx.QueryRowContext(ctx, `SELECT role FROM users WHERE id=?`, userID).Scan(&ownerRole); err != nil {
+		return "", err
+	}
+	if ownerRole == "admin" {
+		quotaMB = 0
 	}
 	if status == "" {
 		status = "active"
@@ -1903,6 +1957,17 @@ func (a *App) createMailboxWithPasswordHashTx(ctx context.Context, tx *sql.Tx, u
 		return "", err
 	}
 	return id, nil
+}
+
+func (a *App) normalizeAdministratorMailboxQuotas(ctx context.Context) error {
+	now := a.now().UTC().Format(time.RFC3339Nano)
+	if _, err := a.db.ExecContext(ctx, `UPDATE users SET storage_quota_mb=CASE WHEN role='admin' THEN ? ELSE ? END, updated_at=? WHERE storage_quota_mb<?`, defaultAdminStorageQuotaMB, defaultUserStorageQuotaMB, now, minimumStorageQuotaMB); err != nil {
+		return err
+	}
+	_, err := a.db.ExecContext(ctx, `UPDATE mailboxes
+		SET quota_mb=0, updated_at=?
+		WHERE quota_mb<>0 AND user_id IN (SELECT id FROM users WHERE role='admin')`, now)
+	return err
 }
 
 func (a *App) seedWelcomeMessage(ctx context.Context, mailboxID string) error {

@@ -200,6 +200,10 @@ func (a *App) handleOpenAPICreateMailbox(w http.ResponseWriter, r *http.Request)
 		badRequest(w, errors.New("password must be at least 6 characters"))
 		return
 	}
+	if req.QuotaMB < 0 {
+		badRequest(w, errors.New("quotaMb must be zero or greater"))
+		return
+	}
 	domain, err := a.domainByID(r.Context(), req.DomainID)
 	if err != nil {
 		respondError(w, http.StatusNotFound, "domain not found")
@@ -231,7 +235,20 @@ func (a *App) handleOpenAPICreateMailbox(w http.ResponseWriter, r *http.Request)
 		respondMailboxOwnerError(w, err)
 		return
 	}
-	mailboxID, err := a.createMailboxWithPasswordHashTx(r.Context(), tx, userID, req.DomainID, localPart, displayName, string(passwordHash), req.QuotaMB, "active")
+	var ownerPasswordHash, ownerRole string
+	var ownerStorageQuotaMB int
+	if err := tx.QueryRowContext(r.Context(), `SELECT password_hash,role,storage_quota_mb FROM users WHERE id=?`, userID).Scan(&ownerPasswordHash, &ownerRole, &ownerStorageQuotaMB); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to load owner user")
+		return
+	}
+	quotaMB := req.QuotaMB
+	if quotaMB == 0 {
+		quotaMB = ownerStorageQuotaMB
+	}
+	if ownerRole == "admin" {
+		quotaMB = 0
+	}
+	mailboxID, err := a.createMailboxWithPasswordHashTx(r.Context(), tx, userID, req.DomainID, localPart, displayName, ownerPasswordHash, quotaMB, "active")
 	if err != nil {
 		badRequest(w, err)
 		return
@@ -279,7 +296,11 @@ func (a *App) handleOpenAPIUpdateMailbox(w http.ResponseWriter, r *http.Request)
 		displayName = current.DisplayName
 	}
 	quotaMB := req.QuotaMB
-	if quotaMB <= 0 {
+	if quotaMB < 0 {
+		badRequest(w, errors.New("quotaMb must be zero or greater"))
+		return
+	}
+	if quotaMB == 0 {
 		quotaMB = current.QuotaMB
 	}
 	status := strings.TrimSpace(req.Status)
@@ -294,12 +315,28 @@ func (a *App) handleOpenAPIUpdateMailbox(w http.ResponseWriter, r *http.Request)
 	if userID == "" {
 		userID = current.UserID
 	}
+	if current.Primary && userID != current.UserID {
+		badRequest(w, errors.New("用户默认邮箱归属由所属账号管理，不能单独修改"))
+		return
+	}
+	if current.Primary && status != current.Status {
+		badRequest(w, errors.New("用户默认邮箱状态由所属账号管理，不能单独修改"))
+		return
+	}
 	if err := a.ensureActiveUserExists(r.Context(), userID); err != nil {
 		respondMailboxOwnerError(w, err)
 		return
 	}
-	res, err := a.db.ExecContext(r.Context(), `UPDATE mailboxes SET user_id=?,display_name=?,quota_mb=?,status=?,updated_at=? WHERE id=?`,
-		userID, displayName, quotaMB, status, a.now().UTC().Format(time.RFC3339Nano), id)
+	var ownerRole, ownerPasswordHash string
+	if err := a.db.QueryRowContext(r.Context(), `SELECT role,password_hash FROM users WHERE id=?`, userID).Scan(&ownerRole, &ownerPasswordHash); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to load owner user")
+		return
+	}
+	if ownerRole == "admin" {
+		quotaMB = 0
+	}
+	res, err := a.db.ExecContext(r.Context(), `UPDATE mailboxes SET user_id=?,display_name=?,password_hash=?,quota_mb=?,status=?,updated_at=? WHERE id=?`,
+		userID, displayName, ownerPasswordHash, quotaMB, status, a.now().UTC().Format(time.RFC3339Nano), id)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to update mailbox")
 		return
@@ -318,6 +355,14 @@ func (a *App) handleOpenAPIUpdateMailbox(w http.ResponseWriter, r *http.Request)
 
 func (a *App) handleOpenAPIDeleteMailbox(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if err := a.ensureMailboxDeletable(r.Context(), id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			respondError(w, http.StatusNotFound, "邮箱不存在或已被删除")
+		} else {
+			badRequest(w, err)
+		}
+		return
+	}
 	rows, err := a.db.QueryContext(r.Context(), `SELECT id FROM messages WHERE mailbox_id=?`, id)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "加载邮箱邮件失败")
@@ -821,8 +866,8 @@ func (a *App) resolveMailboxOwnerTx(ctx context.Context, tx *sql.Tx, userID, own
 	if displayName == "" {
 		displayName = email
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO users(id,login_name,email,display_name,role,password_hash,disabled,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?)`, userID, email, email, displayName, "user", passwordHash, 0, now, now)
+	_, err = tx.ExecContext(ctx, `INSERT INTO users(id,login_name,email,display_name,role,password_hash,disabled,storage_quota_mb,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?)`, userID, email, email, displayName, "user", passwordHash, 0, defaultUserStorageQuotaMB, now, now)
 	return userID, err
 }
 

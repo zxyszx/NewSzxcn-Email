@@ -49,9 +49,9 @@ func (a *App) handleAdminOverview(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.QueryContext(r.Context(), `SELECT u.id,u.login_name,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.mailbox_limit_override,u.created_at,COUNT(mb.id),COALESCE(GROUP_CONCAT(mb.address), '')
+	rows, err := a.db.QueryContext(r.Context(), `SELECT u.id,u.login_name,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.mailbox_limit_override,u.storage_quota_mb,u.created_at,COUNT(mb.id),COALESCE(GROUP_CONCAT(mb.address), '')
 		FROM users u LEFT JOIN mailboxes mb ON mb.user_id=u.id
-		GROUP BY u.id,u.login_name,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.mailbox_limit_override,u.created_at
+		GROUP BY u.id,u.login_name,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.mailbox_limit_override,u.storage_quota_mb,u.created_at
 		ORDER BY CASE WHEN u.role='admin' THEN 0 ELSE 1 END, lower(COALESCE(NULLIF(u.email,''),u.login_name)), lower(u.display_name), u.created_at`)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to list users")
@@ -64,7 +64,7 @@ func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
 		var disabled, twoFactorEnabled int
 		var mailboxLimitOverride sql.NullInt64
 		var created, mailboxCSV string
-		if err := rows.Scan(&item.ID, &item.LoginName, &item.Email, &item.DisplayName, &item.Role, &disabled, &twoFactorEnabled, &mailboxLimitOverride, &created, &item.MailboxCount, &mailboxCSV); err != nil {
+		if err := rows.Scan(&item.ID, &item.LoginName, &item.Email, &item.DisplayName, &item.Role, &disabled, &twoFactorEnabled, &mailboxLimitOverride, &item.StorageQuotaMB, &created, &item.MailboxCount, &mailboxCSV); err != nil {
 			respondError(w, http.StatusInternalServerError, "failed to scan users")
 			return
 		}
@@ -101,6 +101,7 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		Password             string   `json:"password"`
 		Disabled             bool     `json:"disabled"`
 		MailboxLimitOverride *int     `json:"mailboxLimitOverride"`
+		StorageQuotaMB       int      `json:"storageQuotaMb"`
 		PermissionGroupIDs   []string `json:"permissionGroupIds"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
@@ -142,6 +143,14 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	if role == "admin" {
 		mailboxLimitOverride = nil
 	}
+	storageQuotaMB := req.StorageQuotaMB
+	if storageQuotaMB > 0 && storageQuotaMB < minimumStorageQuotaMB {
+		badRequest(w, errors.New("共享存储容量不能小于 100 MB"))
+		return
+	}
+	if storageQuotaMB == 0 {
+		storageQuotaMB = defaultUserStorageQuotaMB
+	}
 	if !hasMinimumPasswordLength(req.Password) {
 		badRequest(w, errors.New("password must be at least 6 characters"))
 		return
@@ -159,9 +168,20 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
-	if _, err = tx.ExecContext(r.Context(), `INSERT INTO users(id,login_name,email,display_name,role,password_hash,disabled,mailbox_limit_override,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?)`, id, primaryEmail, primaryEmail, displayName, role, string(passwordHash), boolInt(req.Disabled), nullableInt(mailboxLimitOverride), now, now); err != nil {
+	if _, err = tx.ExecContext(r.Context(), `INSERT INTO users(id,login_name,email,display_name,role,password_hash,disabled,mailbox_limit_override,storage_quota_mb,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?)`, id, primaryEmail, primaryEmail, displayName, role, string(passwordHash), boolInt(req.Disabled), nullableInt(mailboxLimitOverride), storageQuotaMB, now, now); err != nil {
 		badRequest(w, err)
+		return
+	}
+	localPart, domainName, _ := strings.Cut(primaryEmail, "@")
+	var primaryDomainID string
+	if err := tx.QueryRowContext(r.Context(), `SELECT id FROM domains WHERE lower(name)=lower(?)`, domainName).Scan(&primaryDomainID); err == nil {
+		if _, err := a.createMailboxWithPasswordHashTx(r.Context(), tx, id, primaryDomainID, localPart, displayName, string(passwordHash), storageQuotaMB, "active"); err != nil {
+			badRequest(w, err)
+			return
+		}
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		respondError(w, http.StatusInternalServerError, "failed to load account domain")
 		return
 	}
 	permissionGroupIDs := req.PermissionGroupIDs
@@ -194,6 +214,7 @@ func (a *App) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		Role                 string    `json:"role"`
 		Disabled             *bool     `json:"disabled"`
 		MailboxLimitOverride *int      `json:"mailboxLimitOverride"`
+		StorageQuotaMB       *int      `json:"storageQuotaMb"`
 		PermissionGroupIDs   *[]string `json:"permissionGroupIds"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
@@ -267,6 +288,18 @@ func (a *App) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	if role == "admin" {
 		mailboxLimitOverride = nil
 	}
+	var storageQuotaMB int
+	if err := a.db.QueryRowContext(r.Context(), `SELECT storage_quota_mb FROM users WHERE id=?`, id).Scan(&storageQuotaMB); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to load storage quota")
+		return
+	}
+	if req.StorageQuotaMB != nil {
+		storageQuotaMB = *req.StorageQuotaMB
+	}
+	if storageQuotaMB < 100 {
+		badRequest(w, errors.New("共享存储容量不能小于 100 MB"))
+		return
+	}
 	if err := a.ensureAdminRemains(r.Context(), id, role, disabled); err != nil {
 		badRequest(w, err)
 		return
@@ -311,8 +344,8 @@ func (a *App) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(r.Context(), `UPDATE users SET login_name=?, email=?, display_name=?, role=?, disabled=?, mailbox_limit_override=?, updated_at=? WHERE id=?`,
-		loginName, primaryEmail, displayName, role, boolInt(disabled), nullableInt(mailboxLimitOverride), a.now().UTC().Format(time.RFC3339Nano), id); err != nil {
+	if _, err := tx.ExecContext(r.Context(), `UPDATE users SET login_name=?, email=?, display_name=?, role=?, disabled=?, mailbox_limit_override=?, storage_quota_mb=?, updated_at=? WHERE id=?`,
+		loginName, primaryEmail, displayName, role, boolInt(disabled), nullableInt(mailboxLimitOverride), storageQuotaMB, a.now().UTC().Format(time.RFC3339Nano), id); err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "unique") {
 			badRequest(w, errors.New("主登录邮箱已被使用"))
 			return
@@ -409,11 +442,8 @@ func (a *App) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	if target, err := a.userByID(r.Context(), id); err != nil {
 		respondError(w, http.StatusNotFound, "user not found")
 		return
-	} else if a.isDefaultAdminUser(target) {
-		badRequest(w, errors.New("default administrator cannot be deleted"))
-		return
-	} else if target.Role == "admin" && (current == nil || current.Role != "admin") {
-		respondError(w, http.StatusForbidden, "only administrators can delete administrator users")
+	} else if target.Role == "admin" {
+		badRequest(w, errors.New("administrator accounts cannot be deleted"))
 		return
 	}
 	if err := a.ensureAdminRemains(r.Context(), id, "user", true); err != nil {
@@ -553,6 +583,7 @@ func (a *App) handleListMailboxes(w http.ResponseWriter, r *http.Request) {
 		m.CreatedAt = parseTime(created)
 		items = append(items, m)
 	}
+	markPrimaryMailboxes(items)
 	respondJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
@@ -563,7 +594,6 @@ func (a *App) handleCreateMailbox(w http.ResponseWriter, r *http.Request) {
 		DisplayName    string `json:"displayName"`
 		Password       string `json:"password"`
 		QuotaMB        int    `json:"quotaMb"`
-		Role           string `json:"role"`
 		OwnerLoginName string `json:"ownerLoginName"`
 		OwnerEmail     string `json:"ownerEmail"`
 		UserID         string `json:"userId"`
@@ -580,20 +610,9 @@ func (a *App) handleCreateMailbox(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, err)
 		return
 	}
-	if !hasMinimumPasswordLength(req.Password) {
-		badRequest(w, errors.New("password must be at least 6 characters"))
-		return
-	}
-	role := req.Role
-	if role == "" {
-		role = "user"
-	}
-	if role != "user" && role != "admin" {
-		badRequest(w, errors.New("invalid role"))
-		return
-	}
-	if role == "admin" {
-		respondError(w, http.StatusForbidden, "管理员只能由安装流程创建")
+	userID := strings.TrimSpace(req.UserID)
+	if req.QuotaMB < 0 {
+		badRequest(w, errors.New("quotaMb must be zero or greater"))
 		return
 	}
 
@@ -611,15 +630,14 @@ func (a *App) handleCreateMailbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
-	now := a.now().UTC().Format(time.RFC3339Nano)
-	userID := strings.TrimSpace(req.UserID)
 	displayName := req.DisplayName
 	if displayName == "" {
 		displayName = address
 	}
+	var disabled, ownerStorageQuotaMB int
+	var passwordHash, ownerRole string
 	if userID != "" {
-		var disabled int
-		if err := tx.QueryRowContext(r.Context(), `SELECT disabled FROM users WHERE id=?`, userID).Scan(&disabled); err != nil {
+		if err := tx.QueryRowContext(r.Context(), `SELECT disabled,password_hash,role,storage_quota_mb FROM users WHERE id=?`, userID).Scan(&disabled, &passwordHash, &ownerRole, &ownerStorageQuotaMB); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				respondError(w, http.StatusNotFound, "owner user not found")
 			} else {
@@ -627,11 +645,11 @@ func (a *App) handleCreateMailbox(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
-		if intBool(disabled) {
-			badRequest(w, errors.New("owner user is disabled"))
+	} else {
+		if !hasMinimumPasswordLength(req.Password) {
+			badRequest(w, errors.New("password must be at least 6 characters"))
 			return
 		}
-	} else {
 		ownerEmailInput := req.OwnerEmail
 		if strings.TrimSpace(ownerEmailInput) == "" && strings.Contains(strings.TrimSpace(req.OwnerLoginName), "@") {
 			ownerEmailInput = req.OwnerLoginName
@@ -641,21 +659,20 @@ func (a *App) handleCreateMailbox(w http.ResponseWriter, r *http.Request) {
 			badRequest(w, err)
 			return
 		}
-		err = tx.QueryRowContext(r.Context(), `SELECT id FROM users WHERE email=? AND disabled=0`, ownerEmail).Scan(&userID)
+		err = tx.QueryRowContext(r.Context(), `SELECT id,disabled,password_hash,role,storage_quota_mb FROM users WHERE email=?`, ownerEmail).Scan(&userID, &disabled, &passwordHash, &ownerRole, &ownerStorageQuotaMB)
 		if errors.Is(err, sql.ErrNoRows) {
-			passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-			if err != nil {
+			hash, hashErr := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+			if hashErr != nil {
 				respondError(w, http.StatusInternalServerError, "failed to hash password")
 				return
 			}
 			userID = newID("usr")
-			ownerDisplayName := displayName
-			if !strings.EqualFold(ownerEmail, address) {
-				ownerDisplayName = ownerEmail
-			}
-			_, err = tx.ExecContext(r.Context(), `INSERT INTO users(id,login_name,email,display_name,role,password_hash,disabled,created_at,updated_at)
-				VALUES(?,?,?,?,?,?,?,?,?)`, userID, ownerEmail, ownerEmail, ownerDisplayName, role, string(passwordHash), 0, now, now)
-			if err != nil {
+			passwordHash = string(hash)
+			ownerRole = "user"
+			ownerStorageQuotaMB = defaultUserStorageQuotaMB
+			now := a.now().UTC().Format(time.RFC3339Nano)
+			if _, err = tx.ExecContext(r.Context(), `INSERT INTO users(id,login_name,email,display_name,role,password_hash,disabled,storage_quota_mb,created_at,updated_at)
+				VALUES(?,?,?,?,?,?,?,?,?,?)`, userID, ownerEmail, ownerEmail, displayName, ownerRole, passwordHash, 0, ownerStorageQuotaMB, now, now); err != nil {
 				badRequest(w, err)
 				return
 			}
@@ -664,14 +681,24 @@ func (a *App) handleCreateMailbox(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to prepare owner user")
+	if intBool(disabled) {
+		badRequest(w, errors.New("owner user is disabled"))
 		return
 	}
-
-	mailboxID, err := a.createMailbox(r.Context(), userID, req.DomainID, local, displayName, req.Password, req.QuotaMB, "active")
+	quotaMB := req.QuotaMB
+	if quotaMB == 0 {
+		quotaMB = ownerStorageQuotaMB
+	}
+	if ownerRole == "admin" {
+		quotaMB = 0
+	}
+	mailboxID, err := a.createMailboxWithPasswordHashTx(r.Context(), tx, userID, req.DomainID, local, displayName, passwordHash, quotaMB, "active")
 	if err != nil {
 		badRequest(w, err)
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to create mailbox")
 		return
 	}
 	m, err := a.mailboxByID(r.Context(), mailboxID)
@@ -699,8 +726,9 @@ func (a *App) handleUpdateMailbox(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, errors.New("displayName is required"))
 		return
 	}
-	if req.QuotaMB <= 0 {
-		req.QuotaMB = 1024
+	if req.QuotaMB < 0 {
+		badRequest(w, errors.New("quotaMb must be zero or greater"))
+		return
 	}
 	status := strings.TrimSpace(req.Status)
 	if status == "" {
@@ -710,13 +738,27 @@ func (a *App) handleUpdateMailbox(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, errors.New("invalid status"))
 		return
 	}
+	existingMailbox, err := a.mailboxByID(r.Context(), id)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "mailbox not found")
+		return
+	}
+	if existingMailbox.Primary && status != existingMailbox.Status {
+		badRequest(w, errors.New("用户默认邮箱状态由所属账号管理，不能单独修改"))
+		return
+	}
 	userID := strings.TrimSpace(req.UserID)
 	if userID == "" {
 		badRequest(w, errors.New("userId is required"))
 		return
 	}
+	if existingMailbox.Primary && userID != existingMailbox.UserID {
+		badRequest(w, errors.New("用户默认邮箱归属由所属账号管理，不能单独修改"))
+		return
+	}
 	var disabled int
-	if err := a.db.QueryRowContext(r.Context(), `SELECT disabled FROM users WHERE id=?`, userID).Scan(&disabled); err != nil {
+	var ownerRole, ownerPasswordHash string
+	if err := a.db.QueryRowContext(r.Context(), `SELECT disabled,role,password_hash FROM users WHERE id=?`, userID).Scan(&disabled, &ownerRole, &ownerPasswordHash); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			respondError(w, http.StatusNotFound, "owner user not found")
 		} else {
@@ -728,8 +770,11 @@ func (a *App) handleUpdateMailbox(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, errors.New("owner user is disabled"))
 		return
 	}
-	res, err := a.db.ExecContext(r.Context(), `UPDATE mailboxes SET user_id=?,display_name=?,quota_mb=?,status=?,updated_at=? WHERE id=?`,
-		userID, displayName, req.QuotaMB, status, a.now().UTC().Format(time.RFC3339Nano), id)
+	if ownerRole == "admin" {
+		req.QuotaMB = 0
+	}
+	res, err := a.db.ExecContext(r.Context(), `UPDATE mailboxes SET user_id=?,display_name=?,password_hash=?,quota_mb=?,status=?,updated_at=? WHERE id=?`,
+		userID, displayName, ownerPasswordHash, req.QuotaMB, status, a.now().UTC().Format(time.RFC3339Nano), id)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to update mailbox")
 		return
@@ -749,6 +794,14 @@ func (a *App) handleUpdateMailbox(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleDeleteMailbox(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if err := a.ensureMailboxDeletable(r.Context(), id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			respondError(w, http.StatusNotFound, "邮箱不存在或已被删除")
+		} else {
+			badRequest(w, err)
+		}
+		return
+	}
 	rows, err := a.db.QueryContext(r.Context(), `SELECT id FROM messages WHERE mailbox_id=?`, id)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "加载邮箱邮件失败")
@@ -1118,15 +1171,15 @@ func (a *App) domainByID(ctx context.Context, id string) (*Domain, error) {
 }
 
 func (a *App) adminUserByID(ctx context.Context, id string) (*AdminUser, error) {
-	row := a.db.QueryRowContext(ctx, `SELECT u.id,u.login_name,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.mailbox_limit_override,u.created_at,COUNT(mb.id),COALESCE(GROUP_CONCAT(mb.address), '')
+	row := a.db.QueryRowContext(ctx, `SELECT u.id,u.login_name,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.mailbox_limit_override,u.storage_quota_mb,u.created_at,COUNT(mb.id),COALESCE(GROUP_CONCAT(mb.address), '')
 		FROM users u LEFT JOIN mailboxes mb ON mb.user_id=u.id
 		WHERE u.id=?
-		GROUP BY u.id,u.login_name,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.mailbox_limit_override,u.created_at`, id)
+		GROUP BY u.id,u.login_name,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.mailbox_limit_override,u.storage_quota_mb,u.created_at`, id)
 	var item AdminUser
 	var disabled, twoFactorEnabled int
 	var mailboxLimitOverride sql.NullInt64
 	var created, mailboxCSV string
-	if err := row.Scan(&item.ID, &item.LoginName, &item.Email, &item.DisplayName, &item.Role, &disabled, &twoFactorEnabled, &mailboxLimitOverride, &created, &item.MailboxCount, &mailboxCSV); err != nil {
+	if err := row.Scan(&item.ID, &item.LoginName, &item.Email, &item.DisplayName, &item.Role, &disabled, &twoFactorEnabled, &mailboxLimitOverride, &item.StorageQuotaMB, &created, &item.MailboxCount, &mailboxCSV); err != nil {
 		return nil, err
 	}
 	item.Disabled = intBool(disabled)
@@ -1191,7 +1244,46 @@ func (a *App) mailboxByID(ctx context.Context, id string) (*Mailbox, error) {
 		return nil, err
 	}
 	m.CreatedAt = parseTime(created)
+	if err := a.markMailboxPrimary(ctx, &m); err != nil {
+		return nil, err
+	}
 	return &m, nil
+}
+
+func markPrimaryMailboxes(items []Mailbox) {
+	primaryByUser := make(map[string]int)
+	for i := range items {
+		candidate, ok := primaryByUser[items[i].UserID]
+		if !ok || strings.EqualFold(items[i].Address, items[i].UserEmail) || (!strings.EqualFold(items[candidate].Address, items[candidate].UserEmail) && (items[i].CreatedAt.Before(items[candidate].CreatedAt) || (items[i].CreatedAt.Equal(items[candidate].CreatedAt) && items[i].ID < items[candidate].ID))) {
+			primaryByUser[items[i].UserID] = i
+		}
+	}
+	for _, index := range primaryByUser {
+		items[index].Primary = true
+	}
+}
+
+func (a *App) markMailboxPrimary(ctx context.Context, mailbox *Mailbox) error {
+	var primaryID string
+	err := a.db.QueryRowContext(ctx, `SELECT mb.id FROM mailboxes mb JOIN users u ON u.id=mb.user_id
+		WHERE mb.user_id=?
+		ORDER BY CASE WHEN lower(mb.address)=lower(u.email) THEN 0 ELSE 1 END, mb.created_at, mb.id LIMIT 1`, mailbox.UserID).Scan(&primaryID)
+	if err != nil {
+		return err
+	}
+	mailbox.Primary = mailbox.ID == primaryID
+	return nil
+}
+
+func (a *App) ensureMailboxDeletable(ctx context.Context, id string) error {
+	mailbox, err := a.mailboxByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if mailbox.Primary {
+		return errors.New("用户默认邮箱不能删除")
+	}
+	return nil
 }
 
 func (a *App) mailboxForUser(ctx context.Context, userID string) (*Mailbox, error) {

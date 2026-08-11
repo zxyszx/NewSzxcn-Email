@@ -21,8 +21,9 @@ type User struct {
 
 type AdminUser struct {
 	User
-	MailboxCount int      `json:"mailboxCount"`
-	Mailboxes    []string `json:"mailboxes"`
+	MailboxCount   int      `json:"mailboxCount"`
+	Mailboxes      []string `json:"mailboxes"`
+	StorageQuotaMB int      `json:"storageQuotaMb"`
 }
 
 type APIToken struct {
@@ -71,6 +72,7 @@ type Mailbox struct {
 	DisplayName string    `json:"displayName"`
 	QuotaMB     int       `json:"quotaMb"`
 	Status      string    `json:"status"`
+	Primary     bool      `json:"primary"`
 	UnreadCount int       `json:"unreadCount"`
 	CreatedAt   time.Time `json:"createdAt"`
 }

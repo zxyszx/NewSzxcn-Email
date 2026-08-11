@@ -140,12 +140,50 @@
   }
 
   [data-sidebar="menu-button"][data-active="true"] {
-    background: hsl(var(--sidebar-accent));
+    background: hsl(var(--sidebar-accent) / 0.82);
     color: hsl(var(--sidebar-accent-foreground));
+    box-shadow: inset 2px 0 0 hsl(var(--foreground));
   }
 
   [data-sidebar="menu-button"][data-active="true"] svg {
-    color: hsl(var(--muted-foreground));
+    color: hsl(var(--foreground));
+  }
+
+  .admin-page [data-slot="card"] {
+    border-radius: 0.5rem;
+    box-shadow: none;
+  }
+
+  .admin-page [data-slot="card-header"] {
+    padding: 1.25rem;
+  }
+
+  .admin-page [data-slot="card-content"] {
+    padding: 0 1.25rem 1.25rem;
+  }
+
+  .admin-page [data-slot="card-title"] {
+    font-size: 0.9375rem;
+    line-height: 1.4;
+  }
+
+  .admin-page [data-slot="table-header"] {
+    background: hsl(var(--muted) / 0.48);
+  }
+
+  .admin-page [data-slot="table-head"] {
+    height: 2.5rem;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+    font-size: 0.75rem;
+  }
+
+  .admin-page [data-slot="table-cell"] {
+    padding: 0.75rem;
+  }
+
+  .admin-page [data-slot="table-row"]:hover {
+    background: hsl(var(--muted) / 0.32);
   }
 }
 

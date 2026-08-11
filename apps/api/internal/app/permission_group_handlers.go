@@ -142,11 +142,12 @@ func (a *App) handleCreatePermissionGroup(w http.ResponseWriter, r *http.Request
 func (a *App) handleUpdatePermissionGroup(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	var existingSystem int
-	if err := a.db.QueryRowContext(r.Context(), `SELECT system FROM permission_groups WHERE id=?`, id).Scan(&existingSystem); err != nil {
+	var existingName, existingDescription string
+	if err := a.db.QueryRowContext(r.Context(), `SELECT system,name,description FROM permission_groups WHERE id=?`, id).Scan(&existingSystem, &existingName, &existingDescription); err != nil {
 		respondError(w, http.StatusNotFound, "permission group not found")
 		return
 	}
-	if intBool(existingSystem) {
+	if intBool(existingSystem) && id != PermissionGroupRegular {
 		respondError(w, http.StatusForbidden, "system permission groups cannot be edited")
 		return
 	}
@@ -161,6 +162,10 @@ func (a *App) handleUpdatePermissionGroup(w http.ResponseWriter, r *http.Request
 		return
 	}
 	name := strings.TrimSpace(req.Name)
+	if id == PermissionGroupRegular {
+		name = existingName
+		req.Description = existingDescription
+	}
 	if name == "" {
 		badRequest(w, errors.New("name is required"))
 		return

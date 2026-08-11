@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestAdminCanDeleteOwnLastMailboxWithoutDeletingAccount(t *testing.T) {
+func TestAdminCannotDeleteOwnPrimaryMailbox(t *testing.T) {
 	a := newTestApp(t)
 	ts := httptest.NewServer(a.Router())
 	defer ts.Close()
@@ -21,10 +21,13 @@ func TestAdminCanDeleteOwnLastMailboxWithoutDeletingAccount(t *testing.T) {
 	if code := admin.do("GET", "/api/mail/mailboxes", nil, &mailboxes); code != http.StatusOK || len(mailboxes.Items) != 1 {
 		t.Fatalf("mailboxes code=%d items=%d", code, len(mailboxes.Items))
 	}
-	if code := admin.do("DELETE", "/api/admin/mailboxes/"+mailboxes.Items[0].ID, nil, &map[string]any{}); code != http.StatusOK {
-		t.Fatalf("delete final mailbox code=%d", code)
+	if !mailboxes.Items[0].Primary {
+		t.Fatal("administrator mailbox should be marked as primary")
 	}
-	if code := admin.do("GET", "/api/mail/mailboxes", nil, &mailboxes); code != http.StatusOK || len(mailboxes.Items) != 0 {
+	if code := admin.do("DELETE", "/api/admin/mailboxes/"+mailboxes.Items[0].ID, nil, &map[string]any{}); code != http.StatusBadRequest {
+		t.Fatalf("delete primary mailbox code=%d", code)
+	}
+	if code := admin.do("GET", "/api/mail/mailboxes", nil, &mailboxes); code != http.StatusOK || len(mailboxes.Items) != 1 {
 		t.Fatalf("mailboxes after delete code=%d items=%d", code, len(mailboxes.Items))
 	}
 	var me map[string]any

@@ -87,6 +87,7 @@ func (a *App) handleMyMailboxes(w http.ResponseWriter, r *http.Request) {
 		m.CreatedAt = parseTime(created)
 		items = append(items, m)
 	}
+	markPrimaryMailboxes(items)
 	respondJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
@@ -2619,14 +2620,15 @@ func (a *App) ensureMailboxQuotaAvailable(ctx context.Context, db dbExecutor, ma
 		return nil
 	}
 	var quotaMB int64
-	if err := rowDB.QueryRowContext(ctx, `SELECT quota_mb FROM mailboxes WHERE id=? AND status='active'`, mailboxID).Scan(&quotaMB); err != nil {
+	var userID string
+	if err := rowDB.QueryRowContext(ctx, `SELECT u.storage_quota_mb,mb.user_id FROM mailboxes mb JOIN users u ON u.id=mb.user_id WHERE mb.id=? AND mb.status='active'`, mailboxID).Scan(&quotaMB, &userID); err != nil {
 		return err
 	}
 	if quotaMB <= 0 {
 		return nil
 	}
 	var used int64
-	if err := rowDB.QueryRowContext(ctx, `SELECT COALESCE(SUM(size_bytes),0) FROM messages WHERE mailbox_id=?`, mailboxID).Scan(&used); err != nil {
+	if err := rowDB.QueryRowContext(ctx, `SELECT COALESCE(SUM(m.size_bytes),0) FROM messages m JOIN mailboxes mb ON mb.id=m.mailbox_id WHERE mb.user_id=?`, userID).Scan(&used); err != nil {
 		return err
 	}
 	quotaBytes := quotaMB * 1024 * 1024

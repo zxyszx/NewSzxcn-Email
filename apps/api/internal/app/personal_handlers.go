@@ -111,7 +111,11 @@ func (a *App) handleApplyMailbox(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, errors.New("displayName must be at most 80 characters"))
 		return
 	}
-	mailboxID, err := a.createMailboxWithPasswordHash(r.Context(), user.ID, domainID, localPart, displayName, passwordHash, 1024, "active")
+	quotaMB := defaultUserStorageQuotaMB
+	if user.Role == "admin" {
+		quotaMB = 0
+	}
+	mailboxID, err := a.createMailboxWithPasswordHash(r.Context(), user.ID, domainID, localPart, displayName, passwordHash, quotaMB, "active")
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "unique") {
 			respondError(w, http.StatusConflict, "该邮箱地址已被占用")
@@ -900,26 +904,14 @@ func (a *App) handleMailStats(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "failed to load send queue stats")
 		return
 	}
-	if mailboxID != "" && !isAllMailboxID(mailboxID) {
-		var quotaMB int64
-		if err := a.db.QueryRowContext(r.Context(), `SELECT quota_mb FROM mailboxes WHERE id=? AND user_id=?`, mailboxID, user.ID).Scan(&quotaMB); err != nil {
-			respondError(w, http.StatusInternalServerError, "failed to load quota")
-			return
-		}
-		stats.QuotaBytes = quotaMB * 1024 * 1024
-		if stats.QuotaBytes > 0 {
-			stats.QuotaUsedPct = float64(stats.StorageBytes) / float64(stats.QuotaBytes) * 100
-		}
-	} else {
-		var quotaMB int64
-		if err := a.db.QueryRowContext(r.Context(), `SELECT COALESCE(SUM(mb.quota_mb),0) FROM mailboxes mb WHERE `+where, args...).Scan(&quotaMB); err != nil {
-			respondError(w, http.StatusInternalServerError, "failed to load quota")
-			return
-		}
-		stats.QuotaBytes = quotaMB * 1024 * 1024
-		if stats.QuotaBytes > 0 {
-			stats.QuotaUsedPct = float64(stats.StorageBytes) / float64(stats.QuotaBytes) * 100
-		}
+	var quotaMB int64
+	if err := a.db.QueryRowContext(r.Context(), `SELECT storage_quota_mb FROM users WHERE id=?`, user.ID).Scan(&quotaMB); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to load quota")
+		return
+	}
+	stats.QuotaBytes = quotaMB * 1024 * 1024
+	if stats.QuotaBytes > 0 {
+		stats.QuotaUsedPct = float64(stats.StorageBytes) / float64(stats.QuotaBytes) * 100
 	}
 	rows, err := a.db.QueryContext(r.Context(), `SELECT f.name,f.role,COUNT(m.id),COALESCE(SUM(CASE WHEN m.is_read=0 THEN 1 ELSE 0 END),0),COALESCE(SUM(m.size_bytes),0)
 		FROM mailboxes mb JOIN folders f ON f.mailbox_id=mb.id LEFT JOIN messages m ON m.folder_id=f.id

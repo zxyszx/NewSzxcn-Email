@@ -363,6 +363,147 @@ func createTestMailbox(t *testing.T, admin *testClient, domainID, localPart, dis
 	return mailbox
 }
 
+func TestAdminMailboxCreationUsesOwnerPasswordAndQuota(t *testing.T) {
+	a := newTestApp(t)
+	ts := httptest.NewServer(a.Router())
+	defer ts.Close()
+	admin := &testClient{t: t, server: ts}
+	var login map[string]any
+	if code := admin.do("POST", "/api/auth/login", map[string]string{"email": "admin@lanqin.local", "password": "ChangeMe123!"}, &login); code != http.StatusOK {
+		t.Fatalf("login code=%d body=%v", code, login)
+	}
+	adminUser, adminMailbox := defaultAdminUserAndMailbox(t, a)
+	adminDetails, err := a.adminUserByID(context.Background(), adminUser.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if adminDetails.StorageQuotaMB != defaultAdminStorageQuotaMB {
+		t.Fatalf("administrator storage quota=%d, want %d", adminDetails.StorageQuotaMB, defaultAdminStorageQuotaMB)
+	}
+	domainID := mustDefaultDomainID(t, a)
+
+	var secondary Mailbox
+	if code := admin.do("POST", "/api/admin/mailboxes", map[string]any{
+		"domainId":  domainID,
+		"localPart": "admin-secondary",
+		"userId":    adminUser.ID,
+	}, &secondary); code != http.StatusCreated {
+		t.Fatalf("create admin secondary mailbox code=%d", code)
+	}
+	if secondary.QuotaMB != 0 {
+		t.Fatalf("admin secondary quota=%d, want unlimited", secondary.QuotaMB)
+	}
+
+	var primaryHash, secondaryHash string
+	if err := a.db.QueryRow(`SELECT password_hash FROM mailboxes WHERE id=?`, adminMailbox.ID).Scan(&primaryHash); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.db.QueryRow(`SELECT password_hash FROM mailboxes WHERE id=?`, secondary.ID).Scan(&secondaryHash); err != nil {
+		t.Fatal(err)
+	}
+	if primaryHash != secondaryHash {
+		t.Fatal("admin secondary mailbox did not inherit the owner password")
+	}
+
+	var regular AdminUser
+	if code := admin.do("POST", "/api/admin/users", map[string]any{
+		"email":       "owner@lanqin.local",
+		"displayName": "Owner",
+		"password":    "OwnerPassword123!",
+		"role":        "user",
+	}, &regular); code != http.StatusCreated {
+		t.Fatalf("create regular owner code=%d", code)
+	}
+	if regular.MailboxCount != 1 {
+		t.Fatalf("new account mailbox count=%d, want one protected primary mailbox", regular.MailboxCount)
+	}
+	if regular.StorageQuotaMB != defaultUserStorageQuotaMB {
+		t.Fatalf("regular account storage quota=%d, want %d", regular.StorageQuotaMB, defaultUserStorageQuotaMB)
+	}
+	if _, err := a.mailboxByAddress(context.Background(), regular.Email); err != nil {
+		t.Fatalf("new account primary mailbox missing: %v", err)
+	}
+	var primaryStatusErr map[string]any
+	primaryMailbox, err := a.mailboxByAddress(context.Background(), regular.Email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := admin.do("POST", "/api/admin/mailboxes/"+primaryMailbox.ID, map[string]any{
+		"userId": regular.ID, "displayName": primaryMailbox.DisplayName, "quotaMb": primaryMailbox.QuotaMB, "status": "disabled",
+	}, &primaryStatusErr); code != http.StatusBadRequest {
+		t.Fatalf("primary mailbox status update code=%d body=%v", code, primaryStatusErr)
+	}
+	var regularMailbox Mailbox
+	if code := admin.do("POST", "/api/admin/mailboxes", map[string]any{
+		"domainId":  domainID,
+		"localPart": "owner-secondary",
+		"userId":    regular.ID,
+	}, &regularMailbox); code != http.StatusCreated {
+		t.Fatalf("create regular secondary mailbox code=%d", code)
+	}
+	if regularMailbox.QuotaMB != defaultUserStorageQuotaMB {
+		t.Fatalf("regular secondary quota=%d, want %d", regularMailbox.QuotaMB, defaultUserStorageQuotaMB)
+	}
+	var userHash, mailboxHash string
+	if err := a.db.QueryRow(`SELECT password_hash FROM users WHERE id=?`, regular.ID).Scan(&userHash); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.db.QueryRow(`SELECT password_hash FROM mailboxes WHERE id=?`, regularMailbox.ID).Scan(&mailboxHash); err != nil {
+		t.Fatal(err)
+	}
+	if userHash != mailboxHash {
+		t.Fatal("regular secondary mailbox did not inherit the owner password")
+	}
+}
+
+func TestAdministratorAccountAndPrimaryMailboxesCannotBeDeleted(t *testing.T) {
+	a := newTestApp(t)
+	ts := httptest.NewServer(a.Router())
+	defer ts.Close()
+	admin := &testClient{t: t, server: ts}
+	var login map[string]any
+	if code := admin.do("POST", "/api/auth/login", map[string]string{"email": "admin@lanqin.local", "password": "ChangeMe123!"}, &login); code != http.StatusOK {
+		t.Fatalf("login code=%d body=%v", code, login)
+	}
+	adminUser, adminMailbox := defaultAdminUserAndMailbox(t, a)
+	var errBody map[string]any
+	if code := admin.do("DELETE", "/api/admin/users/"+adminUser.ID, nil, &errBody); code != http.StatusBadRequest {
+		t.Fatalf("administrator account delete code=%d body=%v", code, errBody)
+	}
+	if code := admin.do("DELETE", "/api/admin/mailboxes/"+adminMailbox.ID, nil, &errBody); code != http.StatusBadRequest {
+		t.Fatalf("administrator primary mailbox delete code=%d body=%v", code, errBody)
+	}
+	if code := admin.do("POST", "/api/admin/users/"+adminUser.ID, map[string]any{
+		"email": adminUser.Email, "displayName": adminUser.DisplayName, "role": "admin", "disabled": false, "storageQuotaMb": 99,
+	}, &errBody); code != http.StatusBadRequest {
+		t.Fatalf("storage quota below 100 MB code=%d body=%v", code, errBody)
+	}
+	var updatedAdmin AdminUser
+	if code := admin.do("POST", "/api/admin/users/"+adminUser.ID, map[string]any{
+		"email": adminUser.Email, "displayName": adminUser.DisplayName, "role": "admin", "disabled": false, "storageQuotaMb": 100,
+	}, &updatedAdmin); code != http.StatusOK || updatedAdmin.StorageQuotaMB != 100 {
+		t.Fatalf("administrator storage quota code=%d user=%+v", code, updatedAdmin)
+	}
+
+	var regular AdminUser
+	if code := admin.do("POST", "/api/admin/users", map[string]any{
+		"email": "protected-primary@lanqin.local", "displayName": "Protected Primary", "role": "user", "password": "Password123!",
+	}, &regular); code != http.StatusCreated {
+		t.Fatalf("create regular user code=%d user=%+v", code, regular)
+	}
+	primary, err := a.mailboxByAddress(context.Background(), regular.Email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := admin.do("DELETE", "/api/admin/mailboxes/"+primary.ID, nil, &errBody); code != http.StatusBadRequest {
+		t.Fatalf("regular primary mailbox delete code=%d body=%v", code, errBody)
+	}
+	secondary := createTestMailbox(t, admin, primary.DomainID, "deletable-secondary", "Secondary", "", map[string]any{"userId": regular.ID})
+	if code := admin.do("DELETE", "/api/admin/mailboxes/"+secondary.ID, nil, &errBody); code != http.StatusOK {
+		t.Fatalf("secondary mailbox delete code=%d body=%v", code, errBody)
+	}
+}
+
 func createTestAPIToken(t *testing.T, client *testClient, name string) string {
 	return createTestAPITokenWithScopes(t, client, name, nil)
 }
@@ -1573,6 +1714,13 @@ func TestOpenRegistrationAtomicallyCreatesLoginUserAndMailbox(t *testing.T) {
 	}
 	if code := client.do("POST", "/api/auth/register", registration, &registered); code != http.StatusCreated || registered.User.Email != "newuser@lanqin.local" || registered.User.Role != "user" {
 		t.Fatalf("register code=%d user=%+v", code, registered.User)
+	}
+	var storageQuotaMB int
+	if err := a.db.QueryRow(`SELECT storage_quota_mb FROM users WHERE id=?`, registered.User.ID).Scan(&storageQuotaMB); err != nil {
+		t.Fatal(err)
+	}
+	if storageQuotaMB != defaultUserStorageQuotaMB {
+		t.Fatalf("registered account storage quota=%d, want %d", storageQuotaMB, defaultUserStorageQuotaMB)
 	}
 	var me struct {
 		User User `json:"user"`
@@ -3177,19 +3325,44 @@ func TestOpenAPIDomainAndMailboxCRUD(t *testing.T) {
 	if code := openAdmin.do("POST", "/api/open/domains/"+domain.ID, map[string]string{"status": "active"}, &domain); code != http.StatusOK {
 		t.Fatalf("reactivate open api domain code=%d domain=%+v", code, domain)
 	}
+	var owner AdminUser
+	if code := admin.do("POST", "/api/admin/users", map[string]any{
+		"email": "open-api-owner@lanqin.local", "displayName": "Open API Owner", "role": "user", "password": "Password123!",
+	}, &owner); code != http.StatusCreated {
+		t.Fatalf("create open api mailbox owner code=%d owner=%+v", code, owner)
+	}
 
 	var mailbox Mailbox
 	if code := openAdmin.do("POST", "/api/open/mailboxes", map[string]any{
 		"domainId":    domain.ID,
 		"localPart":   "api-user",
 		"displayName": "API User",
-		"password":    "Password123!",
+		"password":    "DifferentPassword123!",
 		"quotaMb":     256,
+		"userId":      owner.ID,
 	}, &mailbox); code != http.StatusCreated {
 		t.Fatalf("create open api mailbox code=%d mailbox=%+v", code, mailbox)
 	}
+	ownerPrimary, err := a.mailboxByAddress(context.Background(), owner.Email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var protectedMailboxErr map[string]any
+	if code := openAdmin.do("POST", "/api/open/mailboxes/"+ownerPrimary.ID, map[string]any{"status": "disabled"}, &protectedMailboxErr); code != http.StatusBadRequest {
+		t.Fatalf("open api primary mailbox status update code=%d body=%v", code, protectedMailboxErr)
+	}
 	if mailbox.Address != "api-user@api.example.test" || mailbox.QuotaMB != 256 {
 		t.Fatalf("mailbox=%+v", mailbox)
+	}
+	var ownerPasswordHash, mailboxPasswordHash string
+	if err := a.db.QueryRowContext(context.Background(), `SELECT password_hash FROM users WHERE id=?`, owner.ID).Scan(&ownerPasswordHash); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.db.QueryRowContext(context.Background(), `SELECT password_hash FROM mailboxes WHERE id=?`, mailbox.ID).Scan(&mailboxPasswordHash); err != nil {
+		t.Fatal(err)
+	}
+	if mailboxPasswordHash != ownerPasswordHash {
+		t.Fatal("open api mailbox did not inherit the owner password")
 	}
 	var mailboxes struct {
 		Items []Mailbox `json:"items"`
@@ -3206,6 +3379,9 @@ func TestOpenAPIDomainAndMailboxCRUD(t *testing.T) {
 	}
 	if updated.DisplayName != "Renamed API User" || updated.QuotaMB != 512 || updated.Status != "disabled" {
 		t.Fatalf("updated mailbox=%+v", updated)
+	}
+	if code := openAdmin.do("POST", "/api/open/mailboxes/"+mailbox.ID, map[string]any{"status": "active"}, &updated); code != http.StatusOK || updated.QuotaMB != 512 {
+		t.Fatalf("open api mailbox omitted quota should preserve 512 MB: code=%d mailbox=%+v", code, updated)
 	}
 	var ok map[string]any
 	if code := openAdmin.do("DELETE", "/api/open/mailboxes/"+mailbox.ID, nil, &ok); code != http.StatusOK {
@@ -5195,20 +5371,24 @@ func TestFixedRolesProtectAdminRoutesAndDefaultAdmin(t *testing.T) {
 	}, &errBody); code != http.StatusForbidden {
 		t.Fatalf("system permission group update should be forbidden code=%d body=%v", code, errBody)
 	}
-	var regularUpdateErr map[string]any
+	var updatedRegular PermissionGroup
 	if code := admin.do("POST", "/api/admin/permission-groups/"+PermissionGroupRegular, map[string]any{
 		"name":        "Changed Regular",
 		"description": "Should not change",
-		"permissions": []string{PermissionAdminOverview},
-	}, &regularUpdateErr); code != http.StatusForbidden {
-		t.Fatalf("regular system permission group update should be forbidden code=%d body=%v", code, regularUpdateErr)
+		"permissions": regularUserDefaultPermissions(),
+		"limits":      defaultPermissionLimits(),
+	}, &updatedRegular); code != http.StatusOK {
+		t.Fatalf("regular system permission group update code=%d group=%+v", code, updatedRegular)
+	}
+	if updatedRegular.Name != "普通用户" || updatedRegular.Description != "仅可使用自己的邮箱功能，不包含后台权限。" {
+		t.Fatalf("regular system permission group identity changed: %+v", updatedRegular)
 	}
 	regularGroup, err := a.permissionGroupByID(context.Background(), PermissionGroupRegular)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !regularGroup.System || !userHasPermission(&User{Role: "user", Permissions: regularGroup.Permissions}, PermissionMailAccess) || userHasPermission(&User{Role: "user", Permissions: regularGroup.Permissions}, PermissionAdminOverview) {
-		t.Fatalf("regular group should stay locked with default permissions=%+v", regularGroup)
+		t.Fatalf("regular group should retain the saved default permissions=%+v", regularGroup)
 	}
 	if code := admin.do("DELETE", "/api/admin/permission-groups/"+PermissionGroupSuperAdmin, nil, &errBody); code != http.StatusForbidden {
 		t.Fatalf("system permission group delete should be forbidden code=%d body=%v", code, errBody)
@@ -6357,7 +6537,7 @@ func TestMailboxQuotaRejectsNewMessage(t *testing.T) {
 	ctx := context.Background()
 	user, mb := defaultAdminUserAndMailbox(t, a)
 	clearMailboxMessagesForTest(t, a, mb.ID)
-	if _, err := a.db.ExecContext(ctx, `UPDATE mailboxes SET quota_mb=1 WHERE id=?`, mb.ID); err != nil {
+	if _, err := a.db.ExecContext(ctx, `UPDATE users SET storage_quota_mb=1 WHERE id=?`, user.ID); err != nil {
 		t.Fatal(err)
 	}
 	_, err := a.sendMailNow(ctx, user, mb, mailComposeInput{
@@ -6433,7 +6613,11 @@ func TestMailStatsQuotaAndCleanupIsolation(t *testing.T) {
 	if code := alice.do("GET", "/api/me/stats?mailboxId="+aliceMB.ID+"&days=7", nil, &stats); code != http.StatusOK {
 		t.Fatalf("stats code=%d stats=%+v", code, stats)
 	}
-	if stats.QuotaBytes != int64(aliceMB.QuotaMB)*1024*1024 || stats.AttachmentBytes == 0 || stats.QuotaUsedPct <= 0 {
+	var aliceStorageQuotaMB int64
+	if err := a.db.QueryRowContext(ctx, `SELECT storage_quota_mb FROM users WHERE id=?`, aliceUser.ID).Scan(&aliceStorageQuotaMB); err != nil {
+		t.Fatal(err)
+	}
+	if stats.QuotaBytes != aliceStorageQuotaMB*1024*1024 || stats.AttachmentBytes == 0 || stats.QuotaUsedPct <= 0 {
 		t.Fatalf("stats quota/attachment not populated: %+v", stats)
 	}
 	if stats.TotalIncoming != 1 || stats.TotalOutgoing != 0 || stats.AverageMessageBytes <= 0 {

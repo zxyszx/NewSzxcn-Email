@@ -5,7 +5,6 @@ import { useMe } from "@/hooks/use-me"
 import { useLogout } from "@/hooks/use-logout"
 import { AuthGuard } from "@/components/auth-guard"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { SystemVersionDialog } from "@/components/system-version-dialog"
 import { hasAnyPermission } from "@/lib/permissions"
@@ -110,9 +109,6 @@ function ProtectedContent() {
                     <span className="truncate font-semibold">{user.displayName}</span>
                     <span className="truncate text-xs text-muted-foreground">{user.email}</span>
                   </div>
-                  <Badge variant={user.role === "admin" ? "default" : "secondary"} className="ml-auto text-[10px]">
-                    {user.role === "admin" ? "管理员" : "普通用户"}
-                  </Badge>
                 </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>

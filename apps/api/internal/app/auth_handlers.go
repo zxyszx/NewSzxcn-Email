@@ -177,8 +177,8 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(r.Context(), `INSERT INTO users(id,login_name,email,display_name,role,password_hash,disabled,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?)`, userID, email, email, displayName, "user", string(passwordHash), 0, now, now); err != nil {
+	if _, err := tx.ExecContext(r.Context(), `INSERT INTO users(id,login_name,email,display_name,role,password_hash,disabled,storage_quota_mb,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?)`, userID, email, email, displayName, "user", string(passwordHash), 0, defaultUserStorageQuotaMB, now, now); err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "unique") {
 			respondError(w, http.StatusConflict, "该邮箱已被注册")
 			return
@@ -186,7 +186,7 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "注册失败，请稍后重试")
 		return
 	}
-	if _, err := a.createMailboxWithPasswordHashTx(r.Context(), tx, userID, mailboxDomainID, mailboxLocalPart, displayName, string(passwordHash), 1024, "active"); err != nil {
+	if _, err := a.createMailboxWithPasswordHashTx(r.Context(), tx, userID, mailboxDomainID, mailboxLocalPart, displayName, string(passwordHash), defaultUserStorageQuotaMB, "active"); err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "unique") {
 			respondError(w, http.StatusConflict, "该邮箱已被注册")
 		} else {
