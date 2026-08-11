@@ -1,6 +1,10 @@
 package app
 
-import "testing"
+import (
+	"context"
+	"strings"
+	"testing"
+)
 
 func TestParseGoogleTranslateResponse(t *testing.T) {
 	raw := []any{
@@ -17,6 +21,22 @@ func TestParseGoogleTranslateResponse(t *testing.T) {
 	}
 	if source != "en" {
 		t.Fatalf("source = %q", source)
+	}
+}
+
+func TestTranslateHTMLTextNodesWithPreservesMarkupAndSkipsCode(t *testing.T) {
+	translator := func(_ context.Context, text, target string) (string, string, error) {
+		return strings.ToUpper(text) + "-" + target, "en", nil
+	}
+	got, err := translateHTMLTextNodesWith(context.Background(), nil, `<p>Hello <strong>world</strong></p><pre>keep me</pre>`, "zh-CN", 100, translator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, `<p>HELLO-zh-CN <strong>WORLD-zh-CN</strong></p>`) {
+		t.Fatalf("translated HTML = %q", got)
+	}
+	if !strings.Contains(got, `<pre>keep me</pre>`) {
+		t.Fatalf("code block was translated: %q", got)
 	}
 }
 

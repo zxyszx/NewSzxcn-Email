@@ -29,6 +29,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Switch } from "@/components/ui/switch"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import {
@@ -3213,23 +3214,41 @@ function CompactMessageDetail({
 
 
 function TranslatableMailBody({ message, language }: { message: MailMessage; language: Language }) {
+  const qc = useQueryClient()
   const [translatedText, setTranslatedText] = React.useState("")
   const [translatedHtml, setTranslatedHtml] = React.useState("")
   const [showTranslated, setShowTranslated] = React.useState(false)
   const [truncated, setTruncated] = React.useState(false)
+  const [autoTranslate, setAutoTranslate] = React.useState(() => {
+    try {
+      return window.localStorage.getItem("newszxcn.mail.auto-translate") !== "false"
+    } catch {
+      return true
+    }
+  })
   const { toast } = useToast()
   const targetLanguage = normalizeTranslationLanguage(language)
   const sourceText = React.useMemo(() => (message.bodyText || stripHtml(message.bodyHtml || message.snippet || "")).trim(), [message.bodyHtml, message.bodyText, message.snippet])
   const shouldShow = targetLanguage && (message.externalAccountId || message.mailboxId) && shouldOfferMessageTranslation(sourceText, language)
+  const translationKey = React.useMemo(() => ["mail-translation", message.externalAccountId || "local", message.id, targetLanguage] as const, [message.externalAccountId, message.id, targetLanguage])
   const translatedMessage = React.useMemo<MailMessage>(() => ({ ...message, bodyText: translatedText, bodyHtml: translatedHtml }), [message, translatedHtml, translatedText])
+  const applyTranslation = React.useCallback((result: Awaited<ReturnType<typeof api.translateMessage>>, display = true) => {
+    setTranslatedText(result.translatedText)
+    setTranslatedHtml(result.translatedHtml || "")
+    setTruncated(result.truncated)
+    setShowTranslated(display)
+  }, [])
   const translate = useMutation({
-    mutationFn: () => message.externalAccountId ? api.translateExternalMessage(message.externalAccountId, message.id, targetLanguage!) : api.translateMessage(message.id, targetLanguage!),
-    onSuccess: (result) => {
-      setTranslatedText(result.translatedText)
-      setTranslatedHtml(result.translatedHtml || "")
-      setTruncated(result.truncated)
-      setShowTranslated(true)
+    mutationFn: async ({ force = false }: { force?: boolean } = {}) => {
+      if (!force) {
+        const cached = qc.getQueryData<Awaited<ReturnType<typeof api.translateMessage>>>(translationKey)
+        if (cached) return cached
+      }
+      const result = message.externalAccountId ? await api.translateExternalMessage(message.externalAccountId, message.id, targetLanguage!) : await api.translateMessage(message.id, targetLanguage!)
+      qc.setQueryData(translationKey, result)
+      return result
     },
+    onSuccess: (result) => applyTranslation(result),
     onError: (error) => toast({ title: "翻译失败", description: error instanceof Error ? error.message : "请稍后重试" }),
   })
 
@@ -3239,7 +3258,29 @@ function TranslatableMailBody({ message, language }: { message: MailMessage; lan
     setShowTranslated(false)
     setTruncated(false)
     translate.reset()
+    const cached = qc.getQueryData<Awaited<ReturnType<typeof api.translateMessage>>>(translationKey)
+    if (cached) applyTranslation(cached, autoTranslate)
   }, [message.id, language])
+
+  React.useEffect(() => {
+    if (!autoTranslate || !shouldShow || translate.isPending) return
+    const cached = qc.getQueryData<Awaited<ReturnType<typeof api.translateMessage>>>(translationKey)
+    if (cached) {
+      applyTranslation(cached)
+      return
+    }
+    translate.mutate({ force: false })
+  }, [autoTranslate, message.id, shouldShow, targetLanguage])
+
+  const changeAutoTranslate = (checked: boolean) => {
+    setAutoTranslate(checked)
+    if (!checked) setShowTranslated(false)
+    try {
+      window.localStorage.setItem("newszxcn.mail.auto-translate", String(checked))
+    } catch {
+      // Keep the setting for this session when browser storage is unavailable.
+    }
+  }
 
   return (
     <>
@@ -3251,8 +3292,12 @@ function TranslatableMailBody({ message, language }: { message: MailMessage; lan
               {truncated && <span className="ml-1">（内容较长，仅翻译前半部分）</span>}
             </div>
             <div className="flex items-center gap-2">
+              <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap text-xs text-muted-foreground">
+                <Switch checked={autoTranslate} onCheckedChange={changeAutoTranslate} aria-label="自动翻译邮件" />
+                自动翻译
+              </label>
               {translatedText && <Button type="button" variant="ghost" size="sm" onClick={() => setShowTranslated((value) => !value)}>{showTranslated ? "显示原文" : "显示译文"}</Button>}
-              <Button type="button" variant="outline" size="sm" disabled={translate.isPending} onClick={() => translate.mutate()}>{translate.isPending ? "翻译中..." : translatedText ? "重新翻译" : "翻译"}</Button>
+              <Button type="button" variant="outline" size="sm" disabled={translate.isPending} onClick={() => translate.mutate({ force: !!translatedText })}>{translate.isPending ? "翻译中..." : translatedText ? "重新翻译" : "翻译"}</Button>
             </div>
           </div>
         </div>

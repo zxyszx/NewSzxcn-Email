@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -64,16 +65,22 @@ func (a *App) handleTranslateMailMessage(w http.ResponseWriter, r *http.Request)
 		maxChars = 8000
 	}
 	text, truncated := truncateRunes(text, maxChars)
+	translatedHTMLResult := make(chan string, 1)
+	if strings.TrimSpace(msg.BodyHTML) != "" {
+		go func() {
+			translatedHTML, _ := translateHTMLTextNodes(r.Context(), a.policy, msg.BodyHTML, target, maxChars)
+			translatedHTMLResult <- translatedHTML
+		}()
+	} else {
+		translatedHTMLResult <- ""
+	}
 	translated, source, err := googleFreeTranslate(r.Context(), text, target)
 	if err != nil {
 		a.log.Warn("mail translation failed", "message_id", msg.ID, "target", target, "error", err)
 		respondError(w, http.StatusBadGateway, "translation failed")
 		return
 	}
-	translatedHTML := ""
-	if strings.TrimSpace(msg.BodyHTML) != "" {
-		translatedHTML, _ = translateHTMLTextNodes(r.Context(), a.policy, msg.BodyHTML, target, maxChars)
-	}
+	translatedHTML := <-translatedHTMLResult
 	respondJSON(w, http.StatusOK, translateMailMessageResponse{TranslatedText: translated, TranslatedHTML: translatedHTML, SourceLanguage: source, TargetLanguage: target, Truncated: truncated})
 }
 
@@ -131,53 +138,97 @@ func (a *App) handleTranslateExternalIMAPMessage(w http.ResponseWriter, r *http.
 		maxChars = 8000
 	}
 	text, truncated := truncateRunes(text, maxChars)
+	translatedHTMLResult := make(chan string, 1)
+	if err == nil && strings.TrimSpace(stored.BodyHTML) != "" {
+		go func() {
+			translatedHTML, _ := translateHTMLTextNodes(r.Context(), a.policy, stored.BodyHTML, target, maxChars)
+			translatedHTMLResult <- translatedHTML
+		}()
+	} else {
+		translatedHTMLResult <- ""
+	}
 	translated, source, err := googleFreeTranslate(r.Context(), text, target)
 	if err != nil {
 		a.log.Warn("external mail translation failed", "account_id", account.ID, "remote_id", chi.URLParam(r, "remoteId"), "target", target, "error", err)
 		respondError(w, http.StatusBadGateway, "translation failed")
 		return
 	}
-	translatedHTML := ""
-	if err == nil && strings.TrimSpace(stored.BodyHTML) != "" {
-		translatedHTML, _ = translateHTMLTextNodes(r.Context(), a.policy, stored.BodyHTML, target, maxChars)
-	}
+	translatedHTML := <-translatedHTMLResult
 	respondJSON(w, http.StatusOK, translateMailMessageResponse{TranslatedText: translated, TranslatedHTML: translatedHTML, SourceLanguage: source, TargetLanguage: target, Truncated: truncated})
 }
 
 func translateHTMLTextNodes(ctx context.Context, policy *HTMLPolicy, bodyHTML, target string, maxChars int) (string, error) {
+	return translateHTMLTextNodesWith(ctx, policy, bodyHTML, target, maxChars, googleFreeTranslate)
+}
+
+type htmlTextTranslator func(context.Context, string, string) (string, string, error)
+
+func translateHTMLTextNodesWith(ctx context.Context, policy *HTMLPolicy, bodyHTML, target string, maxChars int, translator htmlTextTranslator) (string, error) {
 	nodes, err := html.ParseFragment(strings.NewReader(bodyHTML), nil)
 	if err != nil {
 		return "", err
 	}
+	type translationJob struct {
+		node     *html.Node
+		original string
+		text     string
+	}
 	remaining := maxChars
-	var translateNode func(*html.Node) error
-	translateNode = func(n *html.Node) error {
+	jobs := make([]translationJob, 0)
+	var collect func(*html.Node)
+	collect = func(n *html.Node) {
 		if n.Type == html.ElementNode && shouldSkipHTMLTranslationElement(n.Data) {
-			return nil
+			return
 		}
 		if n.Type == html.TextNode {
 			text := strings.TrimSpace(n.Data)
 			if text != "" && containsTranslatableLetter(text) && remaining > 0 {
 				limited, _ := truncateRunes(text, remaining)
 				remaining -= utf8.RuneCountInString(limited)
-				translated, _, err := googleFreeTranslate(ctx, limited, target)
-				if err != nil {
-					return err
-				}
-				n.Data = strings.Replace(n.Data, text, translated, 1)
+				jobs = append(jobs, translationJob{node: n, original: text, text: limited})
 			}
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			if err := translateNode(c); err != nil {
-				return err
-			}
+			collect(c)
 		}
-		return nil
 	}
 	for _, n := range nodes {
-		if err := translateNode(n); err != nil {
-			return "", err
-		}
+		collect(n)
+	}
+	results := make([]string, len(jobs))
+	jobIndexes := make(chan int)
+	errCh := make(chan error, 1)
+	workers := min(4, len(jobs))
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for index := range jobIndexes {
+				translated, _, translateErr := translator(ctx, jobs[index].text, target)
+				if translateErr != nil {
+					select {
+					case errCh <- translateErr:
+					default:
+					}
+					continue
+				}
+				results[index] = translated
+			}
+		}()
+	}
+	for index := range jobs {
+		jobIndexes <- index
+	}
+	close(jobIndexes)
+	wg.Wait()
+	select {
+	case translateErr := <-errCh:
+		return "", translateErr
+	default:
+	}
+	for index, job := range jobs {
+		job.node.Data = strings.Replace(job.node.Data, job.original, results[index], 1)
 	}
 	var b bytes.Buffer
 	for _, n := range nodes {
