@@ -202,6 +202,8 @@ export function MailPage() {
   const [selectedMailboxId, setSelectedMailboxId] = React.useState("all")
   const [selectedExternalAccountId, setSelectedExternalAccountId] = React.useState("")
   const [expandedExternalAccountIds, setExpandedExternalAccountIds] = React.useState<string[]>([])
+  const [foldersExpanded, setFoldersExpanded] = React.useState(true)
+  const [labelsExpanded, setLabelsExpanded] = React.useState(true)
   const [externalFolder, setExternalFolder] = React.useState("INBOX")
   const [darkMode, setDarkMode] = React.useState(getInitialTheme)
   const [language, setLanguage] = useLanguage()
@@ -1438,7 +1440,10 @@ export function MailPage() {
         {(customMailMenuItems.length > 0 || canManageFolders) && <SidebarGroup>
           {!sidebarCollapsed && (
             <div className="flex items-center justify-between px-2 py-1">
-              <SidebarGroupLabel className="m-0 h-auto gap-1 p-0 text-xs font-semibold text-muted-foreground"><ChevronDown className="h-3 w-3" />文件夹</SidebarGroupLabel>
+              <Button type="button" variant="ghost" className="h-auto min-w-0 justify-start gap-1 p-0 text-xs font-semibold text-muted-foreground hover:bg-transparent hover:text-foreground" aria-expanded={foldersExpanded} aria-controls="mail-sidebar-folders" onClick={() => setFoldersExpanded((value) => !value)}>
+                <ChevronDown className={cn("h-3 w-3 shrink-0 transition-transform", !foldersExpanded && "-rotate-90")} />
+                <span>文件夹</span>
+              </Button>
               {canManageFolders && (
                 <Button type="button" variant="ghost" size="icon" className="h-5 w-5 text-muted-foreground hover:bg-transparent hover:text-foreground" aria-label="新建文件夹" title="新建文件夹" onClick={() => runAfterClosingMobileSidebar(() => setFolderDialogOpen(true))}>
                   <Plus className="h-3.5 w-3.5" />
@@ -1446,7 +1451,7 @@ export function MailPage() {
               )}
             </div>
           )}
-          <SidebarGroupContent>
+          {foldersExpanded && <SidebarGroupContent id="mail-sidebar-folders">
             <SidebarMenu>
               {customMailMenuItems.map((item) => (
                 <SidebarMenuItem
@@ -1492,12 +1497,15 @@ export function MailPage() {
                 />
               )}
             </SidebarMenu>
-          </SidebarGroupContent>
+          </SidebarGroupContent>}
         </SidebarGroup>}
         {(canReadMail || canManageLabels) && <SidebarGroup>
           {!sidebarCollapsed && (
             <div className="flex items-center justify-between px-2 py-1">
-              <SidebarGroupLabel className="m-0 h-auto gap-1 p-0 text-xs font-semibold text-muted-foreground"><ChevronDown className="h-3 w-3" />标签</SidebarGroupLabel>
+              <Button type="button" variant="ghost" className="h-auto min-w-0 justify-start gap-1 p-0 text-xs font-semibold text-muted-foreground hover:bg-transparent hover:text-foreground" aria-expanded={labelsExpanded} aria-controls="mail-sidebar-labels" onClick={() => setLabelsExpanded((value) => !value)}>
+                <ChevronDown className={cn("h-3 w-3 shrink-0 transition-transform", !labelsExpanded && "-rotate-90")} />
+                <span>标签</span>
+              </Button>
               {canManageCurrentMailboxLabels && (
                 <div className="flex items-center gap-0.5">
                 <Button type="button" variant="ghost" size="icon" className="h-5 w-5 text-muted-foreground hover:bg-transparent hover:text-foreground" aria-label="新建标签" title="新建标签" onClick={() => { setNewLabelEditing(true); setLabelEditMode(true) }}>
@@ -1512,7 +1520,7 @@ export function MailPage() {
               )}
             </div>
           )}
-          <SidebarGroupContent>
+          {labelsExpanded && <SidebarGroupContent id="mail-sidebar-labels">
             <SidebarMenu>
               {canReadMail && labelItems.map((label) => {
                 const dotColor = labelDotColor(label)
@@ -1558,7 +1566,7 @@ export function MailPage() {
             </SidebarMenu>
             {labels.isLoading && <FolderSkeleton />}
             {!sidebarCollapsed && labels.isError && <SidebarQueryFailure label="标签读取失败" onRetry={() => { void labels.refetch() }} />}
-          </SidebarGroupContent>
+          </SidebarGroupContent>}
         </SidebarGroup>}
       </SidebarContent>
       <SidebarContextMenu
@@ -2641,7 +2649,7 @@ function SidebarContextMenu({ state, canCreate, canReorder, canDelete, pending, 
       </Button>
       {canCreate && (
         <Button type="button" variant="ghost" className={itemClass} onClick={onCreateFolder}>
-          <Plus className="h-4 w-4" />新建文件夹
+          新建文件夹
         </Button>
       )}
       {customFolder && (canReorder || canDelete) && (
@@ -3386,7 +3394,6 @@ function NewLabelButton({ collapsed, pending, onCreate, editing, onEditingChange
   }
   return (
     <SidebarMenuButton className="text-muted-foreground" onClick={() => setEditingState(true)}>
-      <Plus className="h-4 w-4" />
       <span>新建标签</span>
     </SidebarMenuButton>
   )

@@ -693,8 +693,8 @@ function SettingsCard({ title, subtitle, action, children, className, contentCla
     <section className={cn("rounded-lg border bg-card shadow-[0_1px_2px_rgba(15,23,42,0.04)]", className)}>
       <div className="flex flex-col gap-3 px-6 py-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <h2 className="text-[15px] font-semibold leading-6 text-foreground">{title}</h2>
-          {subtitle && <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{subtitle}</p>}
+          <h2 className="break-words text-[15px] font-semibold leading-6 text-foreground [overflow-wrap:anywhere]">{title}</h2>
+          {subtitle && <p className="mt-0.5 break-words text-xs leading-5 text-muted-foreground [overflow-wrap:anywhere]">{subtitle}</p>}
         </div>
         {action && <div className="w-full shrink-0 sm:w-auto sm:justify-end [&>a]:w-full [&>button]:w-full sm:[&>a]:w-auto sm:[&>button]:w-auto">{action}</div>}
       </div>
@@ -1626,7 +1626,7 @@ function ExternalImapDialog({ account, mailboxId, disabled, pending, onSubmit }:
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <Button type="button" variant={account ? "outline" : "default"} size={account ? "sm" : "default"} disabled={disabled} onClick={() => setOpen(true)}>
-        {account ? "编辑" : <><Plus className="h-4 w-4" />添加外部邮箱</>}
+        {account ? "编辑" : "添加外部邮箱"}
       </Button>
       <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-xl">
         <DialogHeader><DialogTitle>{account ? "编辑外部 IMAP" : "添加外部 IMAP"}</DialogTitle></DialogHeader>
@@ -2221,16 +2221,13 @@ function CleanupSection({ mailbox, stats, showStats, pending, onCleanup }: { mai
     })
   }
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {showStats && <StatsSummary stats={stats} />}
-      <Card>
-        <CardHeader><CardTitle>清理当前邮箱</CardTitle></CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-3">
+      <SettingsCard title="清理当前邮箱" subtitle={mailbox ? `当前邮箱：${mailbox.address}` : "请先选择邮箱"} contentClassName="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <CleanupButton icon={<MailCheck className="h-4 w-4" />} title="归档已读收件箱" disabled={!mailbox || pending} onClick={() => confirmCleanup("archive-read-inbox", "归档已读收件箱？")} />
           <CleanupButton icon={<MailX className="h-4 w-4" />} title="清空垃圾邮件" disabled={!mailbox || pending} onClick={() => confirmCleanup("empty-spam", "清空垃圾邮件？", true)} />
           <CleanupButton icon={<Trash2 className="h-4 w-4" />} title="清空回收站" disabled={!mailbox || pending} onClick={() => confirmCleanup("empty-trash", "清空回收站？", true)} />
-        </CardContent>
-      </Card>
+      </SettingsCard>
       <ConfirmDialog open={!!pendingConfirm} title={pendingConfirm?.title || ""} description={pendingConfirm?.description} confirmText={pendingConfirm?.confirmText || "确认"} destructive={!!pendingConfirm?.destructive} pending={pending} onOpenChange={(open) => { if (!open) setPendingConfirm(null) }} onConfirm={() => pendingConfirm?.onConfirm()} />
     </div>
   )
@@ -2261,6 +2258,9 @@ const ruleActionLabels: Record<MailRuleAction["type"], string> = { archive: "移
 
 function RulesSection({ items, mailboxes, labels, verifiedEmails, open, onOpenChange, onCreate, onUpdate, onToggle, onMove, onApply, onDelete, pending }: { items: MailRule[]; mailboxes: Mailbox[]; labels: MailLabel[]; verifiedEmails: string[]; open: boolean; onOpenChange: (open: boolean) => void; onCreate: (payload: RuleCreatePayload) => void; onUpdate: (id: string, payload: RuleCreatePayload) => void; onToggle: (item: MailRule) => void; onMove: (id: string, direction: "up" | "down") => void; onApply: (id: string) => void; onDelete: (id: string) => void; pending: boolean }) {
   const [editingRule, setEditingRule] = React.useState<MailRule | null>(null)
+  const [query, setQuery] = React.useState("")
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const filteredItems = items.map((item, index) => ({ item, index })).filter(({ item }) => !normalizedQuery || item.name.toLocaleLowerCase().includes(normalizedQuery))
 
   function setDialogOpen(next: boolean) {
     if (!next) setEditingRule(null)
@@ -2269,12 +2269,18 @@ function RulesSection({ items, mailboxes, labels, verifiedEmails, open, onOpenCh
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-stretch sm:justify-end">
-        <Button className="h-9 w-full rounded-md px-4 text-sm font-normal sm:w-auto" onClick={() => { setEditingRule(null); onOpenChange(true) }}>新建规则</Button>
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+        <div className="relative min-w-0">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索规则名称" aria-label="搜索规则" className="h-10 pl-9 pr-10" />
+          {query && <Button type="button" variant="ghost" size="icon" className="absolute right-1 top-1 size-8 text-muted-foreground" onClick={() => setQuery("")} aria-label="清除规则搜索" title="清除搜索"><X className="h-4 w-4" /></Button>}
+        </div>
+        <Button className="h-10 shrink-0 rounded-md px-3 text-sm font-normal sm:px-4" onClick={() => { setEditingRule(null); onOpenChange(true) }}>新建规则</Button>
       </div>
       <div className="space-y-3">
-        {items.map((item, index) => <RuleListItem key={item.id} item={item} index={index} count={items.length} mailboxLabel={item.mailboxId ? mailboxes.find((mailbox) => mailbox.id === item.mailboxId)?.address || "指定邮箱" : "全部邮箱"} pending={pending} onEdit={() => { setEditingRule(item); onOpenChange(true) }} onToggle={() => onToggle(item)} onMove={(direction) => onMove(item.id, direction)} onApply={() => onApply(item.id)} onDelete={onDelete} />)}
+        {filteredItems.map(({ item, index }) => <RuleListItem key={item.id} item={item} index={index} count={items.length} mailboxLabel={item.mailboxId ? mailboxes.find((mailbox) => mailbox.id === item.mailboxId)?.address || "指定邮箱" : "全部邮箱"} pending={pending} onEdit={() => { setEditingRule(item); onOpenChange(true) }} onToggle={() => onToggle(item)} onMove={(direction) => onMove(item.id, direction)} onApply={() => onApply(item.id)} onDelete={onDelete} />)}
         {items.length === 0 && <EmptyState icon={<SlidersHorizontal />} text="暂无收件规则" description="新建规则后，可自动标记、移动或转发符合条件的邮件。" className="min-h-[180px] border-solid bg-card" />}
+        {items.length > 0 && filteredItems.length === 0 && <EmptyState icon={<Search />} text="没有找到规则" description={`没有名称包含“${query.trim()}”的规则。`} className="min-h-[180px] border-solid bg-card" />}
       </div>
       <RuleDialog open={open} onOpenChange={setDialogOpen} mailboxes={mailboxes} labels={labels} verifiedEmails={verifiedEmails} pending={pending} initialRule={editingRule} onSave={(payload) => editingRule ? onUpdate(editingRule.id, payload) : onCreate(payload)} />
     </div>
@@ -2349,10 +2355,10 @@ function RuleDialog({ open, onOpenChange, mailboxes, labels, verifiedEmails, pen
             <Field label="适用邮箱"><MailboxSelect value={mailboxId} mailboxes={mailboxes} onChange={setMailboxId} /></Field>
 
             <div className="space-y-4">
-              <div className="flex flex-wrap items-center gap-3 text-sm">
-                <span>当新邮件到达时，满足以下</span>
+              <div className="space-y-2 text-sm">
+                <div>当新邮件到达时，满足以下</div>
                 <Select value={matchMode} onValueChange={(value) => setMatchMode(value as "all" | "any")}>
-                  <SelectTrigger className="h-9 w-[132px]"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-11 w-full md:h-9 md:w-[180px]"><SelectValue /></SelectTrigger>
                   <SelectContent><SelectItem value="all">所有条件</SelectItem><SelectItem value="any">任一条件</SelectItem></SelectContent>
                 </Select>
               </div>
@@ -2487,26 +2493,26 @@ function RuleListItem({ item, index, count, mailboxLabel, pending, onEdit, onTog
   const conditionText = ruleConditionSummary(item.conditions, item.fromContains, item.subjectContains)
   const actionText = item.actions.map(ruleActionSummary).filter(Boolean).join("；") || "无动作"
   return (
-    <div className="grid min-h-[110px] grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg border bg-card px-4 py-4 transition-colors hover:bg-muted/20">
-      <div className="min-w-0 space-y-1">
-        <div className="flex min-w-0 items-center gap-2 leading-6">
-          <h3 className="truncate text-base font-semibold text-foreground">{item.name}</h3>
+    <div className="grid min-h-[110px] grid-cols-1 gap-3 rounded-lg border bg-card px-4 py-4 transition-colors hover:bg-muted/20 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+      <div className="min-w-0 space-y-2 sm:space-y-1">
+        <div className="flex min-w-0 items-start gap-2 leading-6 sm:items-center">
+          <h3 className="min-w-0 flex-1 break-words text-base font-semibold text-foreground [overflow-wrap:anywhere] sm:truncate">{item.name}</h3>
           <span className={cn("shrink-0 rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium", item.enabled ? "text-emerald-700" : "bg-muted text-muted-foreground")}>{item.enabled ? "已启用" : "已停用"}</span>
         </div>
-        <div className="grid text-sm leading-6 text-muted-foreground">
-          <p className="truncate"><span className="text-muted-foreground">适用：</span> {mailboxLabel}</p>
-          <p className="truncate"><span className="text-muted-foreground">条件：</span> {conditionText}</p>
-          <p className="truncate"><span className="text-muted-foreground">动作：</span> {actionText}</p>
+        <div className="grid gap-1 text-sm leading-5 text-muted-foreground sm:gap-0 sm:leading-6">
+          <p className="flex min-w-0 items-start gap-1"><span className="shrink-0">适用：</span><span className="min-w-0 break-words [overflow-wrap:anywhere] sm:truncate">{mailboxLabel}</span></p>
+          <p className="flex min-w-0 items-start gap-1"><span className="shrink-0">条件：</span><span className="min-w-0 break-words [overflow-wrap:anywhere] sm:truncate">{conditionText}</span></p>
+          <p className="flex min-w-0 items-start gap-1"><span className="shrink-0">动作：</span><span className="min-w-0 break-words [overflow-wrap:anywhere] sm:truncate">{actionText}</span></p>
         </div>
       </div>
-      <div className="flex shrink-0 items-center gap-1">
-        <Button type="button" variant="ghost" size="icon" className="size-7 text-muted-foreground" disabled={pending || index === 0} onClick={() => onMove("up")} aria-label="上移" title="上移"><ChevronUp className="h-4 w-4" /></Button>
-        <Button type="button" variant="ghost" size="icon" className="size-7 text-muted-foreground" disabled={pending || index === count - 1} onClick={() => onMove("down")} aria-label="下移" title="下移"><ChevronDown className="h-4 w-4" /></Button>
+      <div className="flex shrink-0 items-center justify-end gap-1 border-t pt-3 sm:border-t-0 sm:pt-0">
+        <Button type="button" variant="ghost" size="icon" className="size-9 text-muted-foreground sm:size-7" disabled={pending || index === 0} onClick={() => onMove("up")} aria-label="上移" title="上移"><ChevronUp className="h-4 w-4" /></Button>
+        <Button type="button" variant="ghost" size="icon" className="size-9 text-muted-foreground sm:size-7" disabled={pending || index === count - 1} onClick={() => onMove("down")} aria-label="下移" title="下移"><ChevronDown className="h-4 w-4" /></Button>
         <span className="mx-1 h-6 w-px bg-border" />
-        <Button type="button" variant="ghost" size="icon" className={cn("size-7", item.enabled ? "text-emerald-600" : "text-muted-foreground")} disabled={pending} onClick={onToggle} aria-label={item.enabled ? "禁用规则" : "启用规则"} title={item.enabled ? "禁用规则" : "启用规则"}>{item.enabled ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}</Button>
-        <Button type="button" variant="ghost" size="icon" className="size-7 text-muted-foreground" disabled={pending} onClick={onEdit} aria-label="编辑规则" title="编辑规则"><PencilLine className="h-4 w-4" /></Button>
-        <Button type="button" variant="ghost" size="icon" className="size-7 text-muted-foreground" disabled={pending} onClick={onApply} aria-label="应用到现有邮件" title="应用到现有邮件"><PlayCircle className="h-4 w-4" /></Button>
-        <Button variant="ghost" size="icon" className="size-7 shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive" disabled={pending} onClick={() => setConfirmOpen(true)} aria-label="删除规则" title="删除规则"><Trash2 className="h-4 w-4" /></Button>
+        <Button type="button" variant="ghost" size="icon" className={cn("size-9 sm:size-7", item.enabled ? "text-emerald-600" : "text-muted-foreground")} disabled={pending} onClick={onToggle} aria-label={item.enabled ? "禁用规则" : "启用规则"} title={item.enabled ? "禁用规则" : "启用规则"}>{item.enabled ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}</Button>
+        <Button type="button" variant="ghost" size="icon" className="size-9 text-muted-foreground sm:size-7" disabled={pending} onClick={onEdit} aria-label="编辑规则" title="编辑规则"><PencilLine className="h-4 w-4" /></Button>
+        <Button type="button" variant="ghost" size="icon" className="size-9 text-muted-foreground sm:size-7" disabled={pending} onClick={onApply} aria-label="应用到现有邮件" title="应用到现有邮件"><PlayCircle className="h-4 w-4" /></Button>
+        <Button variant="ghost" size="icon" className="size-9 shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive sm:size-7" disabled={pending} onClick={() => setConfirmOpen(true)} aria-label="删除规则" title="删除规则"><Trash2 className="h-4 w-4" /></Button>
       </div>
       <ConfirmDialog open={confirmOpen} title="删除收件规则？" description={`规则“${item.name}”将不再处理后续邮件。`} confirmText="删除规则" destructive onOpenChange={setConfirmOpen} onConfirm={() => { onDelete(item.id); setConfirmOpen(false) }} />
     </div>
@@ -2577,17 +2583,18 @@ function BlockedSection({ items, mailboxes, mailboxId, spamCount, onMailboxChang
     setDialogOpen(false)
   }
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="text-xs font-medium text-muted-foreground">共 {spamCount} 封垃圾邮件 · {items.length} 条发件人拦截规则</div>
-        <Button type="button" className="w-full sm:w-auto" onClick={() => setDialogOpen(true)}><Plus className="h-4 w-4" />新增拦截</Button>
-      </div>
-      <SettingsCard title="被拦截邮件" subtitle="发件人命中拦截规则后会进入垃圾邮件，规则可随时移除。" contentClassName="space-y-2">
+    <div>
+      <SettingsCard
+        title="拦截规则"
+        subtitle={`共 ${items.length} 条发件人规则 · 垃圾邮件 ${spamCount} 封`}
+        action={<Button type="button" onClick={() => setDialogOpen(true)}>新增拦截</Button>}
+        contentClassName="space-y-2"
+      >
         {items.map((item) => (
-          <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border bg-background p-3 transition-colors hover:bg-muted/40">
+          <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg border bg-background p-3 transition-colors hover:bg-muted/40">
             <div className="min-w-0">
-              <div className="truncate text-sm font-semibold text-foreground">{item.email}</div>
-              <div className="mt-0.5 truncate text-xs text-muted-foreground">{item.mailboxId ? mailboxes.find((m) => m.id === item.mailboxId)?.address : "全部邮箱"}{item.reason ? ` · ${item.reason}` : ""}</div>
+              <div className="break-all text-sm font-semibold leading-5 text-foreground">{item.email}</div>
+              <div className="mt-1 break-words text-xs leading-5 text-muted-foreground">{item.mailboxId ? mailboxes.find((m) => m.id === item.mailboxId)?.address : "全部邮箱"}{item.reason ? ` · ${item.reason}` : ""}</div>
             </div>
             <Button variant="ghost" size="icon" className="size-8 shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive" aria-label={`移除拦截规则 ${item.email}`} title="移除拦截规则" onClick={() => setPendingConfirm({ title: "移除拦截规则？", description: `${item.email} 之后将不再被此规则拦截。`, confirmText: "移除规则", onConfirm: () => { onDelete(item.id); setPendingConfirm(null) } })}><Trash2 className="h-4 w-4" /></Button>
           </div>
@@ -2816,13 +2823,13 @@ function StatsSummary({ stats }: { stats?: MailStats }) {
     { label: stats?.quotaBytes ? `容量 ${Math.min(stats.quotaUsedPct || 0, 999).toFixed(1)}%` : "容量", value: quotaLabel, icon: <BarChart3 className="h-4 w-4" />, tone: "bg-slate-100 text-slate-700" },
   ]
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
       {cards.map((card) => (
-        <Card key={card.label} className="shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-          <CardContent className="flex items-center gap-3 p-4">
+        <Card key={card.label} className="min-w-0 overflow-hidden shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+          <CardContent className="flex min-w-0 items-center gap-3 p-4">
             <div className={cn("flex size-9 shrink-0 items-center justify-center rounded-lg", card.tone)}>{card.icon}</div>
             <div className="min-w-0">
-              <div className="truncate text-xl font-semibold leading-6 text-foreground">{card.value}</div>
+              <div className="break-words text-lg font-semibold leading-6 text-foreground [overflow-wrap:anywhere]">{card.value}</div>
               <div className="mt-0.5 text-xs text-muted-foreground">{card.label}</div>
             </div>
           </CardContent>
@@ -2832,7 +2839,7 @@ function StatsSummary({ stats }: { stats?: MailStats }) {
   )
 }
 
-function CleanupButton({ icon, title, disabled, onClick }: { icon: React.ReactNode; title: string; disabled: boolean; onClick: () => void }) { return <Button variant="outline" className="h-auto justify-start p-4 text-left" disabled={disabled} onClick={onClick}><div className="mr-3 rounded-lg bg-muted p-2">{icon}</div><div className="font-medium">{title}</div></Button> }
+function CleanupButton({ icon, title, disabled, onClick }: { icon: React.ReactNode; title: string; disabled: boolean; onClick: () => void }) { return <Button variant="outline" className="min-h-[72px] w-full min-w-0 justify-start whitespace-normal px-4 py-3 text-left" disabled={disabled} onClick={onClick}><div className="mr-3 shrink-0 rounded-md bg-muted p-2">{icon}</div><div className="min-w-0 break-words font-medium leading-5">{title}</div></Button> }
 function MailboxSelect({ value, mailboxes, onChange }: { value: string; mailboxes: Mailbox[]; onChange: (value: string) => void }) { return <Select value={value} onValueChange={onChange}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部邮箱</SelectItem>{mailboxes.map((m) => <SelectItem key={m.id} value={m.id}>{m.address}</SelectItem>)}</SelectContent></Select> }
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <div className="space-y-2"><Label>{label}</Label>{children}</div> }
 function EmptyState({ text, description, icon, action, className }: { text: string; description?: string; icon?: React.ReactNode; action?: React.ReactNode; className?: string }) {
