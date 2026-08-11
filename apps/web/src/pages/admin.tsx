@@ -703,8 +703,12 @@ function MailboxesSection({ mailboxes, users, domains }: { mailboxes: MailboxTyp
   const remove = useMutation({ mutationFn: api.deleteMailbox, onSuccess: () => { setPendingConfirm(null); invalidateAdmin(qc); toast({ title: "邮箱已删除" }) }, onError: (e) => toast({ title: "删除失败", description: e.message }) })
   const keyword = query.trim().toLowerCase()
   const knownOwnerIDs = new Set(users.map((item) => item.id))
+  const compareMailboxes = (left: MailboxType, right: MailboxType) => {
+    if (left.primary !== right.primary) return left.primary ? -1 : 1
+    return left.address.localeCompare(right.address, "en", { sensitivity: "base" })
+  }
   const mailboxGroups: Array<{ owner?: AdminUser; mailboxes: MailboxType[] }> = [
-    ...users.slice().sort(compareAdminUsers).map((owner) => ({ owner, mailboxes: mailboxes.filter((mailbox) => mailbox.userId === owner.id).sort((left, right) => left.address.localeCompare(right.address, "en")) })),
+    ...users.slice().sort(compareAdminUsers).map((owner) => ({ owner, mailboxes: mailboxes.filter((mailbox) => mailbox.userId === owner.id).sort(compareMailboxes) })),
     ...mailboxes.filter((mailbox) => !knownOwnerIDs.has(mailbox.userId)).map((mailbox) => ({ owner: undefined, mailboxes: [mailbox] })),
   ]
     .filter((group) => group.mailboxes.length > 0)
@@ -727,8 +731,11 @@ function MailboxesSection({ mailboxes, users, domains }: { mailboxes: MailboxTyp
           <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索账号或邮箱" className="pl-9" />
         </div>
         <div className="divide-y overflow-hidden rounded-md border">
-          <div className="hidden grid-cols-[minmax(0,1fr)_9rem_8rem] gap-4 bg-muted/40 px-11 py-2 text-xs font-medium text-muted-foreground sm:grid">
-            <span>归属账号</span><span>权限管理</span><span>子邮箱</span>
+          <div className="hidden grid-cols-[1rem_minmax(0,1fr)_9rem_8rem] gap-3 bg-muted/40 px-4 py-2 text-xs font-medium text-muted-foreground sm:grid">
+            <span aria-hidden="true" />
+            <span>归属账号</span>
+            <span className="text-center">权限管理</span>
+            <span className="text-center">子邮箱</span>
           </div>
           {mailboxGroups.map((group) => {
             const ownerID = group.owner?.id || group.mailboxes[0].userId
@@ -741,8 +748,8 @@ function MailboxesSection({ mailboxes, users, domains }: { mailboxes: MailboxTyp
                     <div className="truncate font-medium">{group.owner ? accountPrimaryEmail(group.owner) : group.mailboxes[0].userEmail || "未知账号"}</div>
                     <div className="truncate text-xs text-muted-foreground">{group.owner?.displayName || "账号信息不可用"}</div>
                   </div>
-                  <span className="hidden sm:block">{group.owner ? <RoleBadge user={group.owner} /> : "-"}</span>
-                  <span className="flex items-center justify-end gap-2 text-sm tabular-nums text-muted-foreground"><span>{group.mailboxes.length} 个</span><span className="hidden text-xs lg:inline">查看邮箱</span></span>
+                  <span className="hidden items-center justify-center sm:flex">{group.owner ? <RoleBadge user={group.owner} /> : "-"}</span>
+                  <span className="flex items-center justify-center gap-2 text-sm tabular-nums text-muted-foreground"><span>{group.mailboxes.length} 个</span><span className="hidden text-xs lg:inline">查看邮箱</span></span>
                 </Button>
                 {expanded && (
                   <div className="border-t bg-muted/20 px-4 py-2 sm:pl-11">

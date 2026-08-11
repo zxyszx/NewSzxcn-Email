@@ -486,7 +486,16 @@ export function MailPage() {
     },
     onSettled: () => { qc.invalidateQueries({ queryKey: ["labels"] }); qc.invalidateQueries({ queryKey: ["messages"] }) },
   })
-  const del = useMutation({ mutationFn: (id: string) => api.delete(id), onSuccess: async () => { setSelectedId(null); setPendingConfirm(null); await qc.invalidateQueries({ queryKey: ["messages"] }); await qc.invalidateQueries({ queryKey: ["folders"] }); await qc.invalidateQueries({ queryKey: ["mailboxes"] }); await qc.invalidateQueries({ queryKey: ["mail-stats"] }); await qc.invalidateQueries({ queryKey: ["labels"] }); toast({ title: "已删除" }) }, onError: (error) => toast({ title: "删除失败", description: error.message }) })
+  const del = useMutation({
+    mutationFn: ({ id }: { id: string; permanent: boolean }) => api.delete(id),
+    onSuccess: async (_, { permanent }) => {
+      setSelectedId(null)
+      setPendingConfirm(null)
+      await refreshMailData()
+      toast({ title: permanent ? "邮件已永久删除" : "邮件已移入已删除" })
+    },
+    onError: (error) => toast({ title: "删除失败", description: error.message }),
+  })
   const move = useMutation({ mutationFn: ({ id, folder }: { id: string; folder: string }) => api.move(id, folder), onSuccess: async () => { setSelectedId(null); await qc.invalidateQueries({ queryKey: ["messages"] }); await qc.invalidateQueries({ queryKey: ["folders"] }); await qc.invalidateQueries({ queryKey: ["mailboxes"] }); await qc.invalidateQueries({ queryKey: ["mail-stats"] }); await qc.invalidateQueries({ queryKey: ["labels"] }); toast({ title: "已移动" }) }, onError: (error) => toast({ title: "移动失败", description: error.message }) })
   const cancelScheduledSend = useMutation({
     mutationFn: (item: ScheduledSend) => api.cancelScheduledSend(item.id),
@@ -814,10 +823,19 @@ export function MailPage() {
         await Promise.all(ids.map((id) => api.star(id, starred)))
       } else if (action === "delete") {
         await Promise.all(ids.map((id) => api.delete(id)))
+        completionTitle = `已永久删除 ${ids.length} 封邮件`
       } else {
         const target = action === "archive" ? "Archive" : action === "inbox" ? "Inbox" : action === "trash" ? "Trash" : "Spam"
         const result = await api.bulkMove(ids, target)
-        completionTitle = result.ok ? result.message : "批量移动部分失败"
+        completionTitle = result.ok
+          ? target === "Trash"
+            ? `已将 ${result.moved} 封邮件移入已删除`
+            : target === "Spam"
+              ? `已将 ${result.moved} 封邮件移入垃圾邮件`
+              : target === "Inbox"
+                ? `已将 ${result.moved} 封邮件移回收件箱`
+                : `已归档 ${result.moved} 封邮件`
+          : "批量移动部分失败"
         completionDescription = result.ok ? undefined : result.message
       }
       if (selectedId && ids.includes(selectedId)) setSelectedId(null)
@@ -849,11 +867,14 @@ export function MailPage() {
     }
   }
   function confirmDeleteMessage(message: MailMessage) {
+    const permanent = message.folder === "Trash"
     setPendingConfirm({
-      title: "删除这封邮件？",
-      description: `邮件“${message.subject || "无主题"}”将被删除。`,
-      confirmText: "删除邮件",
-      onConfirm: () => del.mutate(message.id),
+      title: permanent ? "永久删除这封邮件？" : "将这封邮件移入已删除？",
+      description: permanent
+        ? `邮件“${message.subject || "无主题"}”将被永久删除，且无法恢复。`
+        : `邮件“${message.subject || "无主题"}”将移入已删除。`,
+      confirmText: permanent ? "永久删除" : "移入已删除",
+      onConfirm: () => del.mutate({ id: message.id, permanent }),
     })
   }
   function openCompose(draft?: ComposeDraft) {
@@ -1669,7 +1690,9 @@ export function MailPage() {
     <MailQueryFailure error={mailMessagesError} onRetry={() => { void refetchMessages() }} />
   ) : compactMailLayout ? (
     <CompactMailView
+      key={`${mailView}:${mailView === "folder" ? folder : mailView === "label" ? selectedLabelId : selectedExternalAccountId}`}
       title={viewTitle}
+      currentFolder={mailView === "folder" ? folder : undefined}
       icon={mailView === "label" && selectedLabel ? <Badge variant="outline" className="gap-1.5 rounded-md font-normal"><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: labelDotColor(selectedLabel) }} />{selectedLabel.name}</Badge> : undefined}
       messages={visibleMessages}
       total={allMessages.length}
@@ -1778,12 +1801,12 @@ export function MailPage() {
           {selectedCountOnPage > 0 && canOrganizeMail && mailView !== "unknown" && (
             <div className="flex min-h-10 shrink-0 items-center gap-3 border-b px-3 py-1.5">
               <span className="shrink-0 text-[13px] text-muted-foreground">已选 {selectedCountOnPage} 封</span>
-              <BulkActionToolbar pending={bulkPending} currentFolder={folder} folders={folders.data?.items || []} readAction={bulkReadAction} onAction={runBulkAction} onMoveToFolder={runBulkMoveToFolder} />
+              <BulkActionToolbar pending={bulkPending} currentFolder={mailView === "folder" ? folder : undefined} folders={folders.data?.items || []} readAction={bulkReadAction} onAction={runBulkAction} onMoveToFolder={runBulkMoveToFolder} />
             </div>
           )}
           <ScrollArea className="min-h-0 flex-1">
             {mailMessagesLoading && <MessageSkeleton />}
-            {visibleMessages.map((m) => <MessageRow key={m.id} message={m} active={selectedId === m.id} checked={compactSelectedIds.includes(m.id)} scheduled={scheduledDraftIds.has(m.id)} onCheckedChange={(checked) => toggleCompactSelect(m.id, checked)} onClick={() => openMessage(m.id)} onContextMenu={(event) => openMessageContextMenu(event, m)} onStar={() => star.mutate({ id: m.id, starred: !m.isStarred })} onArchive={() => move.mutate({ id: m.id, folder: m.folder === "Archive" ? "Inbox" : "Archive" })} onTrash={() => move.mutate({ id: m.id, folder: "Trash" })} onToggleRead={() => markRead.mutate({ id: m.id, read: !m.isRead })} canOrganize={canOrganizeMail && mailView !== "unknown"} />)}
+            {visibleMessages.map((m) => <MessageRow key={m.id} message={m} active={selectedId === m.id} checked={compactSelectedIds.includes(m.id)} scheduled={scheduledDraftIds.has(m.id)} onCheckedChange={(checked) => toggleCompactSelect(m.id, checked)} onClick={() => openMessage(m.id)} onContextMenu={(event) => openMessageContextMenu(event, m)} onStar={() => star.mutate({ id: m.id, starred: !m.isStarred })} onArchive={() => move.mutate({ id: m.id, folder: m.folder === "Archive" ? "Inbox" : "Archive" })} onTrash={() => m.folder === "Trash" ? confirmDeleteMessage(m) : move.mutate({ id: m.id, folder: "Trash" })} onToggleRead={() => markRead.mutate({ id: m.id, read: !m.isRead })} canOrganize={canOrganizeMail && mailView !== "unknown"} />)}
             {!mailMessagesLoading && visibleMessages.length === 0 && <div className="grid min-h-[170px] place-items-center px-8 py-12 text-center text-base text-muted-foreground">{emptyMessage}</div>}
             {!mailMessagesLoading && hasMoreMessages && (
               <div className="border-b p-4 text-center">
@@ -1827,7 +1850,7 @@ export function MailPage() {
                   ) : (
                     <Button variant="outline" size="sm" onClick={() => move.mutate({ id: selected.id, folder: "Archive" })}>归档</Button>
                   ))}
-                  {mailView !== "external" && mailView !== "unknown" && canOrganizeMail && <Button variant="destructive" size="sm" onClick={() => confirmDeleteMessage(selected)}>删除</Button>}
+                  {mailView !== "external" && mailView !== "unknown" && canOrganizeMail && <Button variant="destructive" size="sm" onClick={() => confirmDeleteMessage(selected)}>{selected.folder === "Trash" ? "永久删除" : "移入已删除"}</Button>}
                 </div>
               </div>
               <MessageMetaPanel
@@ -2574,6 +2597,7 @@ type BulkAction = "read" | "unread" | "star" | "unstar" | "archive" | "inbox" | 
 
 function BulkActionToolbar({ pending, currentFolder, folders = [], readAction = "read", onAction, onMoveToFolder }: { pending: boolean; currentFolder?: string; folders?: MailFolder[]; readAction?: "read" | "unread"; onAction: (action: BulkAction) => void; onMoveToFolder?: (folderName: string) => void }) {
   const buttonClass = "h-7 w-7 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+  const permanentlyDelete = currentFolder === "Trash"
   const archiveAction: BulkAction = currentFolder === "Archive" ? "inbox" : "archive"
   const archiveLabel = currentFolder === "Archive" ? "移回收件箱" : "归档"
   const movableFolders = folders.filter((folder) => folder.name !== currentFolder && folder.name !== "Drafts")
@@ -2602,7 +2626,7 @@ function BulkActionToolbar({ pending, currentFolder, folders = [], readAction = 
           </DropdownMenuContent>
         </DropdownMenu>
       )}
-      <Button type="button" variant="ghost" size="icon" className={cn(buttonClass, "text-destructive hover:bg-destructive/10 hover:text-destructive")} disabled={pending} onClick={() => onAction("trash")} title="移入已删除" aria-label="移入已删除">
+      <Button type="button" variant="ghost" size="icon" className={cn(buttonClass, "text-destructive hover:bg-destructive/10 hover:text-destructive")} disabled={pending} onClick={() => onAction(permanentlyDelete ? "delete" : "trash")} title={permanentlyDelete ? "永久删除" : "移入已删除"} aria-label={permanentlyDelete ? "永久删除" : "移入已删除"}>
         <Trash2 className="h-3.5 w-3.5" />
       </Button>
     </div>
@@ -2784,7 +2808,7 @@ function MessageContextMenu({ state, labels, folders, canSend, canOrganize, canM
       {canOrganize && (
         <>
           <div className="-mx-1 my-1 h-px bg-border" />
-          {item("删除", <Trash2 className="h-4 w-4" />, "delete", true)}
+          {item(message.folder === "Trash" ? "永久删除" : "移入已删除", <Trash2 className="h-4 w-4" />, "delete", true)}
         </>
       )}
     </div>
@@ -2882,6 +2906,7 @@ function CreateFolderDialog({ open, pending, onOpenChange, onCreate }: { open: b
 
 function CompactMailView({
   title,
+  currentFolder,
   icon,
   messages,
   total,
@@ -2925,6 +2950,7 @@ function CompactMailView({
   tools,
 }: {
   title: string
+  currentFolder?: string
   icon?: React.ReactNode
   messages: MailMessage[]
   total: number
@@ -3016,7 +3042,7 @@ function CompactMailView({
           {selectedIds.length > 0 ? (
             <>
               <span className="hidden text-xs text-muted-foreground min-[380px]:inline">已选 {selectedIds.length} 封</span>
-              {canOrganize && <BulkActionToolbar pending={bulkPending} onAction={onBulkAction} />}
+              {canOrganize && <BulkActionToolbar pending={bulkPending} currentFolder={currentFolder} onAction={onBulkAction} />}
             </>
           ) : (
             <div className="flex items-center gap-1">
@@ -3127,7 +3153,7 @@ function CompactMessageDetail({
                     {canOrganize && <DropdownMenuItem onSelect={() => onStar(selected)}><Star className={cn("h-4 w-4", selected.isStarred && "fill-yellow-400 text-yellow-500")} />{selected.isStarred ? "取消星标" : "添加星标"}</DropdownMenuItem>}
                   </>
                 )}
-                {canOrganize && <DropdownMenuItem onSelect={() => onDelete(selected)} className="text-destructive"><Trash2 className="h-4 w-4" />删除</DropdownMenuItem>}
+                {canOrganize && <DropdownMenuItem onSelect={() => onDelete(selected)} className="text-destructive"><Trash2 className="h-4 w-4" />{selected.folder === "Trash" ? "永久删除" : "移入已删除"}</DropdownMenuItem>}
               </DropdownMenuContent>
             </DropdownMenu>
           )}
@@ -3147,7 +3173,7 @@ function CompactMessageDetail({
                 {selected && canOrganize && <Button variant="outline" size="sm" onClick={() => onStar(selected)}><Star className={cn("h-4 w-4", selected.isStarred && "fill-yellow-400 text-yellow-500")} />{selected.isStarred ? "取消星标" : "添加星标"}</Button>}
               </>
             )}
-            {selected && canOrganize && <Button variant="outline" size="sm" onClick={() => onDelete(selected)}><Trash2 className="h-4 w-4" />删除</Button>}
+            {selected && canOrganize && <Button variant="outline" size="sm" onClick={() => onDelete(selected)}><Trash2 className="h-4 w-4" />{selected.folder === "Trash" ? "永久删除" : "移入已删除"}</Button>}
           </div>
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" disabled={!previousMessage} onClick={() => previousMessage && onSelect(previousMessage.id)}>上一封</Button>
@@ -3782,7 +3808,7 @@ function MessageRow({
                 <Button type="button" variant="ghost" size="icon" aria-label={archiveLabel} title={archiveLabel} className={quickButtonClass} onClick={(event) => { event.stopPropagation(); onArchive() }}>
                   <Archive className="h-3.5 w-3.5" />
                 </Button>
-                <Button type="button" variant="ghost" size="icon" aria-label="移入已删除" title="移入已删除" className={quickButtonClass} onClick={(event) => { event.stopPropagation(); onTrash() }}>
+                <Button type="button" variant="ghost" size="icon" aria-label={message.folder === "Trash" ? "永久删除" : "移入已删除"} title={message.folder === "Trash" ? "永久删除" : "移入已删除"} className={quickButtonClass} onClick={(event) => { event.stopPropagation(); onTrash() }}>
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
                 <Button type="button" variant="ghost" size="icon" aria-label={message.isRead ? "标为未读" : "标为已读"} title={message.isRead ? "标为未读" : "标为已读"} className={quickButtonClass} onClick={(event) => { event.stopPropagation(); onToggleRead() }}>
