@@ -2336,13 +2336,13 @@ function RuleDialog({ open, onOpenChange, mailboxes, labels, verifiedEmails, pen
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-svh w-screen max-w-none gap-0 overflow-hidden p-0 sm:h-auto sm:max-h-[92vh] sm:w-[min(94vw,56rem)]">
-        <DialogHeader className="border-b px-4 py-4 text-left sm:px-8 sm:py-6">
+      <DialogContent className="!flex h-dvh w-screen max-w-none flex-col gap-0 overflow-hidden border-0 p-0 sm:h-auto sm:max-h-[92vh] sm:w-[min(94vw,56rem)] sm:border">
+        <DialogHeader className="shrink-0 border-b px-4 py-4 pr-16 text-left sm:px-8 sm:py-6 sm:pr-16">
           <DialogTitle className="text-xl sm:text-2xl">{initialRule ? "编辑规则" : "新建规则"}</DialogTitle>
         </DialogHeader>
         <form className="flex min-h-0 flex-1 flex-col" onSubmit={submit}>
-          <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-5 sm:space-y-7 sm:px-8 sm:py-7">
-            <Field label="名称"><Input value={name} onChange={(event) => setName(event.target.value)} placeholder="我的规则" /></Field>
+          <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain px-4 py-5 sm:space-y-7 sm:px-8 sm:py-7">
+            <Field label="名称"><Input className="h-11 sm:h-9" value={name} onChange={(event) => setName(event.target.value)} placeholder="我的规则" /></Field>
             <Field label="适用邮箱"><MailboxSelect value={mailboxId} mailboxes={mailboxes} onChange={setMailboxId} /></Field>
 
             <div className="space-y-4">
@@ -2355,18 +2355,20 @@ function RuleDialog({ open, onOpenChange, mailboxes, labels, verifiedEmails, pen
               </div>
               <div className="space-y-3">
                 {conditions.map((condition, index) => (
-                  <div key={index} className="grid gap-3 md:grid-cols-[180px_128px_minmax(0,1fr)_auto_auto]">
+                  <div key={index} className="grid grid-cols-2 gap-2 rounded-md border p-3 md:grid-cols-[180px_128px_minmax(0,1fr)_auto_auto] md:gap-3 md:border-0 md:p-0">
                     <Select value={condition.field || "from"} onValueChange={(value) => updateCondition(index, { field: value as RuleConditionField })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-11 md:h-9"><SelectValue /></SelectTrigger>
                       <SelectContent>{conditionFields.map((value) => <SelectItem key={value} value={value}>{conditionFieldLabels[value]}</SelectItem>)}</SelectContent>
                     </Select>
                     <Select value={condition.operator || defaultConditionOperator(condition.field)} onValueChange={(value) => updateCondition(index, { operator: value as RuleConditionOperator })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-11 md:h-9"><SelectValue /></SelectTrigger>
                       <SelectContent>{conditionOperatorsForField(condition.field).map((value) => <SelectItem key={value} value={value}>{conditionOperatorLabels[value]}</SelectItem>)}</SelectContent>
                     </Select>
-                    <Input type={condition.field === "date" ? "date" : "text"} value={condition.value || ""} onChange={(event) => updateCondition(index, { value: event.target.value })} placeholder={conditionPlaceholder(condition.field)} />
-                    <Button type="button" variant="ghost" size="icon" className="text-muted-foreground" aria-label={`删除第 ${index + 1} 个条件`} title="删除条件" onClick={() => removeCondition(index)} disabled={conditions.length === 1}><X className="h-4 w-4" /></Button>
-                    <Button type="button" variant="ghost" size="icon" aria-label="添加条件" title="添加条件" onClick={addCondition}><Plus className="h-4 w-4" /></Button>
+                    <Input className="col-span-2 h-11 md:col-span-1 md:h-9" type={condition.field === "date" ? "date" : "text"} value={condition.value || ""} onChange={(event) => updateCondition(index, { value: event.target.value })} placeholder={conditionPlaceholder(condition.field)} />
+                    <div className="col-span-2 flex justify-end gap-2 md:contents">
+                      <Button type="button" variant="ghost" size="icon" className="size-11 text-muted-foreground md:size-9" aria-label={`删除第 ${index + 1} 个条件`} title="删除条件" onClick={() => removeCondition(index)} disabled={conditions.length === 1}><X className="h-4 w-4" /></Button>
+                      <Button type="button" variant="outline" size="icon" className="size-11 md:size-9" aria-label="添加条件" title="添加条件" onClick={addCondition}><Plus className="h-4 w-4" /></Button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -2376,14 +2378,16 @@ function RuleDialog({ open, onOpenChange, mailboxes, labels, verifiedEmails, pen
               <div className="text-sm">执行以下动作</div>
               <div className="space-y-3">
                 {actions.map((action, index) => (
-                  <div key={index} className={cn("grid gap-3", action.type === "forward" ? "md:grid-cols-[180px_minmax(0,1fr)_auto]" : "md:grid-cols-[180px_minmax(0,1fr)_auto_auto]")}>
+                  <div key={index} className="grid gap-2 rounded-md border p-3 md:grid-cols-[180px_minmax(0,1fr)_auto_auto] md:gap-3 md:border-0 md:p-0">
                     <Select value={action.type} onValueChange={(value) => updateAction(index, { type: value as MailRuleAction["type"], value: "", labelId: "" })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-11 md:h-9"><SelectValue /></SelectTrigger>
                       <SelectContent>{(Object.keys(ruleActionLabels) as MailRuleAction["type"][]).map((value) => <SelectItem key={value} value={value}>{ruleActionLabels[value]}</SelectItem>)}</SelectContent>
                     </Select>
-                    <RuleActionValue action={action} labels={availableLabels} verifiedEmails={verifiedEmails} onChange={(patch) => updateAction(index, patch)} />
-                    <Button type="button" variant="ghost" size="icon" className="text-muted-foreground" aria-label={`删除第 ${index + 1} 个操作`} title="删除操作" onClick={() => removeAction(index)} disabled={actions.length === 1}><X className="h-4 w-4" /></Button>
-                    {action.type !== "forward" && <Button type="button" variant="ghost" size="icon" aria-label="添加操作" title="添加操作" onClick={addAction}><Plus className="h-4 w-4" /></Button>}
+                    <div className="min-w-0"><RuleActionValue action={action} labels={availableLabels} verifiedEmails={verifiedEmails} onChange={(patch) => updateAction(index, patch)} /></div>
+                    <div className="flex justify-end gap-2 md:contents">
+                      <Button type="button" variant="ghost" size="icon" className="size-11 text-muted-foreground md:size-9" aria-label={`删除第 ${index + 1} 个操作`} title="删除操作" onClick={() => removeAction(index)} disabled={actions.length === 1}><X className="h-4 w-4" /></Button>
+                      <Button type="button" variant="outline" size="icon" className="size-11 md:size-9" aria-label="添加操作" title="添加操作" onClick={addAction}><Plus className="h-4 w-4" /></Button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -2394,13 +2398,13 @@ function RuleDialog({ open, onOpenChange, mailboxes, labels, verifiedEmails, pen
             <div className="space-y-4">
               <RuleCheckbox checked={enabled} onCheckedChange={setEnabled} label="立即启用" />
               <RuleCheckbox checked={applyToExisting} onCheckedChange={setApplyToExisting} label="应用于现有邮件" />
-              <div className="flex items-center gap-2">
+              <div className="flex items-start gap-2">
                 <RuleCheckbox checked={stopProcessing} onCheckedChange={setStopProcessing} label="终止规则：命中此规则后不再应用其他规则" />
-                <Info className="h-4 w-4 text-muted-foreground" />
+                <Info className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
               </div>
             </div>
           </div>
-          <DialogFooter className="gap-2 border-t px-4 py-4 sm:px-8 sm:py-5 [&>button]:w-full sm:[&>button]:w-auto">
+          <DialogFooter className="shrink-0 gap-2 border-t px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4 sm:px-8 sm:py-5 [&>button]:min-h-11 [&>button]:w-full sm:[&>button]:min-h-9 sm:[&>button]:w-auto">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
             <Button disabled={!canCreate}>{pending ? "保存中..." : initialRule ? "保存修改" : "创建"}</Button>
           </DialogFooter>
@@ -2458,7 +2462,7 @@ function verifiedRuleForwardTargets(value: string, verifiedEmails: string[]) {
 
 function RuleCheckbox({ checked, onCheckedChange, label }: { checked: boolean; onCheckedChange: (checked: boolean) => void; label: string }) {
   const id = React.useId()
-  return <div className="flex items-center gap-3"><Checkbox id={id} checked={checked} onCheckedChange={(value) => onCheckedChange(value === true)} /><Label htmlFor={id} className="text-base font-medium">{label}</Label></div>
+  return <div className="flex min-w-0 items-start gap-3"><Checkbox id={id} className="mt-0.5" checked={checked} onCheckedChange={(value) => onCheckedChange(value === true)} /><Label htmlFor={id} className="text-sm font-medium leading-5 sm:text-base sm:leading-6">{label}</Label></div>
 }
 
 function RuleListItem({ item, index, count, mailboxLabel, pending, onEdit, onToggle, onMove, onApply, onDelete }: { item: MailRule; index: number; count: number; mailboxLabel: string; pending: boolean; onEdit: () => void; onToggle: () => void; onMove: (direction: "up" | "down") => void; onApply: () => void; onDelete: (id: string) => void }) {

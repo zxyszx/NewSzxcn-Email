@@ -26,12 +26,12 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-lg rounded-lg">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
         {description && <div className="text-sm text-muted-foreground">{description}</div>}
-        <DialogFooter>
+        <DialogFooter className="gap-2 [&>button]:min-h-11 sm:[&>button]:min-h-9">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
             {cancelText}
           </Button>

@@ -961,6 +961,14 @@ export function MailPage() {
   function closeSidebarContextMenu() {
     setSidebarContextMenu(null)
   }
+  function runAfterClosingMobileSidebar(action: () => void) {
+    if (!isMobile) {
+      action()
+      return
+    }
+    if (mobileSidebarOpen) setMobileSidebarOpen(false)
+    window.setTimeout(action, 250)
+  }
   function activateSidebarItem(item: MailMenuItem) {
     if (item.type === "starred") openStarred()
     else if (item.type === "scheduled") openScheduled()
@@ -1432,7 +1440,7 @@ export function MailPage() {
             <div className="flex items-center justify-between px-2 py-1">
               <SidebarGroupLabel className="m-0 h-auto gap-1 p-0 text-xs font-semibold text-muted-foreground"><ChevronDown className="h-3 w-3" />文件夹</SidebarGroupLabel>
               {canManageFolders && (
-                <Button type="button" variant="ghost" size="icon" className="h-5 w-5 text-muted-foreground hover:bg-transparent hover:text-foreground" aria-label="新建文件夹" title="新建文件夹" onClick={() => setFolderDialogOpen(true)}>
+                <Button type="button" variant="ghost" size="icon" className="h-5 w-5 text-muted-foreground hover:bg-transparent hover:text-foreground" aria-label="新建文件夹" title="新建文件夹" onClick={() => runAfterClosingMobileSidebar(() => setFolderDialogOpen(true))}>
                   <Plus className="h-3.5 w-3.5" />
                 </Button>
               )}
@@ -1553,6 +1561,34 @@ export function MailPage() {
           </SidebarGroupContent>
         </SidebarGroup>}
       </SidebarContent>
+      <SidebarContextMenu
+        state={sidebarContextMenu}
+        canCreate={canManageFolders}
+        canReorder={canOrganizeCurrentMailbox}
+        canDelete={canManageFolders}
+        pending={reorderFolders.isPending || deleteFolder.isPending}
+        onClose={closeSidebarContextMenu}
+        onOpen={(item) => {
+          closeSidebarContextMenu()
+          activateSidebarItem(item)
+        }}
+        onRefresh={() => {
+          closeSidebarContextMenu()
+          void refreshMailData()
+        }}
+        onCreateFolder={() => {
+          closeSidebarContextMenu()
+          runAfterClosingMobileSidebar(() => setFolderDialogOpen(true))
+        }}
+        onMove={(item, action) => {
+          closeSidebarContextMenu()
+          moveSidebarFolder(item, action)
+        }}
+        onDelete={(item) => {
+          closeSidebarContextMenu()
+          runAfterClosingMobileSidebar(() => confirmDeleteFolder(item))
+        }}
+      />
     </Sidebar>
   )
 
@@ -1871,34 +1907,6 @@ export function MailPage() {
           active ? removeLabel.mutate({ id: message.id, labelId: label.id }) : addLabel.mutate({ id: message.id, label })
         }}
       />
-      <SidebarContextMenu
-        state={sidebarContextMenu}
-        canCreate={canManageFolders}
-        canReorder={canOrganizeCurrentMailbox}
-        canDelete={canManageFolders}
-        pending={reorderFolders.isPending || deleteFolder.isPending}
-        onClose={closeSidebarContextMenu}
-        onOpen={(item) => {
-          closeSidebarContextMenu()
-          activateSidebarItem(item)
-        }}
-        onRefresh={() => {
-          closeSidebarContextMenu()
-          void refreshMailData()
-        }}
-        onCreateFolder={() => {
-          closeSidebarContextMenu()
-          setFolderDialogOpen(true)
-        }}
-        onMove={(item, action) => {
-          closeSidebarContextMenu()
-          moveSidebarFolder(item, action)
-        }}
-        onDelete={(item) => {
-          closeSidebarContextMenu()
-          confirmDeleteFolder(item)
-        }}
-      />
       <CreateFolderDialog
         open={folderDialogOpen}
         pending={createFolder.isPending}
@@ -1911,7 +1919,7 @@ export function MailPage() {
         description={pendingConfirm?.description}
         confirmText={pendingConfirm?.confirmText || "确认"}
         destructive
-        pending={del.isPending || bulkPending}
+        pending={del.isPending || bulkPending || deleteFolder.isPending}
         onOpenChange={(open) => { if (!open) setPendingConfirm(null) }}
         onConfirm={() => pendingConfirm?.onConfirm()}
       />
