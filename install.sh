@@ -1356,7 +1356,9 @@ do_restore_backup() {
       rm -f "${NGINX_CONFIG}"
     fi
     rm -f "${nginx_backup}"
-    nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1 || true
+    if nginx -t >/dev/null 2>&1; then
+      systemctl reload nginx >/dev/null 2>&1 || true
+    fi
     fail "恢复失败，原始备份文件未修改；修复问题后可重新执行备份恢复。"
   fi
   rm -f "${nginx_backup}"
