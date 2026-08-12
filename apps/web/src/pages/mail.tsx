@@ -1307,8 +1307,8 @@ export function MailPage() {
     setAdvancedSearchOpen(false)
   }
   const sidebarContent = (
-    <Sidebar collapsible="none" className="h-full w-full border-r border-border bg-sidebar text-sidebar-foreground">
-      <SidebarHeader className={cn("pb-2 pt-3", sidebarCollapsed ? "px-2" : "px-3")}>
+    <Sidebar collapsible="none" className="h-full min-h-0 w-full overflow-hidden border-r border-border bg-sidebar text-sidebar-foreground">
+      <SidebarHeader className={cn("shrink-0 pb-2 pt-3", sidebarCollapsed ? "px-2" : "px-3")}>
         <AccountHeader
           collapsed={sidebarCollapsed}
           name={me.data?.user.displayName || selectedMailbox?.address || "NewSzxcn"}
@@ -1352,7 +1352,7 @@ export function MailPage() {
           </Button>
         )}
       </SidebarHeader>
-      <SidebarContent className="px-1">
+      <SidebarContent className="min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain px-1 pb-4">
         {!sidebarCollapsed && publicSettings.isError && <SidebarQueryFailure label="邮箱设置读取失败" onRetry={() => { void publicSettings.refetch() }} />}
         <SidebarGroup>
           {!sidebarCollapsed && (
@@ -1884,7 +1884,7 @@ export function MailPage() {
                   </SheetTrigger>
                   <SheetContent side="left" className="w-[86vw] max-w-80 p-0 [&>button]:hidden" aria-describedby={undefined}>
                     <SheetTitle className="sr-only">邮箱导航</SheetTitle>
-                    <div className="h-svh">{sidebarContent}</div>
+                    <div className="h-svh min-h-0 overflow-hidden">{sidebarContent}</div>
                   </SheetContent>
                 </Sheet>
                 <div className="min-w-0 flex-1 text-sm font-semibold">{mailView === "label" && selectedLabel ? <Badge variant="outline" className="gap-1.5 rounded-md font-normal"><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: labelDotColor(selectedLabel) }} />{selectedLabel.name}</Badge> : viewTitle}</div>
@@ -1900,7 +1900,7 @@ export function MailPage() {
           </div>
         ) : (
           <div className="mail-shell-grid h-full min-h-0 w-full min-w-0 overflow-hidden">
-            <div className="min-w-0">
+            <div className="h-full min-h-0 min-w-0 overflow-hidden">
               {sidebarContent}
             </div>
             <section className="flex h-full min-h-0 min-w-0 flex-col">
