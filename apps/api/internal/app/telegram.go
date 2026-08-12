@@ -71,6 +71,7 @@ type telegramUpdate struct {
 		Chat struct {
 			ID        int64  `json:"id"`
 			Type      string `json:"type"`
+			Title     string `json:"title"`
 			FirstName string `json:"first_name"`
 			LastName  string `json:"last_name"`
 			Username  string `json:"username"`
@@ -112,7 +113,7 @@ func normalizeTelegramBodyMode(value string) string {
 
 func validTelegramPrivateChatID(value string) bool {
 	id, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
-	return err == nil && id > 0
+	return err == nil && id != 0
 }
 
 func (a *App) handleCreateTelegramPairing(w http.ResponseWriter, r *http.Request) {
@@ -257,6 +258,50 @@ func (a *App) discoverTelegramPrivateChat(ctx context.Context, token, pairingCod
 		return strconv.FormatInt(message.Chat.ID, 10), name, nil
 	}
 	return "", "", errors.New("未找到匹配的私聊，请打开机器人发送绑定码后重试")
+}
+
+type telegramDiscoveredChat struct {
+	ChatID      string `json:"chatId"`
+	DisplayName string `json:"displayName"`
+}
+
+func (a *App) discoverTelegramGroups(ctx context.Context, token, pairingCode string) ([]telegramDiscoveredChat, error) {
+	var updates []telegramUpdate
+	if err := a.callTelegram(ctx, token, "getUpdates", map[string]any{
+		"limit": 100, "timeout": 0, "allowed_updates": []string{"message"},
+	}, &updates); err != nil {
+		return nil, err
+	}
+	found := make([]telegramDiscoveredChat, 0)
+	seen := make(map[int64]bool)
+	for i := len(updates) - 1; i >= 0; i-- {
+		message := updates[i].Message
+		if message == nil || (message.Chat.Type != "group" && message.Chat.Type != "supergroup") || message.Chat.ID >= 0 {
+			continue
+		}
+		text := strings.TrimSpace(message.Text)
+		fields := strings.Fields(text)
+		matches := strings.EqualFold(text, pairingCode)
+		if len(fields) == 2 && strings.HasPrefix(strings.ToLower(fields[0]), "/newszxcn") {
+			matches = strings.EqualFold(fields[1], pairingCode)
+		}
+		if !matches {
+			continue
+		}
+		if seen[message.Chat.ID] {
+			continue
+		}
+		seen[message.Chat.ID] = true
+		name := strings.TrimSpace(message.Chat.Title)
+		if name == "" {
+			name = "Telegram 群组"
+		}
+		found = append(found, telegramDiscoveredChat{ChatID: strconv.FormatInt(message.Chat.ID, 10), DisplayName: name})
+	}
+	if len(found) == 0 {
+		return nil, errors.New("未找到匹配的群组，请确认机器人已加入群组，并在群里发送查询命令")
+	}
+	return found, nil
 }
 
 func newTelegramPairingCode() (string, error) {

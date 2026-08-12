@@ -67,6 +67,8 @@ type Config struct {
 	ReleaseAPIURL                   string
 	UpdateServiceURL                string
 	UpdateServiceToken              string
+	BackupSourceDir                 string
+	BackupDir                       string
 }
 
 func LoadConfig() Config {
@@ -131,6 +133,8 @@ func LoadConfig() Config {
 		ReleaseAPIURL:                   getenv("LANQIN_RELEASE_API_URL", "https://api.github.com/repos/zxyszx/NewSzxcn-Email/releases/latest"),
 		UpdateServiceURL:                getenv("LANQIN_UPDATE_SERVICE_URL", ""),
 		UpdateServiceToken:              getenv("LANQIN_UPDATE_SERVICE_TOKEN", ""),
+		BackupSourceDir:                 getenv("LANQIN_BACKUP_SOURCE_DIR", ""),
+		BackupDir:                       getenv("LANQIN_BACKUP_DIR", filepath.Join(dataDir, "disaster-backups")),
 	}
 }
 

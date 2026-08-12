@@ -38,6 +38,8 @@ type App struct {
 	telegramPairMu     sync.Mutex
 	telegramPairs      map[string]telegramPairing
 	telegramDeliveryMu sync.Mutex
+	backupMu           sync.Mutex
+	backupJob          *backupJob
 }
 
 const (
@@ -130,6 +132,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	a.startWorker(func() { a.smtpEventsCleanupWorker(workerCtx) })
 	a.startWorker(func() { a.statusWebhookWorker(workerCtx) })
 	a.startWorker(func() { a.telegramMailWorker(workerCtx) })
+	a.startWorker(func() { a.backupScheduleWorker(workerCtx) })
 	return a, nil
 }
 

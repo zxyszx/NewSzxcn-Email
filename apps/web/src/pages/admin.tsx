@@ -2,7 +2,7 @@ import * as React from "react"
 import DOMPurify from "dompurify"
 import { useSearchParams } from "react-router-dom"
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowRight, BookOpen, CheckCircle2, ChevronDown, Circle, ClipboardList, Copy, ExternalLink, Github, Globe2, Mail, Mailbox, MoreHorizontal, RefreshCcw, Scale, Search, ShieldCheck, Star, Trash2, Users } from "lucide-react"
+import { ArrowRight, BookOpen, CheckCircle2, ChevronDown, Circle, ClipboardList, Cloud, Copy, Download, ExternalLink, Eye, EyeOff, Github, Globe2, HardDrive, KeyRound, Loader2, Mail, Mailbox, MoreHorizontal, RefreshCcw, Scale, Search, Send, ShieldCheck, Star, Trash2, Users } from "lucide-react"
 import { api, AdminUser, Alias, DNSRecord, Domain, Mailbox as MailboxType, MailMessage, MailTemplate, MaildirSyncHealth, PermissionGroup, PermissionInfo, PermissionLimits, SystemSettings } from "@/lib/api"
 import { cn, decodeMimeHeader, formatBytes, formatDate } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -26,7 +26,7 @@ import { useToast } from "@/hooks/use-toast"
 import { hasAnyPermission, hasPermission } from "@/lib/permissions"
 import type { PermissionKey, TelegramPairing } from "@/lib/api-types"
 
-type Section = "overview" | "users" | "permissionGroups" | "domains" | "mailboxes" | "aliases" | "messages" | "sendAudit" | "settings"
+type Section = "overview" | "users" | "permissionGroups" | "domains" | "mailboxes" | "aliases" | "messages" | "sendAudit" | "backups" | "settings"
 type SettingsTab = "base" | "smtp" | "storage" | "mail" | "notifications" | "externalImap" | "templates" | "security" | "about"
 type PendingConfirm = { title: string; description?: string; confirmText: string; onConfirm: () => void }
 
@@ -39,6 +39,7 @@ const sectionMeta: Record<Section, { label: string; frontLabel: string; descript
   aliases: { label: "邮件转发", frontLabel: "邮件转发", description: "管理域名转发规则。" },
   messages: { label: "全部邮件", frontLabel: "全部邮箱", description: "按邮箱、文件夹和关键词查看全站邮件。" },
   sendAudit: { label: "发送队列", frontLabel: "发送队列", description: "查看发信投递、重试和失败记录。" },
+  backups: { label: "备份与恢复", frontLabel: "数据保护", description: "创建、校验和下载可迁移的加密完整备份。" },
   settings: { label: "系统设置", frontLabel: "账号设置", description: "管理站点、发信、存储、注册、安全和邮件模板。" },
 }
 const sectionLabels = Object.fromEntries(Object.entries(sectionMeta).map(([key, value]) => [key, value.label])) as Record<Section, string>
@@ -52,6 +53,7 @@ const sectionPermissions: Record<Section, PermissionKey[]> = {
   aliases: ["admin.aliases.view"],
   messages: ["admin.messages.view"],
   sendAudit: ["admin.messages.view"],
+  backups: ["admin.settings.view"],
   settings: ["admin.settings.view", "admin.templates.view"],
 }
 const projectRepositoryUrl = "https://github.com/zxyszx/NewSzxcn-Email"
@@ -102,7 +104,7 @@ export function AdminPage() {
   const aliasItems = aliases.data?.items || []
   const userItems = users.data?.items || []
   const assignablePermissionGroups = (permissionGroups.data?.items || []).filter((group) => group.id !== superAdminPermissionGroupId && group.id !== regularUserPermissionGroupId)
-  const visibleSections = sectionKeys.filter((key) => hasAnyPermission(user, sectionPermissions[key]))
+  const visibleSections = sectionKeys.filter((key) => hasAnyPermission(user, sectionPermissions[key]) && (key !== "backups" || user?.role === "admin"))
   const rawSection = params.get("section") as Section | null
   const section: Section = rawSection && visibleSections.includes(rawSection) ? rawSection : visibleSections[0] || "overview"
   const sectionQuery = section === "overview" ? overview
@@ -155,6 +157,7 @@ export function AdminPage() {
         {section === "aliases" && <AliasesSection aliases={aliasItems} domains={domainItems} />}
         {section === "messages" && <AdminMessagesSection mailboxes={mailboxItems} systemAdmin={user?.role === "admin"} />}
         {section === "sendAudit" && <AdminSendAuditSection mailboxes={mailboxItems} />}
+        {section === "backups" && <BackupsSection />}
         {section === "settings" && <SystemSettingsSection settings={settings.data} domains={domainItems} mailboxes={mailboxItems} initialTab={params.get("settingsTab")} />}
       </main>
     </ScrollArea>
@@ -253,6 +256,321 @@ function setupChecklist(overview: { activeUsers: number; activeMailboxes: number
 
 function InfoLine({ label, value }: { label: string; value: React.ReactNode }) {
   return <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2"><span>{label}</span><span className="min-w-0 truncate font-medium text-foreground">{value}</span></div>
+}
+
+function generateBackupPassword(length = 24) {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%"
+  const values = new Uint32Array(length)
+  crypto.getRandomValues(values)
+  return Array.from(values, (value) => alphabet[value % alphabet.length]).join("")
+}
+
+function BackupsSection() {
+  const qc = useQueryClient()
+  const { toast } = useToast()
+  const backups = useQuery({
+    queryKey: ["admin", "backups"],
+    queryFn: api.backups,
+    refetchInterval: (query) => query.state.data?.job?.status === "running" ? 2000 : false,
+  })
+  const [createOpen, setCreateOpen] = React.useState(false)
+  const [password, setPassword] = React.useState("")
+  const [confirmPassword, setConfirmPassword] = React.useState("")
+  const [showCreatePassword, setShowCreatePassword] = React.useState(false)
+  const [sendAfterCreate, setSendAfterCreate] = React.useState(true)
+  const [driveAfterCreate, setDriveAfterCreate] = React.useState(false)
+  const [deleteName, setDeleteName] = React.useState("")
+
+  const [scheduleEnabled, setScheduleEnabled] = React.useState(false)
+  const [scheduleDays, setScheduleDays] = React.useState("7")
+  const [customDays, setCustomDays] = React.useState("14")
+  const [schedulePassword, setSchedulePassword] = React.useState("")
+  const [scheduleConfirmPassword, setScheduleConfirmPassword] = React.useState("")
+  const [showSchedulePassword, setShowSchedulePassword] = React.useState(false)
+  const [serverIp, setServerIp] = React.useState("")
+  const [backupChatId, setBackupChatId] = React.useState("")
+  const [telegramMode, setTelegramMode] = React.useState<"system" | "custom">("system")
+  const [telegramEnabled, setTelegramEnabled] = React.useState(true)
+  const [googleDriveEnabled, setGoogleDriveEnabled] = React.useState(false)
+  const [googleClientId, setGoogleClientId] = React.useState("")
+  const [googleClientSecret, setGoogleClientSecret] = React.useState("")
+  const [googleFolderName, setGoogleFolderName] = React.useState("NewSzxcn Backups")
+  const [telegramConfigOpen, setTelegramConfigOpen] = React.useState(false)
+  const [backupGroupPairing, setBackupGroupPairing] = React.useState<TelegramPairing | null>(null)
+  const [discoveredBackupGroups, setDiscoveredBackupGroups] = React.useState<{ chatId: string; displayName: string }[]>([])
+  const [googleConfigOpen, setGoogleConfigOpen] = React.useState(false)
+  React.useEffect(() => {
+    if (!backups.data) return
+    const days = backups.data.schedule.days || 7
+    setScheduleEnabled(backups.data.schedule.enabled)
+    setScheduleDays([3, 5, 7, 30].includes(days) ? String(days) : "custom")
+    setCustomDays(String(days))
+    setServerIp(backups.data.schedule.serverIp || "")
+    setBackupChatId(backups.data.schedule.chatId || "")
+    setTelegramMode(backups.data.schedule.telegramMode === "custom" ? "custom" : "system")
+    setTelegramEnabled(backups.data.schedule.telegramEnabled)
+    setGoogleDriveEnabled(backups.data.schedule.googleDriveEnabled)
+    setGoogleClientId(backups.data.googleDrive.clientId || "")
+    setGoogleFolderName(backups.data.googleDrive.folderName || "NewSzxcn Backups")
+    setDriveAfterCreate(backups.data.googleDrive.connected)
+    setSendAfterCreate(backups.data.telegramSet)
+  }, [backups.data])
+  React.useEffect(() => {
+    const drive = new URLSearchParams(window.location.search).get("drive")
+    if (!drive) return
+    toast({ title: drive === "connected" ? "Google 云端硬盘已连接" : "Google 授权未完成" })
+    window.history.replaceState({}, "", "/admin?section=backups")
+  }, [toast])
+  const create = useMutation({
+    mutationFn: () => api.createBackup(password, confirmPassword, sendAfterCreate, driveAfterCreate),
+    onSuccess: async () => {
+      setCreateOpen(false); setPassword(""); setConfirmPassword("")
+      await qc.invalidateQueries({ queryKey: ["admin", "backups"] })
+      toast({ title: "备份任务已开始", description: "可以留在此页面查看进度。" })
+    },
+    onError: (error) => toast({ title: "无法创建备份", description: error instanceof Error ? error.message : "请稍后重试" }),
+  })
+  const saveSchedule = useMutation({
+    mutationFn: () => api.updateBackupSettings({ enabled: scheduleEnabled, days: scheduleDays === "custom" ? Number(customDays) : Number(scheduleDays), password: schedulePassword, confirmPassword: scheduleConfirmPassword, serverIp, chatId: backupChatId, telegramMode, telegramEnabled, googleDriveEnabled, googleClientId, googleClientSecret, googleFolderName }),
+    onSuccess: async () => { setSchedulePassword(""); setScheduleConfirmPassword(""); setGoogleClientSecret(""); await qc.invalidateQueries({ queryKey: ["admin", "backups"] }); toast({ title: "备份设置已保存" }) },
+    onError: (error) => toast({ title: "保存失败", description: error instanceof Error ? error.message : "请稍后重试" }),
+  })
+  const verify = useMutation({
+    mutationFn: api.verifyBackup,
+    onSuccess: (result) => toast({ title: result.ok ? "备份校验通过" : "备份校验失败", description: result.ok ? `SHA-256：${result.sha256.slice(0, 16)}...` : "文件可能已损坏，请勿用于恢复。" }),
+    onError: (error) => toast({ title: "校验失败", description: error instanceof Error ? error.message : "请稍后重试" }),
+  })
+  const sendTelegram = useMutation({
+    mutationFn: api.sendBackupTelegram,
+    onSuccess: () => toast({ title: "已发送到 Telegram" }),
+    onError: (error) => toast({ title: "发送失败", description: error instanceof Error ? error.message : "请稍后重试" }),
+  })
+  const testBackupTelegram = useMutation({
+    mutationFn: () => api.testBackupTelegram({ mode: telegramMode, chatId: backupChatId }),
+    onSuccess: () => toast({ title: "Telegram 测试通知已发送" }),
+    onError: (error) => toast({ title: "测试失败", description: error instanceof Error ? error.message : "请检查机器人和 Chat ID" }),
+  })
+  const createBackupGroupPairing = useMutation({
+    mutationFn: () => api.createTelegramPairing(""),
+    onSuccess: (pairing) => { setBackupGroupPairing(pairing); setDiscoveredBackupGroups([]); toast({ title: "群组查询码已生成" }) },
+    onError: (error) => toast({ title: "无法生成查询码", description: error instanceof Error ? error.message : "请先绑定 Telegram 机器人" }),
+  })
+  const discoverBackupGroup = useMutation({
+    mutationFn: () => api.discoverBackupTelegramGroup(backupGroupPairing?.code || ""),
+    onSuccess: ({ items }) => {
+      setDiscoveredBackupGroups(items)
+      if (items.length === 1) setBackupChatId(items[0].chatId)
+      toast({ title: `找到 ${items.length} 个群组`, description: items.length === 1 ? "已自动选中" : "请选择备份群组" })
+    },
+    onError: (error) => toast({ title: "未找到群组", description: error instanceof Error ? error.message : "请在群组发送查询命令后重试" }),
+  })
+  const sendDrive = useMutation({
+    mutationFn: api.sendBackupGoogleDrive,
+    onSuccess: () => toast({ title: "已上传到 Google 云端硬盘" }),
+    onError: (error) => toast({ title: "上传失败", description: error instanceof Error ? error.message : "请稍后重试" }),
+  })
+  const connectDrive = useMutation({
+    mutationFn: async () => {
+      await api.updateBackupSettings({ enabled: scheduleEnabled, days: scheduleDays === "custom" ? Number(customDays) : Number(scheduleDays), password: schedulePassword, confirmPassword: scheduleConfirmPassword, serverIp, chatId: backupChatId, telegramMode, telegramEnabled, googleDriveEnabled: false, googleClientId, googleClientSecret, googleFolderName })
+      return api.connectGoogleDrive()
+    },
+    onSuccess: ({ url }) => { window.location.href = url },
+    onError: (error) => toast({ title: "无法连接 Google 云端硬盘", description: error instanceof Error ? error.message : "请检查 OAuth 配置" }),
+  })
+  const disconnectDrive = useMutation({
+    mutationFn: api.disconnectGoogleDrive,
+    onSuccess: async () => { setGoogleDriveEnabled(false); await qc.invalidateQueries({ queryKey: ["admin", "backups"] }); toast({ title: "已断开 Google 云端硬盘" }) },
+  })
+  const remove = useMutation({
+    mutationFn: api.deleteBackup,
+    onSuccess: async () => { setDeleteName(""); await qc.invalidateQueries({ queryKey: ["admin", "backups"] }); toast({ title: "备份已删除" }) },
+    onError: (error) => toast({ title: "删除失败", description: error instanceof Error ? error.message : "请稍后重试" }),
+  })
+  const job = backups.data?.job
+  const canCreate = backups.data?.enabled && job?.status !== "running"
+  function submitCreate() {
+    if (password.length < 8) { toast({ title: "密码至少需要 8 个字符" }); return }
+    if (password !== confirmPassword) { toast({ title: "两次输入的密码不一致" }); return }
+    create.mutate()
+  }
+  function generateCreatePassword() {
+    const generated = generateBackupPassword()
+    setPassword(generated)
+    setConfirmPassword(generated)
+    setShowCreatePassword(true)
+    toast({ title: "已生成 24 位备份密码", description: "请将密码保存到密码管理器，恢复时必须使用。" })
+  }
+  function generateSchedulePassword() {
+    const generated = generateBackupPassword()
+    setSchedulePassword(generated)
+    setScheduleConfirmPassword(generated)
+    setShowSchedulePassword(true)
+    toast({ title: "已生成 24 位备份密码", description: "保存设置前，请先将密码存入密码管理器。" })
+  }
+  async function copyBackupPassword(value: string) {
+    if (!value) return
+    await navigator.clipboard.writeText(value)
+    toast({ title: "备份密码已复制" })
+  }
+  function downloadBackupPassword(value: string) {
+    if (!value) return
+    const createdAt = new Date().toLocaleString("zh-CN", { hour12: false })
+    const content = `NewSzxcn Email 备份恢复密码\n\n密码：${value}\n生成时间：${createdAt}\n\n请妥善保管。恢复备份时必须输入此密码，系统无法找回。\n`
+    const url = URL.createObjectURL(new Blob([content], { type: "text/plain;charset=utf-8" }))
+    const link = document.createElement("a")
+    link.href = url
+    link.download = `newszxcn-backup-password-${new Date().toISOString().slice(0, 10)}.txt`
+    link.click()
+    URL.revokeObjectURL(url)
+    toast({ title: "密码文本已下载", description: "请导入密码管理器，不要与备份文件存放在一起。" })
+  }
+  function PasswordTools({ value, visible, onVisibleChange, onGenerate }: { value: string; visible: boolean; onVisibleChange: (visible: boolean) => void; onGenerate: () => void }) {
+    return <div className="flex items-center gap-0.5">
+      <Button type="button" variant="ghost" size="icon" className="h-7 w-7" title="生成 24 位密码" aria-label="生成 24 位密码" onClick={onGenerate}><KeyRound className="h-4 w-4" /></Button>
+      <Button type="button" variant="ghost" size="icon" className="h-7 w-7" title={visible ? "隐藏密码" : "查看密码"} aria-label={visible ? "隐藏密码" : "查看密码"} disabled={!value} onClick={() => onVisibleChange(!visible)}>{visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</Button>
+      <Button type="button" variant="ghost" size="icon" className="h-7 w-7" title="复制密码" aria-label="复制密码" disabled={!value} onClick={() => copyBackupPassword(value)}><Copy className="h-4 w-4" /></Button>
+      <Button type="button" variant="ghost" size="icon" className="h-7 w-7" title="保存密码文件" aria-label="保存密码文件" disabled={!value} onClick={() => downloadBackupPassword(value)}><Download className="h-4 w-4" /></Button>
+    </div>
+  }
+  function submitSchedule() {
+    if (schedulePassword && schedulePassword.length < 8) { toast({ title: "备份密码至少需要 8 个字符" }); return }
+    if (schedulePassword !== scheduleConfirmPassword) { toast({ title: "两次输入的备份密码不一致" }); return }
+    if (scheduleEnabled && !schedulePassword && !backups.data?.schedule.passwordSet) { toast({ title: "请设置并确认备份密码" }); return }
+    saveSchedule.mutate()
+  }
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1.35fr)_minmax(300px,.65fr)]">
+        <Card>
+          <CardHeader className="flex-row items-center justify-between gap-3 space-y-0 pb-3">
+            <div><CardTitle>完整加密备份</CardTitle><p className="mt-1 text-sm text-muted-foreground">包含账号、邮件、附件、DKIM、证书和部署配置。</p></div>
+            <Button type="button" disabled={!canCreate} onClick={() => setCreateOpen(true)}>
+              {job?.status === "running" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <HardDrive className="mr-2 h-4 w-4" />}
+              {job?.status === "running" ? "生成中" : "创建备份"}
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {!backups.data?.enabled && <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">当前部署尚未启用完整备份目录，请先更新服务器部署文件。</div>}
+            {job?.status === "failed" && <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{job.error || "备份生成失败"}</div>}
+            {job?.status === "success" && <div className="rounded-md border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-800">最近一次备份已完成。</div>}
+            {!job && <p className="text-sm text-muted-foreground">创建时必须设置独立备份密码。密码不会保存，丢失后无法解密恢复。</p>}
+            <div className="border-t pt-3">
+              <div className="mb-2 flex items-center justify-between"><span className="text-sm font-medium">本地备份</span><span className="text-xs text-muted-foreground">保留最近 10 份</span></div>
+              <div className="divide-y rounded-md border">
+                {(backups.data?.items || []).slice(0, 4).map((item) => (
+                  <div key={item.name} className="flex items-center gap-2 px-3 py-2">
+                    <div className="min-w-0 flex-1"><div className="truncate text-sm font-medium" title={item.name}>{item.name}</div><div className="text-xs text-muted-foreground">{formatDate(item.createdAt)} · {formatBytes(item.size)}</div></div>
+                    <Button type="button" variant="ghost" size="icon" title="校验备份" disabled={verify.isPending} onClick={() => verify.mutate(item.name)}><ShieldCheck className="h-4 w-4" /></Button>
+                    <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">
+                      <DropdownMenuItem disabled={!backups.data?.telegramSet || item.size > (backups.data?.telegramLimit || 0)} onClick={() => sendTelegram.mutate(item.name)}><Send className="mr-2 h-4 w-4" />发送到 Telegram</DropdownMenuItem>
+                      <DropdownMenuItem disabled={!backups.data?.googleDrive.connected} onClick={() => sendDrive.mutate(item.name)}><Cloud className="mr-2 h-4 w-4" />上传到 Google 云端硬盘</DropdownMenuItem>
+                      <DropdownMenuItem asChild><a href={`/api/admin/backups/${encodeURIComponent(item.name)}/download`}><Download className="mr-2 h-4 w-4" />下载</a></DropdownMenuItem>
+                      <DropdownMenuSeparator /><DropdownMenuItem className="text-destructive" onClick={() => setDeleteName(item.name)}><Trash2 className="mr-2 h-4 w-4" />删除</DropdownMenuItem>
+                    </DropdownMenuContent></DropdownMenu>
+                  </div>
+                ))}
+                {!backups.isLoading && (backups.data?.items.length || 0) === 0 && <div className="px-3 py-4 text-center text-sm text-muted-foreground">暂无完整备份</div>}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-3"><CardTitle>新服务器恢复</CardTitle></CardHeader>
+          <CardContent className="space-y-2 text-sm text-muted-foreground">
+            <p><strong className="text-foreground">1.</strong> 将原始加密备份上传到 <strong className="text-foreground">/root/</strong>，不要解压。</p>
+            <p><strong className="text-foreground">2.</strong> 运行官方安装脚本，菜单输入 <strong className="text-foreground">2</strong>。</p>
+            <p><strong className="text-foreground">3.</strong> 选择“本地上传”；多份备份会显示 1、2、3。</p>
+            <p><strong className="text-foreground">4.</strong> 输入序号和备份密码开始恢复。</p>
+            <div className="mt-3 rounded-md bg-muted/60 px-3 py-2 text-xs">恢复完成后可输入 <strong className="text-foreground">ns</strong> 打开管理菜单。运行中的服务器不会在网页内覆盖数据。</div>
+          </CardContent>
+        </Card>
+      </div>
+      <Card>
+        <CardHeader className="flex-row items-center justify-between space-y-0 pb-3"><div><CardTitle>定时备份</CardTitle><p className="mt-1 text-sm text-muted-foreground">按周期创建加密备份并保存到选定位置。</p></div><Switch checked={scheduleEnabled} onCheckedChange={setScheduleEnabled} /></CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="space-y-2"><Label>备份周期</Label><div className={cn("grid gap-2", scheduleDays === "custom" && "grid-cols-[minmax(0,1fr)_5.5rem]")}><Select value={scheduleDays} onValueChange={setScheduleDays}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="3">每 3 天</SelectItem><SelectItem value="5">每 5 天</SelectItem><SelectItem value="7">每 7 天</SelectItem><SelectItem value="30">每 30 天</SelectItem><SelectItem value="custom">自定义</SelectItem></SelectContent></Select>{scheduleDays === "custom" && <Input id="backup-custom-days" aria-label="自定义天数" title="自定义天数" type="number" min={1} max={365} value={customDays} onChange={(event) => setCustomDays(event.target.value)} />}</div></div>
+            <div className="space-y-2"><Label htmlFor="backup-server-ip">服务器 IP</Label><Input id="backup-server-ip" value={serverIp} onChange={(event) => setServerIp(event.target.value)} placeholder="例如 165.99.42.243" /></div>
+            <div className="space-y-2"><div className="flex h-7 items-center justify-between gap-2"><Label htmlFor="backup-schedule-password">备份密码</Label><PasswordTools value={schedulePassword} visible={showSchedulePassword} onVisibleChange={setShowSchedulePassword} onGenerate={generateSchedulePassword} /></div><Input id="backup-schedule-password" type={showSchedulePassword ? "text" : "password"} autoComplete="new-password" value={schedulePassword} onChange={(event) => setSchedulePassword(event.target.value)} placeholder={backups.data?.schedule.passwordSet ? "已保存，留空不变" : "至少 8 个字符"} /></div>
+            <div className="space-y-2"><div className="flex h-7 items-center"><Label htmlFor="backup-schedule-confirm-password">确认备份密码</Label></div><Input id="backup-schedule-confirm-password" type={showSchedulePassword ? "text" : "password"} autoComplete="new-password" value={scheduleConfirmPassword} onChange={(event) => setScheduleConfirmPassword(event.target.value)} placeholder={schedulePassword ? "再次输入备份密码" : "留空则不修改"} /></div>
+          </div>
+          <div className="divide-y rounded-md border">
+            <div className="flex items-center gap-3 p-3">
+              <Send className="h-4 w-4 shrink-0" />
+              <div className="min-w-0 flex-1"><div className="flex items-center gap-2 sm:grid sm:grid-cols-[8.5rem_auto]"><span className="text-sm font-medium">Telegram</span><Badge className="w-fit" variant={backups.data?.telegramSet ? "default" : "secondary"}>{backups.data?.telegramSet ? "已配置" : "未配置"}</Badge></div><p className="truncate text-xs text-muted-foreground">{telegramMode === "custom" ? "使用系统机器人推送到备份群组" : "沿用邮件通知接收方"}</p></div>
+              <Button type="button" size="sm" variant="outline" onClick={() => setTelegramConfigOpen(true)}>配置</Button>
+              <Switch checked={telegramEnabled} onCheckedChange={setTelegramEnabled} disabled={!backups.data?.telegramSet} />
+            </div>
+            <div className="flex items-center gap-3 p-3">
+              <Cloud className="h-4 w-4 shrink-0" />
+              <div className="min-w-0 flex-1"><div className="flex items-center gap-2 sm:grid sm:grid-cols-[8.5rem_auto]"><span className="text-sm font-medium">Google 云端硬盘</span><Badge className="w-fit" variant={backups.data?.googleDrive.connected ? "default" : "secondary"}>{backups.data?.googleDrive.connected ? "已连接" : "未连接"}</Badge></div><p className="truncate text-xs text-muted-foreground">{backups.data?.googleDrive.connected ? `保存到 ${googleFolderName}` : "长期保存加密备份"}</p></div>
+              <Button type="button" size="sm" variant="outline" onClick={() => setGoogleConfigOpen(true)}>配置</Button>
+              <Switch checked={googleDriveEnabled} onCheckedChange={setGoogleDriveEnabled} disabled={!backups.data?.googleDrive.connected} />
+            </div>
+          </div>
+          <div className="flex justify-end border-t pt-3"><Button type="button" className="shrink-0" disabled={saveSchedule.isPending} onClick={submitSchedule}>{saveSchedule.isPending ? "保存中" : "保存设置"}</Button></div>
+        </CardContent>
+      </Card>
+      <Dialog open={telegramConfigOpen} onOpenChange={setTelegramConfigOpen}>
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-md rounded-lg">
+          <DialogHeader><DialogTitle>Telegram 备份</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2"><Label>备份接收位置</Label><Select value={telegramMode} onValueChange={(value) => setTelegramMode(value === "custom" ? "custom" : "system")}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="system">沿用邮件通知接收方</SelectItem><SelectItem value="custom">自定义备份群组</SelectItem></SelectContent></Select></div>
+            {telegramMode === "system" ? <div className="rounded-md bg-muted/60 px-3 py-2 text-sm text-muted-foreground">使用系统已绑定机器人，备份发送到邮件通知的接收方。</div> : <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="backup-chat-id">备份群组</Label>
+                <div className="flex gap-2"><Input id="backup-chat-id" inputMode="numeric" value={backupChatId} onChange={(event) => setBackupChatId(event.target.value)} placeholder="群组 Chat ID" /><Button type="button" variant="outline" className="shrink-0" disabled={createBackupGroupPairing.isPending} onClick={() => createBackupGroupPairing.mutate()}>{createBackupGroupPairing.isPending ? "生成中" : "查询群组"}</Button></div>
+                <p className="text-xs text-muted-foreground">请先将系统机器人加入该群组。邮件继续推送到原接收方，备份通知和附件只推送到此群组。</p>
+                {backupGroupPairing && <div className="space-y-3 rounded-md border px-3 py-3">
+                  <p className="text-sm">在每个候选群组发送下面的命令，然后点击“完成查询”：</p>
+                  <div className="flex items-center gap-2"><code className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1.5 font-mono text-sm">/newszxcn {backupGroupPairing.code}</code><Button type="button" variant="ghost" size="icon" aria-label="复制群组查询命令" title="复制群组查询命令" onClick={() => navigator.clipboard.writeText(`/newszxcn ${backupGroupPairing.code}`)}><Copy className="h-4 w-4" /></Button></div>
+                  <Button type="button" size="sm" disabled={discoverBackupGroup.isPending} onClick={() => discoverBackupGroup.mutate()}>{discoverBackupGroup.isPending ? "查询中" : "完成查询"}</Button>
+                  {discoveredBackupGroups.length > 0 && <div className="divide-y rounded-md border">{discoveredBackupGroups.map((group) => <Button key={group.chatId} type="button" variant="ghost" className={cn("h-auto w-full justify-start rounded-none px-3 py-2 text-left", backupChatId === group.chatId && "bg-muted")} onClick={() => { setBackupChatId(group.chatId); setBackupGroupPairing(null); setDiscoveredBackupGroups([]) }}><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{group.displayName}</span><span className="block font-mono text-xs font-normal text-muted-foreground">{group.chatId}</span></span>{backupChatId === group.chatId && <CheckCircle2 className="h-4 w-4 text-primary" />}</Button>)}</div>}
+                </div>}
+              </div>
+            </div>}
+          </div>
+          <DialogFooter className="gap-2 sm:justify-between">
+            <Button asChild type="button" variant="outline"><a href="/admin?section=settings&settingsTab=notifications">管理机器人</a></Button>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" disabled={testBackupTelegram.isPending || (telegramMode === "custom" && !backupChatId)} onClick={() => testBackupTelegram.mutate()}>{testBackupTelegram.isPending ? "发送中" : "测试发送"}</Button>
+              <Button type="button" onClick={() => setTelegramConfigOpen(false)}>完成</Button>
+            </div>
+          </DialogFooter>
+          <p className="text-xs text-muted-foreground">关闭后请点击页面下方“保存设置”使 Chat ID 生效。</p>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={googleConfigOpen} onOpenChange={setGoogleConfigOpen}>
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-lg rounded-lg">
+          <DialogHeader><DialogTitle>Google 云端硬盘</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2"><Label htmlFor="google-client-id">OAuth 客户端 ID</Label><Input id="google-client-id" value={googleClientId} onChange={(e) => setGoogleClientId(e.target.value)} /></div>
+            <div className="space-y-2"><Label htmlFor="google-client-secret">OAuth 客户端密钥</Label><Input id="google-client-secret" type="password" value={googleClientSecret} onChange={(e) => setGoogleClientSecret(e.target.value)} placeholder={backups.data?.googleDrive.clientSecretSet ? "已安全保存，留空不变" : "请输入客户端密钥"} /></div>
+            <div className="space-y-2"><Label htmlFor="google-folder-name">备份文件夹</Label><Input id="google-folder-name" value={googleFolderName} onChange={(e) => setGoogleFolderName(e.target.value)} /></div>
+            <p className="text-xs text-muted-foreground">Google Cloud 回调地址：{window.location.origin}/api/admin/backups/google-drive/callback</p>
+          </div>
+          <DialogFooter className="gap-2 sm:justify-between">
+            {backups.data?.googleDrive.connected ? <Button type="button" variant="outline" className="text-destructive" onClick={() => { disconnectDrive.mutate(); setGoogleConfigOpen(false) }}>断开连接</Button> : <span />}
+            <div className="flex gap-2"><Button type="button" variant="outline" onClick={() => setGoogleConfigOpen(false)}>取消</Button><Button type="button" disabled={!googleClientId || (!googleClientSecret && !backups.data?.googleDrive.clientSecretSet) || connectDrive.isPending} onClick={() => connectDrive.mutate()}>{backups.data?.googleDrive.connected ? "重新连接" : "连接 Google"}</Button></div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={createOpen} onOpenChange={(open) => { if (!create.isPending) setCreateOpen(open) }}>
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-md rounded-lg">
+          <DialogHeader><DialogTitle>创建完整备份</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2"><div className="flex h-7 items-center justify-between gap-2"><Label htmlFor="backup-password">备份密码</Label><PasswordTools value={password} visible={showCreatePassword} onVisibleChange={setShowCreatePassword} onGenerate={generateCreatePassword} /></div><Input id="backup-password" type={showCreatePassword ? "text" : "password"} autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="自己输入或自动生成" /></div>
+            <div className="space-y-2"><Label htmlFor="backup-confirm-password">确认备份密码</Label><Input id="backup-confirm-password" type={showCreatePassword ? "text" : "password"} autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /></div>
+            <div className="flex items-center justify-between gap-4 rounded-md border px-3 py-2"><div><div className="text-sm font-medium">完成后发送到 Telegram</div><div className="text-xs text-muted-foreground">同时发送详细恢复说明和加密附件。</div></div><Switch checked={sendAfterCreate} onCheckedChange={setSendAfterCreate} disabled={!backups.data?.telegramSet} /></div>
+            <div className="flex items-center justify-between gap-4 rounded-md border px-3 py-2"><div><div className="text-sm font-medium">上传到 Google 云端硬盘</div><div className="text-xs text-muted-foreground">保存加密备份到已连接的云端文件夹。</div></div><Switch checked={driveAfterCreate} onCheckedChange={setDriveAfterCreate} disabled={!backups.data?.googleDrive.connected} /></div>
+            <p className="text-xs text-muted-foreground">下载的是明文密码文本，请导入密码管理器后妥善处理，不要与备份文件存放在同一位置。</p>
+          </div>
+          <DialogFooter><Button type="button" variant="outline" onClick={() => setCreateOpen(false)} disabled={create.isPending}>取消</Button><Button type="button" onClick={submitCreate} disabled={create.isPending}>{create.isPending ? "启动中" : "开始备份"}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <ConfirmDialog open={!!deleteName} onOpenChange={(open) => { if (!open) setDeleteName("") }} title="删除这个备份？" description="删除后无法恢复，请确认已经在其他位置保存副本。" confirmText="删除备份" destructive pending={remove.isPending} onConfirm={() => remove.mutate(deleteName)} />
+    </div>
+  )
 }
 
 function UsersSection({ users, permissionGroups, domains }: { users: AdminUser[]; permissionGroups: PermissionGroup[]; domains: Domain[] }) {
@@ -707,9 +1025,13 @@ function MailboxesSection({ mailboxes, users, domains }: { mailboxes: MailboxTyp
     if (left.primary !== right.primary) return left.primary ? -1 : 1
     return left.address.localeCompare(right.address, "en", { sensitivity: "base" })
   }
+  const orphanMailboxes = new Map<string, MailboxType[]>()
+  for (const mailbox of mailboxes.filter((item) => !knownOwnerIDs.has(item.userId))) {
+    orphanMailboxes.set(mailbox.userId, [...(orphanMailboxes.get(mailbox.userId) || []), mailbox])
+  }
   const mailboxGroups: Array<{ owner?: AdminUser; mailboxes: MailboxType[] }> = [
     ...users.slice().sort(compareAdminUsers).map((owner) => ({ owner, mailboxes: mailboxes.filter((mailbox) => mailbox.userId === owner.id).sort(compareMailboxes) })),
-    ...mailboxes.filter((mailbox) => !knownOwnerIDs.has(mailbox.userId)).map((mailbox) => ({ owner: undefined, mailboxes: [mailbox] })),
+    ...Array.from(orphanMailboxes.values()).map((items) => ({ owner: undefined, mailboxes: items.sort(compareMailboxes) })),
   ]
     .filter((group) => group.mailboxes.length > 0)
     .filter((group) => !keyword || [group.owner ? accountPrimaryEmail(group.owner) : "", group.owner?.displayName || "", ...group.mailboxes.map((mailbox) => mailbox.address)].some((value) => value.toLowerCase().includes(keyword)))

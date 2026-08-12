@@ -159,6 +159,8 @@ test_menu_rendering() (
   [[ "${output}" == *'NewSzxcn Email 管理面板'* ]] || fail_test "uninstalled menu title missing"
   [[ "${output}" == *'状态：尚未安装'* ]] || fail_test "uninstalled menu status missing"
   [[ "${output}" == *'1. 一键安装 NewSzxcn Email'* ]] || fail_test "uninstalled menu install action missing"
+  [[ "${output}" == *'2. 备份恢复'* ]] || fail_test "uninstalled menu restore action missing"
+  [[ "${output}" == *'3. 退出'* ]] || fail_test "uninstalled menu exit action missing"
   [[ "${output}" != *'更新系统'* ]] || fail_test "uninstalled menu exposes update action"
   [[ "${output}" != *'卸载服务'* ]] || fail_test "uninstalled menu exposes uninstall action"
 
@@ -186,12 +188,15 @@ test_menu_dispatch() (
   mkdir -p "${INSTALL_DIR}"
   prompt_text() { :; }
   do_install() { printf 'install\n' > "${action_file}"; }
+  do_restore_menu() { printf 'restore-menu\n' > "${action_file}"; }
 
   do_menu
   grep -Fq 'install' "${action_file}" || fail_test "uninstalled menu did not dispatch install"
-  if (LANQIN_MENU_ACTION=2 do_menu >/dev/null 2>&1); then
-    fail_test "uninstalled menu accepted unavailable update action"
-  fi
+  LANQIN_MENU_ACTION=2
+  do_menu
+  grep -Fq 'restore-menu' "${action_file}" || fail_test "uninstalled menu did not dispatch restore"
+  LANQIN_MENU_ACTION=3
+  do_menu >/dev/null
 
   printf 'LANQIN_PUBLIC_BASE_URL=https://mail.example.com\n' > "${INSTALL_DIR}/.env"
   printf 'services: {}\n' > "${INSTALL_DIR}/docker-compose.yml"
@@ -428,6 +433,144 @@ test_cli_alias_safety() (
   printf 'occupied\n' > "${CLI_ALIAS_PATH}"
   ensure_cli_alias
   grep -Fq 'occupied' "${CLI_ALIAS_PATH}" || fail_test "existing ns command was overwritten"
+)
+
+test_restore_source_validation() (
+  local temp_dir
+  temp_dir="$(mktemp -d)"
+  mkdir -p "${temp_dir}/data" "${temp_dir}/mail" "${temp_dir}/dkim" "${temp_dir}/certs"
+  printf 'config\n' > "${temp_dir}/.env"
+  printf 'services: {}\n' > "${temp_dir}/docker-compose.yml"
+  sqlite3 "${temp_dir}/data/lanqin.db" 'CREATE TABLE restore_test (id INTEGER PRIMARY KEY);'
+  validate_restore_source "${temp_dir}" || fail_test "valid restore source rejected"
+  validate_restore_database "${temp_dir}/data/lanqin.db" || fail_test "valid restore database rejected"
+  printf 'damaged\n' > "${temp_dir}/data/lanqin.db"
+  if validate_restore_database "${temp_dir}/data/lanqin.db" >/dev/null 2>&1; then
+    fail_test "damaged restore database accepted"
+  fi
+  rm -f "${temp_dir}/data/lanqin.db"
+  if validate_restore_source "${temp_dir}" >/dev/null 2>&1; then
+    fail_test "restore source without database accepted"
+  fi
+)
+
+test_restore_menu_rendering_and_dispatch() (
+  local output action_file LANQIN_MENU_ACTION=1
+  action_file="$(mktemp)"
+  prompt_text() { printf '%b' "$1"; }
+  output="$(render_restore_menu)"
+  [[ "${output}" == *'NewSzxcn Email 备份恢复'* ]] || fail_test "restore menu title missing"
+  [[ "${output}" == *'1. 本地上传'* ]] || fail_test "restore local upload action missing"
+  [[ "${output}" == *'2. 返回上一级'* ]] || fail_test "restore back action missing"
+  [[ "${output}" == *'自动检测 /root/'* ]] || fail_test "restore automatic discovery hint missing"
+  prompt_text() { :; }
+  do_restore_backup() { printf 'restore\n' > "${action_file}"; }
+  do_restore_menu
+  grep -Fq 'restore' "${action_file}" || fail_test "restore menu did not dispatch local upload"
+  LANQIN_MENU_ACTION=2
+  do_restore_menu >/dev/null
+  unset LANQIN_MENU_ACTION
+)
+
+test_restore_backup_discovery() (
+  local temp_dir output selected
+  temp_dir="$(mktemp -d)"
+  LANQIN_RESTORE_SEARCH_DIR="${temp_dir}"
+  touch "${temp_dir}/unrelated.tar.zst.enc"
+  output="$(discover_restore_backups)"
+  [[ -z "${output}" ]] || fail_test "unrelated archive was discovered"
+
+  touch "${temp_dir}/newszxcn-backup-20260810-120000-1.2.30.tar.zst.enc"
+  selected="$(select_restore_source)"
+  assert_eq "${temp_dir}/newszxcn-backup-20260810-120000-1.2.30.tar.zst.enc" "${selected}" "single discovered restore backup"
+
+  touch "${temp_dir}/newszxcn-backup-20260812-120000-1.2.32.tar.zst.enc"
+  touch "${temp_dir}/newszxcn-backup-20260811-120000-1.2.31.tar.zst.enc"
+  output="$(discover_restore_backups)"
+  assert_eq "newszxcn-backup-20260812-120000-1.2.32.tar.zst.enc" "$(printf '%s\n' "${output}" | head -n 1 | xargs basename)" "newest restore backup ordering"
+  LANQIN_RESTORE_SELECTION=2
+  selected="$(select_restore_source)"
+  assert_eq "${temp_dir}/newszxcn-backup-20260811-120000-1.2.31.tar.zst.enc" "${selected}" "selected discovered restore backup"
+)
+
+test_encrypted_restore_archive() (
+  local temp_dir source_dir archive extracted password='RestorePassword123!'
+  temp_dir="$(mktemp -d)"
+  source_dir="${temp_dir}/source/newszxcn-email"
+  archive="${temp_dir}/newszxcn-backup.tar.zst.enc"
+  extracted="${temp_dir}/extracted"
+  mkdir -p "${source_dir}/data" "${source_dir}/mail" "${source_dir}/dkim" "${source_dir}/certs" "${extracted}"
+  printf 'config\n' > "${source_dir}/.env"
+  printf 'services: {}\n' > "${source_dir}/docker-compose.yml"
+  sqlite3 "${source_dir}/data/lanqin.db" 'CREATE TABLE restore_test (id INTEGER PRIMARY KEY);'
+  zstd() {
+    if [[ "$*" == '-q -c' ]]; then
+      gzip -c
+    elif [[ "$1" == '-dc' ]]; then
+      gzip -dc "$2"
+    else
+      return 1
+    fi
+  }
+  tar -C "${temp_dir}/source" -cf - newszxcn-email | zstd -q -c | \
+    openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -md sha256 -out "${archive}" -pass fd:3 3<<<"${password}"
+  LANQIN_RESTORE_PASSWORD="${password}" extract_restore_archive "${archive}" "${extracted}"
+  validate_restore_source "${extracted}/newszxcn-email" || fail_test "encrypted restore archive extraction failed"
+)
+
+test_failed_full_restore_cleans_partial_install() (
+  local temp_dir source_dir archive password='RestorePassword123!'
+  temp_dir="$(mktemp -d)"
+  source_dir="${temp_dir}/source/newszxcn-backup"
+  archive="${temp_dir}/newszxcn-backup-20260812-120000-1.2.31.tar.zst.enc"
+  INSTALL_DIR="${temp_dir}/install"
+  NGINX_CONFIG="${temp_dir}/nginx/newszxcn.conf"
+  CERT_DIR="${temp_dir}/certs"
+  LANQIN_RESTORE_SOURCE="${archive}"
+  LANQIN_RESTORE_PASSWORD="${password}"
+  mkdir -p "${source_dir}/data" "${source_dir}/mail" "${source_dir}/dkim" "${source_dir}/certs" "$(dirname "${NGINX_CONFIG}")"
+  printf 'LANQIN_PUBLIC_BASE_URL=https://mail.example.com\n' > "${source_dir}/.env"
+  printf 'services: {}\n' > "${source_dir}/docker-compose.yml"
+  sqlite3 "${source_dir}/data/lanqin.db" 'CREATE TABLE restore_test (id INTEGER PRIMARY KEY);'
+  zstd() {
+    if [[ "$*" == '-q -c' ]]; then
+      gzip -c
+    elif [[ "$1" == '-dc' ]]; then
+      gzip -dc "$2"
+    else
+      return 1
+    fi
+  }
+  tar -C "${temp_dir}/source" -cf - newszxcn-backup | zstd -q -c | \
+    openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -md sha256 -out "${archive}" -pass fd:3 3<<<"${password}"
+  refresh_assets() { return 0; }
+  ensure_update_token() { return 0; }
+  ensure_admin_email_config() { return 0; }
+  configure_runtime_bindings() { return 0; }
+  ensure_docker() { return 0; }
+  configure_firewall() { return 0; }
+  prepare_directories() { return 0; }
+  compose() {
+    case "$1" in
+      pull) return 1 ;;
+      down) return 0 ;;
+    esac
+    return 0
+  }
+  if (do_restore_backup >/dev/null 2>&1); then
+    fail_test "failed full restore unexpectedly succeeded"
+  fi
+  [[ ! -e "${INSTALL_DIR}" ]] || fail_test "failed restore left a partial installation"
+  [[ -f "${archive}" ]] || fail_test "failed restore removed the original encrypted backup"
+)
+
+test_restore_archive_path_validation() (
+  printf 'safe/path\n' | archive_has_unsafe_paths && fail_test "safe archive path rejected"
+  printf '../escape\n' | archive_has_unsafe_paths || fail_test "parent archive path accepted"
+  printf '/absolute\n' | archive_has_unsafe_paths || fail_test "absolute archive path accepted"
+  printf '%s\n' '-rw------- root/root 1 2026-08-12 00:00 safe' | archive_has_unsafe_types && fail_test "regular archive file rejected"
+  printf '%s\n' 'drwx------ root/root 0 2026-08-12 00:00 safe/' | archive_has_unsafe_types && fail_test "archive directory rejected"
+  printf '%s\n' 'lrwxrwxrwx root/root 0 2026-08-12 00:00 unsafe -> /etc' | archive_has_unsafe_types || fail_test "archive symlink accepted"
 )
 
 test_compose_runtime_image_pin() (
@@ -707,6 +850,12 @@ test_offline_database_backup
 test_guide_generation
 test_acme_cron_detection
 test_cli_alias_safety
+test_restore_source_validation
+test_restore_menu_rendering_and_dispatch
+test_restore_backup_discovery
+test_encrypted_restore_archive
+test_failed_full_restore_cleans_partial_install
+test_restore_archive_path_validation
 test_compose_runtime_image_pin
 test_update_snapshot_restore
 test_snapshot_restores_absent_optional_files

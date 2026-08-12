@@ -5,6 +5,8 @@ services:
     environment:
       LANQIN_UPDATE_SERVICE_URL: http://updater:8080/v1/update
       LANQIN_UPDATE_SERVICE_TOKEN: ${LANQIN_UPDATE_TOKEN:-}
+      LANQIN_BACKUP_SOURCE_DIR: /backup-source
+      LANQIN_BACKUP_DIR: /backups
     ports:
       - "${LANQIN_HTTP_BIND:-80}:80"
       - "${LANQIN_SMTP_BIND:-25}:25"
@@ -17,6 +19,9 @@ services:
       - ./mail:/var/mail/vhosts
       - ./dkim:/var/lib/rspamd/dkim
       - ./certs:/certs:ro
+      - ./.env:/backup-source/.env:ro
+      - ./docker-compose.yml:/backup-source/docker-compose.yml:ro
+      - ./backups:/backups
     labels:
       com.centurylinklabs.watchtower.enable: "true"
       com.centurylinklabs.watchtower.scope: "newszxcn-email"

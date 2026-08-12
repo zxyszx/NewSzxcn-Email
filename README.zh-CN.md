@@ -48,6 +48,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/i
 
 ## 更新与回滚
 
+完整加密备份、Telegram 推送和新服务器恢复流程见 [备份与灾难恢复](docs/BACKUP_RESTORE.md)。
+
 ### 后台页面更新
 
 超级管理员可点击后台侧栏中的版本号，查看当前版本、最新版本与更新日志。点击“立即更新”后，系统会先在线备份 SQLite 数据库，再拉取新镜像并重启；页面会等待服务恢复后自动刷新。

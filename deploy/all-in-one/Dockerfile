@@ -35,7 +35,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     ca-certificates tzdata sqlite3 supervisor nginx \
     postfix postfix-sqlite \
     dovecot-core dovecot-imapd dovecot-pop3d dovecot-lmtpd dovecot-sqlite ssl-cert \
-    rspamd
+    rspamd zstd openssl
 
 COPY --from=api-build /out/lanqin-api /usr/local/bin/lanqin-api
 COPY --from=web-build /src/apps/web/dist /usr/share/nginx/html

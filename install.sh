@@ -28,6 +28,7 @@ NewSzxcn Email 管理命令
 
   menu        显示安装与运维菜单
   install     首次安装；已有安装会先完整备份再重新安装
+  restore     从完整备份目录或压缩包恢复到新服务器
   update      备份数据库并更新到最新版
   repair      检查并修复现有安装
   status      查看容器与健康状态
@@ -159,6 +160,25 @@ ensure_cli_alias() {
   fi
   ln -s "${target}" "${alias_path}"
   success "快捷命令已创建：输入 ns 可打开管理菜单。"
+}
+
+ensure_cli_command() {
+  local source_dir tmp
+  [[ -x "${CLI_PATH}" ]] && return 0
+  install -d -m 0755 "$(dirname "${CLI_PATH}")"
+  source_dir="$(script_dir || true)"
+  if [[ -n "${BASH_SOURCE[0]:-}" && "${BASH_SOURCE[0]}" != /dev/fd/* && -f "${source_dir}/install.sh" ]]; then
+    install -m 0755 "${source_dir}/install.sh" "${CLI_PATH}"
+  else
+    tmp="$(mktemp)"
+    if ! curl -fsSL "${RAW_BASE}/install.sh" -o "${tmp}" || ! bash -n "${tmp}"; then
+      rm -f "${tmp}"
+      warn "未能安装管理命令；完成安装后可重新运行官方脚本修复。"
+      return 0
+    fi
+    install -m 0755 "${tmp}" "${CLI_PATH}"
+    rm -f "${tmp}"
+  fi
 }
 
 refresh_assets() {
@@ -1077,6 +1097,275 @@ do_install() {
   warn "输入 ns 可打开管理菜单；输入 newszxcn-email guide 可查看邮箱后台配置指南。"
 }
 
+validate_restore_source() {
+  local source="$1"
+  [[ -f "${source}/.env" ]] || { warn "备份缺少 .env。"; return 1; }
+  [[ -f "${source}/docker-compose.yml" ]] || { warn "备份缺少 docker-compose.yml。"; return 1; }
+  [[ -s "${source}/data/lanqin.db" ]] || { warn "备份缺少数据库 data/lanqin.db。"; return 1; }
+  [[ -d "${source}/mail" ]] || { warn "备份缺少 mail 邮件目录。"; return 1; }
+  [[ -d "${source}/dkim" ]] || { warn "备份缺少 dkim 密钥目录。"; return 1; }
+  [[ -d "${source}/certs" ]] || { warn "备份缺少 certs 证书目录。"; return 1; }
+}
+
+validate_restore_database() {
+  local database="$1" result
+  if ! command -v sqlite3 >/dev/null 2>&1; then
+    log "正在安装 SQLite 校验工具..."
+    install_packages sqlite3
+  fi
+  result="$(sqlite3 "${database}" 'PRAGMA integrity_check;' 2>/dev/null || true)"
+  [[ "${result}" == "ok" ]] || { warn "备份数据库完整性检查未通过。"; return 1; }
+}
+
+locate_extracted_restore_root() {
+  local root="$1" candidate
+  if validate_restore_source "${root}" >/dev/null 2>&1; then
+    printf '%s' "${root}"
+    return 0
+  fi
+  candidate="$(find "${root}" -mindepth 1 -maxdepth 2 -type f -name .env -print -quit 2>/dev/null || true)"
+  [[ -n "${candidate}" ]] || return 1
+  candidate="$(dirname "${candidate}")"
+  validate_restore_source "${candidate}" >/dev/null 2>&1 || return 1
+  printf '%s' "${candidate}"
+}
+
+render_restore_menu() {
+  prompt_text '\n==================================================\n'
+  prompt_text '          NewSzxcn Email 备份恢复\n'
+  prompt_text '==================================================\n'
+  prompt_text '1. 本地上传\n'
+  prompt_text '2. 返回上一级\n'
+  prompt_text '==================================================\n'
+  prompt_text '请先将原始加密备份上传到新服务器的 /root/ 目录，不要解压。\n'
+  prompt_text '系统会自动检测 /root/ 目录中的 NewSzxcn 备份文件。\n'
+}
+
+do_restore_menu() {
+  local choice
+  render_restore_menu
+  choice="$(prompt_menu_choice "1" "2")" || return 1
+  case "${choice}" in
+    1) do_restore_backup ;;
+    2) success "已返回，未作任何修改。" ;;
+  esac
+}
+
+prompt_restore_password() {
+  local password="${LANQIN_RESTORE_PASSWORD:-}"
+  if [[ -z "${password}" ]] && has_tty; then
+    read -r -s -p "备份密码: " password </dev/tty
+    printf '\n' >/dev/tty
+  fi
+  [[ -n "${password}" ]] || fail "加密备份必须提供备份密码。"
+  (( ${#password} >= 8 && ${#password} <= 1024 )) || fail "备份密码必须为 8 至 1024 个字符。"
+  [[ "${password}" != *$'\n'* && "${password}" != *$'\r'* ]] || fail "备份密码不能包含换行。"
+  printf '%s' "${password}"
+}
+
+discover_restore_backups() {
+  local search_dir="${LANQIN_RESTORE_SEARCH_DIR:-/root}" path
+  local -a matches=()
+  [[ -d "${search_dir}" ]] || return 0
+  while IFS= read -r path; do
+    case "${path}" in
+      *.tar.zst.enc|*.tar.zst|*.tar.gz|*.tgz|*.tar) matches+=("${path}") ;;
+    esac
+  done < <(find "${search_dir}" -maxdepth 1 -type f -name 'newszxcn-backup-*' -print 2>/dev/null | LC_ALL=C sort -r)
+  (( ${#matches[@]} > 0 )) || return 0
+  printf '%s\n' "${matches[@]}"
+}
+
+select_restore_source() {
+  local selection="${LANQIN_RESTORE_SELECTION:-}" path index
+  local -a backups=()
+  while IFS= read -r path; do
+    [[ -n "${path}" ]] && backups+=("${path}")
+  done < <(discover_restore_backups)
+
+  if (( ${#backups[@]} == 1 )); then
+    prompt_text "[检测] 已找到备份：${backups[0]}\n"
+    printf '%s' "${backups[0]}"
+    return 0
+  fi
+  if (( ${#backups[@]} > 1 )); then
+    prompt_text "[检测] 在 /root/ 找到 ${#backups[@]} 份备份：\n"
+    for index in "${!backups[@]}"; do
+      prompt_text "$((index + 1)). ${backups[index]}\n"
+    done
+    prompt_text "$(( ${#backups[@]} + 1 )). 手动输入其他路径\n"
+    if [[ -z "${selection}" ]] && has_tty; then
+      read -r -p "请输入要恢复的备份序号 [1]: " selection </dev/tty
+    fi
+    selection="${selection:-1}"
+    if [[ "${selection}" =~ ^[0-9]+$ ]] && (( selection >= 1 && selection <= ${#backups[@]} )); then
+      prompt_text "[选择] 将使用第 ${selection} 份备份开始恢复。\n"
+      printf '%s' "${backups[selection-1]}"
+      return 0
+    fi
+    [[ "${selection}" == "$(( ${#backups[@]} + 1 ))" ]] || fail "备份序号无效。"
+  else
+    prompt_text "[提示] /root/ 目录没有检测到 NewSzxcn 备份，请手动输入路径。\n"
+  fi
+  if has_tty; then
+    read -r -p "备份文件完整路径: " path </dev/tty
+  else
+    path="${LANQIN_RESTORE_SOURCE:-}"
+  fi
+  printf '%s' "${path}"
+}
+
+archive_has_unsafe_paths() {
+  awk '
+    BEGIN { bad=0 }
+    {
+      if (substr($0, 1, 1) == "/") bad=1
+      count=split($0, parts, "/")
+      for (i=1; i<=count; i++) if (parts[i] == "..") bad=1
+    }
+    END { exit bad ? 0 : 1 }
+  '
+}
+
+archive_has_unsafe_types() {
+  awk '
+    BEGIN { bad=0 }
+    /^[[:space:]]*$/ { next }
+    {
+      type=substr($0, 1, 1)
+      if (type != "-" && type != "d") bad=1
+    }
+    END { exit bad ? 0 : 1 }
+  '
+}
+
+extract_restore_archive() {
+  local source="$1" destination="$2" password decrypted
+  case "${source}" in
+    *.tar.zst.enc)
+      command -v openssl >/dev/null 2>&1 || install_packages openssl
+      command -v zstd >/dev/null 2>&1 || install_packages zstd
+      password="$(prompt_restore_password)"
+      decrypted="${destination}/backup.tar.zst"
+      if ! openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -md sha256 -in "${source}" -out "${decrypted}" -pass fd:3 3<<<"${password}" 2>/dev/null; then
+        fail "备份密码错误或加密备份已损坏。"
+      fi
+      if zstd -dc "${decrypted}" 2>/dev/null | tar -tf - | archive_has_unsafe_paths; then
+        fail "备份压缩包包含不安全路径，已拒绝恢复。"
+      fi
+      if zstd -dc "${decrypted}" 2>/dev/null | tar -tvf - | archive_has_unsafe_types; then
+        fail "备份压缩包包含链接或特殊文件，已拒绝恢复。"
+      fi
+      zstd -dc "${decrypted}" 2>/dev/null | tar -xf - -C "${destination}" \
+        || fail "加密备份无法解压，请检查文件和密码。"
+      rm -f "${decrypted}"
+      ;;
+    *.tar.zst)
+      command -v zstd >/dev/null 2>&1 || install_packages zstd
+      if zstd -dc "${source}" 2>/dev/null | tar -tf - | archive_has_unsafe_paths; then
+        fail "备份压缩包包含不安全路径，已拒绝恢复。"
+      fi
+      if zstd -dc "${source}" 2>/dev/null | tar -tvf - | archive_has_unsafe_types; then
+        fail "备份压缩包包含链接或特殊文件，已拒绝恢复。"
+      fi
+      zstd -dc "${source}" 2>/dev/null | tar -xf - -C "${destination}" \
+        || fail "Zstandard 备份无法解压。"
+      ;;
+    *.tar|*.tar.gz|*.tgz)
+      if tar -tf "${source}" | archive_has_unsafe_paths; then
+        fail "备份压缩包包含不安全路径，已拒绝恢复。"
+      fi
+      if tar -tvf "${source}" | archive_has_unsafe_types; then
+        fail "备份压缩包包含链接或特殊文件，已拒绝恢复。"
+      fi
+      tar -xf "${source}" -C "${destination}" || fail "备份压缩包无法解压。"
+      ;;
+    *)
+      fail "不支持的备份格式；请选择 .tar.zst.enc、.tar.zst、.tar.gz、.tgz 或 .tar。"
+      ;;
+  esac
+}
+
+do_restore_backup() {
+  local source="${LANQIN_RESTORE_SOURCE:-}" extracted="" restore_root staging image_ref image nginx_backup=""
+  ! installation_configured || fail "当前服务器已经存在安装配置；为防止覆盖运行数据，只能在空白新服务器执行完整恢复。"
+  [[ -n "${source}" ]] || source="$(select_restore_source)"
+  [[ -n "${source}" ]] || fail "请提供备份目录或备份压缩包路径。"
+  source="$(readlink -f "${source}" 2>/dev/null || true)"
+  [[ -e "${source}" ]] || fail "备份不存在：${source}"
+
+  if [[ -d "${source}" ]]; then
+    restore_root="${source}"
+  else
+    command -v tar >/dev/null 2>&1 || install_packages tar
+    extracted="$(mktemp -d)"
+    extract_restore_archive "${source}" "${extracted}"
+    restore_root="$(locate_extracted_restore_root "${extracted}" || true)"
+  fi
+  if [[ -z "${restore_root}" ]] || ! validate_restore_source "${restore_root}"; then
+    [[ -n "${extracted}" ]] && rm -rf "${extracted}"
+    fail "这不是可恢复的 NewSzxcn 完整备份。"
+  fi
+  if ! validate_restore_database "${restore_root}/data/lanqin.db"; then
+    [[ -n "${extracted}" ]] && rm -rf "${extracted}"
+    fail "备份数据库已损坏，未写入任何 NewSzxcn 数据。"
+  fi
+
+  staging="${INSTALL_DIR}.restore-staging-$(date -u +%Y%m%dT%H%M%SZ)"
+  [[ ! -e "${INSTALL_DIR}" || -z "$(find "${INSTALL_DIR}" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]] \
+    || fail "${INSTALL_DIR} 已有文件，已取消恢复以免覆盖数据。"
+  rm -rf "${staging}"
+  install -d -m 0700 "${staging}"
+  cp -a "${restore_root}/." "${staging}/"
+  [[ -n "${extracted}" ]] && rm -rf "${extracted}"
+  rm -rf "${INSTALL_DIR}"
+  mv "${staging}" "${INSTALL_DIR}"
+  chmod 0600 "${INSTALL_DIR}/.env"
+
+  if [[ -f "${NGINX_CONFIG}" ]]; then
+    nginx_backup="$(mktemp)"
+    cp -a "${NGINX_CONFIG}" "${nginx_backup}"
+  fi
+
+  if ! (
+    refresh_assets
+    ensure_update_token
+    ensure_admin_email_config
+    configure_runtime_bindings
+    ensure_docker
+    configure_firewall
+    prepare_directories
+    log "正在拉取恢复所需的 NewSzxcn Email 镜像..."
+    compose pull
+    image_ref="$(env_value LANQIN_IMAGE || true)"
+    image_ref="${image_ref:-ghcr.io/zxyszx/newszxcn-email:latest}"
+    image="$(docker image inspect --format '{{.Id}}' "${image_ref}" 2>/dev/null || true)"
+    [[ -n "${image}" ]] || fail "无法检查恢复数据库：镜像不存在。"
+    sqlite_integrity_check "${INSTALL_DIR}/data/lanqin.db" "${image}" || fail "备份数据库完整性检查未通过，服务未启动。"
+    log "备份检查通过，正在启动服务..."
+    compose up -d --remove-orphans
+    wait_for_health 90 || fail "恢复后的服务未通过健康检查，请执行 newszxcn-email logs。"
+    configure_web_mode
+  ); then
+    warn "恢复未完成，正在清理本次未成功的安装。"
+    compose down --remove-orphans >/dev/null 2>&1 || true
+    rm -rf "${INSTALL_DIR}"
+    if [[ -n "${nginx_backup}" && -f "${nginx_backup}" ]]; then
+      cp -a "${nginx_backup}" "${NGINX_CONFIG}"
+    elif [[ -f "${NGINX_CONFIG}" ]]; then
+      rm -f "${NGINX_CONFIG}"
+    fi
+    rm -f "${nginx_backup}"
+    nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1 || true
+    fail "恢复失败，原始备份文件未修改；修复问题后可重新执行备份恢复。"
+  fi
+  rm -f "${nginx_backup}"
+  ensure_cli_alias
+  generate_guide >/dev/null || warn "数据已恢复，但配置指南生成失败，可稍后执行 newszxcn-email guide。"
+  success "备份恢复完成：$(env_value LANQIN_PUBLIC_BASE_URL)"
+  warn "如果服务器 IP 已更换，请更新 A、MX、SPF、PTR，并重新检查 TLS 证书。"
+}
+
 do_update() {
   require_installation
   ensure_docker
@@ -1503,7 +1792,8 @@ render_uninstalled_menu() {
   prompt_text '状态：尚未安装\n'
   prompt_text '--------------------------------------------------\n'
   prompt_text '1. 一键安装 NewSzxcn Email\n'
-  prompt_text '0. 退出\n'
+  prompt_text '2. 备份恢复\n'
+  prompt_text '3. 退出\n'
   prompt_text '==================================================\n'
 }
 
@@ -1541,10 +1831,11 @@ do_menu() {
   local default_choice="2" public_url="" choice status version
   if ! installation_configured; then
     render_uninstalled_menu
-    choice="$(prompt_menu_choice "1" "1")" || return 1
+    choice="$(prompt_menu_choice "1" "3")" || return 1
     case "${choice}" in
-      0) success "已退出，未作任何修改。" ;;
+      3) success "已退出，未作任何修改。" ;;
       1) do_install ;;
+      2) do_restore_menu ;;
     esac
     return
   fi
@@ -1581,6 +1872,7 @@ if [[ "${LANQIN_SOURCE_ONLY:-false}" == "true" ]]; then
 fi
 
 if [[ "${EUID}" -eq 0 ]]; then
+  ensure_cli_command
   ensure_cli_alias
 fi
 
@@ -1588,6 +1880,7 @@ case "${COMMAND}" in
   help|-h|--help) usage ;;
   menu) require_root; require_curl; do_menu ;;
   install) require_root; require_curl; do_install ;;
+  restore) require_root; require_curl; do_restore_menu ;;
   update) require_root; require_curl; do_update ;;
   repair) require_root; require_curl; do_repair_install ;;
   status) require_root; require_curl; do_status ;;

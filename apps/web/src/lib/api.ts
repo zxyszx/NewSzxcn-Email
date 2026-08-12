@@ -1,4 +1,4 @@
-import type { User, AdminUser, AdminOverview, Domain, Mailbox, Alias, MailFolder, MailLabel, MailMessage, MailTranslation, DNSRecord, DNSCheckResult, ListResponse, SendPayload, DraftPayload, ScheduleSendPayload, ScheduledSend, SendQueueItem, SendQueueAuditEvent, SendQueueStatus, Contact, MailSignature, MailRule, MailRuleCondition, MailRuleAction, BlockedSender, MailStats, ForwardingSettings, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapOAuthStartPayload, ExternalImapSyncRun, MailboxApplyOptions, MailTemplate, MaildirSyncHealth, SystemSettings, SystemSettingsPayload, SystemVersion, SystemUpdateResult, PublicSettings, LoginPayload, LoginResponse, RegisterPayload, PermissionGroup, PermissionInfo, PermissionKey, PermissionLimits, APIToken, TwoFactorEnableResponse, BulkMoveResult, TelegramPrivateChat, TelegramPairing } from "./api-types"
+import type { User, AdminUser, AdminOverview, Domain, Mailbox, Alias, MailFolder, MailLabel, MailMessage, MailTranslation, DNSRecord, DNSCheckResult, ListResponse, SendPayload, DraftPayload, ScheduleSendPayload, ScheduledSend, SendQueueItem, SendQueueAuditEvent, SendQueueStatus, Contact, MailSignature, MailRule, MailRuleCondition, MailRuleAction, BlockedSender, MailStats, ForwardingSettings, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapOAuthStartPayload, ExternalImapSyncRun, MailboxApplyOptions, MailTemplate, MaildirSyncHealth, SystemSettings, SystemSettingsPayload, SystemVersion, SystemUpdateResult, BackupList, PublicSettings, LoginPayload, LoginResponse, RegisterPayload, PermissionGroup, PermissionInfo, PermissionKey, PermissionLimits, APIToken, TwoFactorEnableResponse, BulkMoveResult, TelegramPrivateChat, TelegramPairing } from "./api-types"
 export * from "./api-types"
 
 const REQUEST_TIMEOUT_MS = 15_000
@@ -211,6 +211,17 @@ export const api = {
   },
   systemVersion: () => request<SystemVersion>("/api/admin/system/version"),
   updateSystem: () => request<SystemUpdateResult>("/api/admin/system/update", { method: "POST", timeoutMs: 45_000 }),
+  backups: () => request<BackupList>("/api/admin/backups"),
+  createBackup: (password: string, confirmPassword: string, sendTelegram: boolean, uploadGoogleDrive: boolean) => request<{ ok: boolean; message: string }>("/api/admin/backups", { method: "POST", body: JSON.stringify({ password, confirmPassword, sendTelegram, uploadGoogleDrive }) }),
+  updateBackupSettings: (payload: { enabled: boolean; days: number; password: string; confirmPassword: string; serverIp: string; chatId: string; telegramMode: "system" | "custom"; telegramEnabled: boolean; googleDriveEnabled: boolean; googleClientId: string; googleClientSecret: string; googleFolderName: string }) => request<import("./api-types").BackupSchedule>("/api/admin/backups/settings", { method: "POST", body: JSON.stringify(payload) }),
+  testBackupTelegram: (payload: { mode: "system" | "custom"; chatId: string }) => request<{ ok: boolean }>("/api/admin/backups/telegram/test", { method: "POST", body: JSON.stringify(payload), timeoutMs: MAIL_DELIVERY_TIMEOUT_MS }),
+  discoverBackupTelegramGroup: (pairingCode: string) => request<{ items: TelegramPrivateChat[] }>("/api/admin/backups/telegram/discover-group", { method: "POST", body: JSON.stringify({ pairingCode }) }),
+  connectGoogleDrive: () => request<{ url: string }>("/api/admin/backups/google-drive/connect", { method: "POST" }),
+  disconnectGoogleDrive: () => request<{ ok: boolean }>("/api/admin/backups/google-drive", { method: "DELETE" }),
+  verifyBackup: (name: string) => request<{ ok: boolean; sha256: string }>(`/api/admin/backups/${encodeURIComponent(name)}/verify`, { method: "POST", timeoutMs: 60_000 }),
+  sendBackupTelegram: (name: string) => request<{ ok: boolean }>(`/api/admin/backups/${encodeURIComponent(name)}/telegram`, { method: "POST", timeoutMs: 10 * 60_000 }),
+  sendBackupGoogleDrive: (name: string) => request<{ ok: boolean }>(`/api/admin/backups/${encodeURIComponent(name)}/google-drive`, { method: "POST", timeoutMs: 30 * 60_000 }),
+  deleteBackup: (name: string) => request<{ ok: boolean }>(`/api/admin/backups/${encodeURIComponent(name)}`, { method: "DELETE" }),
   systemSettings: () => request<SystemSettings>("/api/admin/settings"),
   maildirSyncHealth: () => request<MaildirSyncHealth>("/api/admin/maildir-sync/health"),
   updateSystemSettings: (payload: SystemSettingsPayload) => request<SystemSettings>("/api/admin/settings", { method: "POST", body: JSON.stringify(payload) }),

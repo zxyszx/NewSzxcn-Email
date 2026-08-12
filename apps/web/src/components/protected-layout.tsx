@@ -1,6 +1,6 @@
 import * as React from "react"
 import { Outlet, Link, useLocation } from "react-router-dom"
-import { BarChart3, ClipboardList, Forward, Globe2, Inbox, LogOut, Mail, Mailbox, Settings, ShieldCheck, UserCog } from "lucide-react"
+import { ArchiveRestore, BarChart3, ClipboardList, Forward, Globe2, Inbox, LogOut, Mail, Mailbox, Settings, ShieldCheck, UserCog } from "lucide-react"
 import { useMe } from "@/hooks/use-me"
 import { useLogout } from "@/hooks/use-logout"
 import { AuthGuard } from "@/components/auth-guard"
@@ -35,6 +35,7 @@ const adminSections: { key: string; label: string; icon: React.ReactNode; permis
   { key: "aliases", label: "邮件转发", icon: <Forward />, permissions: ["admin.aliases.view"] },
   { key: "messages", label: "全部邮件", icon: <Inbox />, permissions: ["admin.messages.view"] },
   { key: "sendAudit", label: "发送队列", icon: <ClipboardList />, permissions: ["admin.messages.view"] },
+  { key: "backups", label: "备份与恢复", icon: <ArchiveRestore />, permissions: ["admin.settings.view"] },
   { key: "settings", label: "系统设置", icon: <Settings />, permissions: ["admin.settings.view", "admin.templates.view"] },
 ]
 
@@ -56,7 +57,7 @@ function ProtectedContent() {
   const isProfileRoute = location.pathname.startsWith("/profile")
   const isAdminRoute = location.pathname.startsWith("/admin")
   const adminSection = new URLSearchParams(location.search).get("section") || "overview"
-  const visibleAdminSections = adminSections.filter((item) => hasAnyPermission(user, item.permissions))
+  const visibleAdminSections = adminSections.filter((item) => hasAnyPermission(user, item.permissions) && (item.key !== "backups" || user.role === "admin"))
 
   if (isMailRoute || isProfileRoute) {
     return <Outlet />

@@ -202,6 +202,11 @@ export type SystemUpdateResult = {
   targetVersion: string
   message: string
 }
+export type BackupItem = { name: string; size: number; createdAt: string; sha256?: string }
+export type BackupJob = { status: "running" | "success" | "failed"; startedAt: string; error?: string }
+export type BackupSchedule = { enabled: boolean; days: number; passwordSet: boolean; serverIp: string; chatId: string; telegramMode: "system" | "custom"; telegramEnabled: boolean; googleDriveEnabled: boolean }
+export type GoogleDriveBackupStatus = { clientId: string; clientSecretSet: boolean; connected: boolean; folderName: string }
+export type BackupList = { enabled: boolean; telegramSet: boolean; telegramLimit: number; job?: BackupJob; items: BackupItem[]; schedule: BackupSchedule; googleDrive: GoogleDriveBackupStatus }
 export type SystemSettings = {
   publicHostname: string
   publicBaseUrl: string
