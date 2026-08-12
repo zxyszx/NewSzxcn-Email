@@ -40,6 +40,7 @@ type App struct {
 	telegramDeliveryMu sync.Mutex
 	backupMu           sync.Mutex
 	backupJob          *backupJob
+	backupTransfers    map[string]*backupTransfer
 }
 
 const (
@@ -83,7 +84,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	}
 	db.SetMaxOpenConns(1)
 
-	a := &App{cfg: cfg, db: db, log: logger, now: time.Now, policy: NewHTMLPolicy(), maildirHealth: newMaildirSyncHealthTracker(), telegramURL: "https://api.telegram.org", telegramPairs: map[string]telegramPairing{}}
+	a := &App{cfg: cfg, db: db, log: logger, now: time.Now, policy: NewHTMLPolicy(), maildirHealth: newMaildirSyncHealthTracker(), telegramURL: "https://api.telegram.org", telegramPairs: map[string]telegramPairing{}, backupTransfers: map[string]*backupTransfer{}}
 	a.externalIMAP = a
 	if err := a.configureSQLite(context.Background()); err != nil {
 		db.Close()

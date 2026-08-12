@@ -3,9 +3,8 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
-	"mime"
-	"mime/multipart"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -58,42 +57,109 @@ func TestDiscoverTelegramGroupsReturnsUniqueCandidates(t *testing.T) {
 	}
 }
 
-func TestGoogleDriveUploadRequestUsesMultipartRelated(t *testing.T) {
+func TestGoogleDriveResumableRequest(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "newszxcn-backup-test.tar.zst.enc")
 	if err := os.WriteFile(path, []byte("encrypted backup"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	req, err := newGoogleDriveUploadRequest(context.Background(), path, "folder-123")
+	req, size, err := newGoogleDriveResumableRequest(context.Background(), path, "folder-123")
 	if err != nil {
 		t.Fatal(err)
 	}
-	mediaType, params, err := mime.ParseMediaType(req.Header.Get("Content-Type"))
-	if err != nil || mediaType != "multipart/related" || params["boundary"] == "" {
-		t.Fatalf("content type = %q, %v", req.Header.Get("Content-Type"), err)
+	if size != int64(len("encrypted backup")) {
+		t.Fatalf("upload size = %d", size)
 	}
-	reader := multipart.NewReader(req.Body, params["boundary"])
-	metadataPart, err := reader.NextPart()
-	if err != nil {
-		t.Fatal(err)
+	if req.URL.Query().Get("uploadType") != "resumable" || req.Header.Get("X-Upload-Content-Length") != fmt.Sprint(size) {
+		t.Fatalf("resumable request = %s headers=%v", req.URL, req.Header)
 	}
 	var metadata struct {
 		Name    string   `json:"name"`
 		Parents []string `json:"parents"`
 	}
-	if err := json.NewDecoder(metadataPart).Decode(&metadata); err != nil {
+	if err := json.NewDecoder(req.Body).Decode(&metadata); err != nil {
 		t.Fatal(err)
 	}
 	if metadata.Name != filepath.Base(path) || len(metadata.Parents) != 1 || metadata.Parents[0] != "folder-123" {
 		t.Fatalf("metadata = %+v", metadata)
 	}
-	filePart, err := reader.NextPart()
+}
+
+func TestBackupProgressReaderReportsBytes(t *testing.T) {
+	var updates []int64
+	reader := &backupProgressReader{reader: strings.NewReader("encrypted backup"), onProgress: func(uploaded int64) {
+		updates = append(updates, uploaded)
+	}}
+	raw, err := io.ReadAll(reader)
+	if err != nil || string(raw) != "encrypted backup" {
+		t.Fatalf("read = %q, %v", raw, err)
+	}
+	if len(updates) == 0 || updates[len(updates)-1] != int64(len(raw)) {
+		t.Fatalf("progress updates = %v", updates)
+	}
+}
+
+func TestGoogleDriveUploadMessage(t *testing.T) {
+	tests := []struct {
+		status int
+		body   string
+		want   string
+	}{
+		{http.StatusUnauthorized, `{}`, "授权已失效"},
+		{http.StatusForbidden, `{"reason":"storageQuotaExceeded"}`, "空间不足"},
+		{http.StatusForbidden, `{}`, "无上传权限"},
+		{http.StatusTooManyRequests, `{}`, "请求过于频繁"},
+	}
+	for _, test := range tests {
+		message := googleDriveUploadMessage(&googleDriveAPIError{Operation: "upload", StatusCode: test.status, Body: test.body})
+		if !strings.Contains(message, test.want) {
+			t.Fatalf("message %q does not contain %q", message, test.want)
+		}
+	}
+}
+
+func TestGoogleDriveChunkUploadAndProgress(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "large-backup.tar.zst.enc")
+	size := int64(googleDriveUploadChunkSize + 3)
+	file, err := os.Create(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, err := io.ReadAll(filePart)
-	if err != nil || string(raw) != "encrypted backup" {
-		t.Fatalf("uploaded bytes = %q, %v", raw, err)
+	if err := file.Truncate(size); err != nil {
+		t.Fatal(err)
+	}
+	_ = file.Close()
+	var ranges []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ranges = append(ranges, r.Header.Get("Content-Range"))
+		_, _ = io.Copy(io.Discard, r.Body)
+		if len(ranges) == 1 {
+			w.WriteHeader(http.StatusPermanentRedirect)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"uploaded"}`)
+	}))
+	defer server.Close()
+	a := newTestApp(t)
+	stopTestWorkers(a)
+	if !a.startBackupTransfer("googleDrive", path) {
+		t.Fatal("failed to start transfer")
+	}
+	if err := a.uploadGoogleDriveChunks(context.Background(), server.Client(), server.URL, path, size); err != nil {
+		t.Fatal(err)
+	}
+	wantRanges := []string{
+		fmt.Sprintf("bytes 0-%d/%d", googleDriveUploadChunkSize-1, size),
+		fmt.Sprintf("bytes %d-%d/%d", googleDriveUploadChunkSize, size-1, size),
+	}
+	if len(ranges) != len(wantRanges) || ranges[0] != wantRanges[0] || ranges[1] != wantRanges[1] {
+		t.Fatalf("content ranges = %v, want %v", ranges, wantRanges)
+	}
+	transfer := a.backupTransfers[backupTransferKey("googleDrive", path)]
+	if transfer == nil || transfer.Uploaded != size {
+		t.Fatalf("transfer = %+v", transfer)
 	}
 }
 

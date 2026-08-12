@@ -17,7 +17,6 @@ import (
 	"mime/multipart"
 	"net"
 	"net/http"
-	"net/textproto"
 	"net/url"
 	"os"
 	"os/exec"
@@ -31,6 +30,7 @@ import (
 )
 
 const backupTelegramLimit = 49 << 20
+const googleDriveUploadChunkSize = 8 << 20
 
 type backupJob struct {
 	Status    string    `json:"status"`
@@ -45,6 +45,17 @@ type backupItem struct {
 	SHA256    string    `json:"sha256,omitempty"`
 }
 
+type backupTransfer struct {
+	Provider   string    `json:"provider"`
+	Name       string    `json:"name"`
+	Status     string    `json:"status"`
+	Uploaded   int64     `json:"uploaded"`
+	Total      int64     `json:"total"`
+	StartedAt  time.Time `json:"startedAt"`
+	FinishedAt time.Time `json:"finishedAt,omitempty"`
+	Error      string    `json:"error,omitempty"`
+}
+
 type backupListResponse struct {
 	Enabled       bool              `json:"enabled"`
 	TelegramSet   bool              `json:"telegramSet"`
@@ -53,6 +64,7 @@ type backupListResponse struct {
 	Items         []backupItem      `json:"items"`
 	Schedule      backupSchedule    `json:"schedule"`
 	GoogleDrive   googleDriveStatus `json:"googleDrive"`
+	Transfers     []backupTransfer  `json:"transfers"`
 }
 
 type createBackupRequest struct {
@@ -177,7 +189,13 @@ func (a *App) handleListBackups(w http.ResponseWriter, r *http.Request) {
 		copy := *job
 		job = &copy
 	}
+	transfers := make([]backupTransfer, 0, len(a.backupTransfers))
+	for _, transfer := range a.backupTransfers {
+		copy := *transfer
+		transfers = append(transfers, copy)
+	}
 	a.backupMu.Unlock()
+	sort.Slice(transfers, func(i, j int) bool { return transfers[i].StartedAt.After(transfers[j].StartedAt) })
 	schedule, _ := a.loadBackupSchedule(r.Context())
 	schedule.ServerIP = detectPublicServerIP(r.Context(), a.config().PublicHostname)
 	telegramToken, telegramDestination, _ := a.backupTelegramCredentials(r.Context(), schedule)
@@ -185,7 +203,7 @@ func (a *App) handleListBackups(w http.ResponseWriter, r *http.Request) {
 		Enabled:       a.backupAssetsAvailable(),
 		TelegramSet:   strings.TrimSpace(telegramToken) != "" && validTelegramPrivateChatID(telegramDestination),
 		TelegramLimit: backupTelegramLimit, Job: job, Items: items, Schedule: schedule,
-		GoogleDrive: a.loadGoogleDriveStatus(r.Context()),
+		GoogleDrive: a.loadGoogleDriveStatus(r.Context()), Transfers: transfers,
 	})
 }
 
@@ -250,16 +268,32 @@ func (a *App) handleCreateBackup(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		path, err := a.createDisasterBackup(ctx, password)
 		password = ""
+		var deliveryMessages []string
 		if err == nil {
 			var deliveryErrors []error
 			if uploadGoogleDrive {
+				a.queueBackupTransfer("googleDrive", path)
+			}
+			if sendTelegram {
+				a.queueBackupTransfer("telegram", path)
+			}
+			if uploadGoogleDrive {
 				if driveErr := a.uploadBackupToGoogleDrive(ctx, path); driveErr != nil {
+					message := googleDriveUploadMessage(driveErr)
+					a.finishBackupTransfer("googleDrive", path, message)
+					deliveryMessages = append(deliveryMessages, message)
 					deliveryErrors = append(deliveryErrors, fmt.Errorf("google drive: %w", driveErr))
+				} else {
+					a.finishBackupTransfer("googleDrive", path, "")
 				}
 			}
 			if sendTelegram {
 				if telegramErr := a.sendBackupToTelegram(ctx, path); telegramErr != nil {
+					a.finishBackupTransfer("telegram", path, telegramErr.Error())
+					deliveryMessages = append(deliveryMessages, "Telegram 发送失败："+telegramErr.Error())
 					deliveryErrors = append(deliveryErrors, fmt.Errorf("telegram: %w", telegramErr))
+				} else {
+					a.finishBackupTransfer("telegram", path, "")
 				}
 			}
 			err = errors.Join(deliveryErrors...)
@@ -267,7 +301,11 @@ func (a *App) handleCreateBackup(w http.ResponseWriter, r *http.Request) {
 		a.backupMu.Lock()
 		if err != nil {
 			a.backupJob.Status = "failed"
-			a.backupJob.Error = "本地备份或所选推送未全部完成，请查看服务日志"
+			if len(deliveryMessages) > 0 {
+				a.backupJob.Error = strings.Join(deliveryMessages, "；")
+			} else {
+				a.backupJob.Error = "本地备份创建失败，请检查服务器存储空间"
+			}
 			a.log.Error("create disaster backup", "error", err)
 		} else {
 			a.backupJob.Status = "success"
@@ -810,6 +848,10 @@ func (a *App) handleDeleteBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = os.Remove(path + ".sha256")
+	a.backupMu.Lock()
+	delete(a.backupTransfers, backupTransferKey("telegram", path))
+	delete(a.backupTransfers, backupTransferKey("googleDrive", path))
+	a.backupMu.Unlock()
 	respondJSON(w, 200, map[string]any{"ok": true})
 }
 
@@ -822,12 +864,21 @@ func (a *App) handleSendBackupTelegram(w http.ResponseWriter, r *http.Request) {
 		respondError(w, 404, "备份不存在")
 		return
 	}
-	if err := a.sendBackupToTelegram(r.Context(), path); err != nil {
-		a.log.Error("send backup telegram", "error", err)
-		respondError(w, 502, err.Error())
+	if !a.startBackupTransfer("telegram", path) {
+		respondError(w, http.StatusConflict, "该备份正在发送到 Telegram")
 		return
 	}
-	respondJSON(w, 200, map[string]any{"ok": true})
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
+		defer cancel()
+		if err := a.sendBackupToTelegram(ctx, path); err != nil {
+			a.finishBackupTransfer("telegram", path, err.Error())
+			a.log.Error("send backup telegram", "error", err)
+			return
+		}
+		a.finishBackupTransfer("telegram", path, "")
+	}()
+	respondJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 }
 
 func (a *App) handleSendBackupGoogleDrive(w http.ResponseWriter, r *http.Request) {
@@ -839,12 +890,89 @@ func (a *App) handleSendBackupGoogleDrive(w http.ResponseWriter, r *http.Request
 		respondError(w, 404, "备份不存在")
 		return
 	}
-	if err := a.uploadBackupToGoogleDrive(r.Context(), path); err != nil {
-		a.log.Error("upload backup to google drive", "error", err)
-		respondError(w, 502, "上传 Google 云端硬盘失败")
+	if !a.startBackupTransfer("googleDrive", path) {
+		respondError(w, http.StatusConflict, "该备份正在上传到 Google 云端硬盘")
 		return
 	}
-	respondJSON(w, 200, map[string]bool{"ok": true})
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
+		defer cancel()
+		if err := a.uploadBackupToGoogleDrive(ctx, path); err != nil {
+			message := googleDriveUploadMessage(err)
+			a.finishBackupTransfer("googleDrive", path, message)
+			a.log.Error("upload backup to google drive", "error", err)
+			return
+		}
+		a.finishBackupTransfer("googleDrive", path, "")
+	}()
+	respondJSON(w, http.StatusAccepted, map[string]bool{"ok": true})
+}
+
+func backupTransferKey(provider, path string) string {
+	return provider + ":" + filepath.Base(path)
+}
+
+func (a *App) startBackupTransfer(provider, path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	key := backupTransferKey(provider, path)
+	a.backupMu.Lock()
+	defer a.backupMu.Unlock()
+	if transfer := a.backupTransfers[key]; transfer != nil && transfer.Status == "running" {
+		return false
+	}
+	a.backupTransfers[key] = &backupTransfer{Provider: provider, Name: filepath.Base(path), Status: "running", Total: info.Size(), StartedAt: a.now().UTC()}
+	return true
+}
+
+func (a *App) ensureBackupTransfer(provider, path string) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return
+	}
+	key := backupTransferKey(provider, path)
+	a.backupMu.Lock()
+	defer a.backupMu.Unlock()
+	if transfer := a.backupTransfers[key]; transfer == nil {
+		a.backupTransfers[key] = &backupTransfer{Provider: provider, Name: filepath.Base(path), Status: "running", Total: info.Size(), StartedAt: a.now().UTC()}
+	} else if transfer.Status == "queued" {
+		transfer.Status = "running"
+	}
+}
+
+func (a *App) queueBackupTransfer(provider, path string) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return
+	}
+	a.backupMu.Lock()
+	defer a.backupMu.Unlock()
+	a.backupTransfers[backupTransferKey(provider, path)] = &backupTransfer{Provider: provider, Name: filepath.Base(path), Status: "queued", Total: info.Size(), StartedAt: a.now().UTC()}
+}
+
+func (a *App) updateBackupTransfer(provider, path string, uploaded int64) {
+	a.backupMu.Lock()
+	defer a.backupMu.Unlock()
+	if transfer := a.backupTransfers[backupTransferKey(provider, path)]; transfer != nil {
+		transfer.Uploaded = uploaded
+	}
+}
+
+func (a *App) finishBackupTransfer(provider, path, message string) {
+	a.backupMu.Lock()
+	defer a.backupMu.Unlock()
+	if transfer := a.backupTransfers[backupTransferKey(provider, path)]; transfer != nil {
+		transfer.FinishedAt = a.now().UTC()
+		if message == "" {
+			transfer.Status = "success"
+			transfer.Uploaded = transfer.Total
+		} else {
+			transfer.Status = "failed"
+			transfer.Error = message
+		}
+	}
 }
 
 func (a *App) googleDriveClient(ctx context.Context) (*http.Client, error) {
@@ -898,7 +1026,7 @@ func (a *App) googleDriveFolderID(ctx context.Context, client *http.Client, name
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return "", fmt.Errorf("drive folder lookup %s: %s", resp.Status, raw)
+		return "", &googleDriveAPIError{Operation: "folder lookup", StatusCode: resp.StatusCode, Body: string(raw)}
 	}
 	var list struct {
 		Files []struct {
@@ -921,7 +1049,7 @@ func (a *App) googleDriveFolderID(ctx context.Context, client *http.Client, name
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return "", fmt.Errorf("drive folder create %s: %s", resp.Status, raw)
+		return "", &googleDriveAPIError{Operation: "folder create", StatusCode: resp.StatusCode, Body: string(raw)}
 	}
 	var created struct {
 		ID string `json:"id"`
@@ -936,6 +1064,7 @@ func (a *App) googleDriveFolderID(ctx context.Context, client *http.Client, name
 }
 
 func (a *App) uploadBackupToGoogleDrive(ctx context.Context, path string) error {
+	a.ensureBackupTransfer("googleDrive", path)
 	client, err := a.googleDriveClient(ctx)
 	if err != nil {
 		return err
@@ -945,7 +1074,7 @@ func (a *App) uploadBackupToGoogleDrive(ctx context.Context, path string) error 
 	if err != nil {
 		return err
 	}
-	req, err := newGoogleDriveUploadRequest(ctx, path, folderID)
+	req, size, err := newGoogleDriveResumableRequest(ctx, path, folderID)
 	if err != nil {
 		return err
 	}
@@ -956,53 +1085,107 @@ func (a *App) uploadBackupToGoogleDrive(ctx context.Context, path string) error 
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("drive upload %s: %s", resp.Status, raw)
+		return &googleDriveAPIError{Operation: "start upload", StatusCode: resp.StatusCode, Body: string(raw)}
 	}
-	return nil
+	location := strings.TrimSpace(resp.Header.Get("Location"))
+	if location == "" {
+		return errors.New("Google 云端硬盘未返回可恢复上传地址")
+	}
+	return a.uploadGoogleDriveChunks(ctx, client, location, path, size)
 }
 
-func newGoogleDriveUploadRequest(ctx context.Context, path, folderID string) (*http.Request, error) {
+type googleDriveAPIError struct {
+	Operation  string
+	StatusCode int
+	Body       string
+}
+
+func (e *googleDriveAPIError) Error() string {
+	return fmt.Sprintf("google drive %s returned %d: %s", e.Operation, e.StatusCode, e.Body)
+}
+
+func newGoogleDriveResumableRequest(ctx context.Context, path, folderID string) (*http.Request, int64, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	metadata, _ := json.Marshal(map[string]any{"name": filepath.Base(path), "parents": []string{folderID}})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name", strings.NewReader(string(metadata)))
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Content-Type", "application/json; charset=UTF-8")
+	req.Header.Set("X-Upload-Content-Type", "application/octet-stream")
+	req.Header.Set("X-Upload-Content-Length", fmt.Sprint(info.Size()))
+	return req, info.Size(), nil
+}
+
+func (a *App) uploadGoogleDriveChunks(ctx context.Context, client *http.Client, location, path string, size int64) error {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	reader, writerSide := io.Pipe()
-	mw := multipart.NewWriter(writerSide)
-	go func() {
-		var writeErr error
-		defer func() { _ = file.Close(); _ = mw.Close(); _ = writerSide.CloseWithError(writeErr) }()
-		head := textproto.MIMEHeader{}
-		head.Set("Content-Type", "application/json; charset=UTF-8")
-		part, err := mw.CreatePart(head)
+	defer file.Close()
+	for offset := int64(0); offset < size; {
+		length := int64(googleDriveUploadChunkSize)
+		if remaining := size - offset; remaining < length {
+			length = remaining
+		}
+		end := offset + length - 1
+		req, err := http.NewRequestWithContext(ctx, http.MethodPut, location, io.NewSectionReader(file, offset, length))
 		if err != nil {
-			writeErr = err
-			return
+			return err
 		}
-		metadata, _ := json.Marshal(map[string]any{"name": filepath.Base(path), "parents": []string{folderID}})
-		if _, err = part.Write(metadata); err != nil {
-			writeErr = err
-			return
-		}
-		head = textproto.MIMEHeader{}
-		head.Set("Content-Type", "application/octet-stream")
-		part, err = mw.CreatePart(head)
+		req.ContentLength = length
+		req.Header.Set("Content-Type", "application/octet-stream")
+		req.Header.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", offset, end, size))
+		resp, err := client.Do(req)
 		if err != nil {
-			writeErr = err
-			return
+			return err
 		}
-		_, writeErr = io.Copy(part, file)
-	}()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name", reader)
-	if err != nil {
-		_ = file.Close()
-		_ = writerSide.CloseWithError(err)
-		return nil, err
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		_ = resp.Body.Close()
+		if resp.StatusCode == http.StatusPermanentRedirect {
+			offset += length
+			a.updateBackupTransfer("googleDrive", path, offset)
+			continue
+		}
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 && end+1 == size {
+			a.updateBackupTransfer("googleDrive", path, size)
+			return nil
+		}
+		return &googleDriveAPIError{Operation: "upload chunk", StatusCode: resp.StatusCode, Body: string(raw)}
 	}
-	req.Header.Set("Content-Type", "multipart/related; boundary="+mw.Boundary())
-	return req, nil
+	return errors.New("Google 云端硬盘不能上传空备份文件")
+}
+
+func googleDriveUploadMessage(err error) string {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return "Google 云端硬盘上传超时，请检查服务器网络后重试"
+	}
+	var apiErr *googleDriveAPIError
+	if errors.As(err, &apiErr) {
+		body := strings.ToLower(apiErr.Body)
+		switch {
+		case apiErr.StatusCode == http.StatusUnauthorized || strings.Contains(body, "invalid_grant"):
+			return "Google 授权已失效，请打开配置，断开后重新连接"
+		case strings.Contains(body, "storagequota") || strings.Contains(body, "storage quota"):
+			return "Google 云端硬盘空间不足，请清理空间后重试"
+		case apiErr.StatusCode == http.StatusTooManyRequests || strings.Contains(body, "ratelimit"):
+			return "Google 云端硬盘请求过于频繁，请稍后重试"
+		case apiErr.StatusCode == http.StatusForbidden:
+			return "Google 云端硬盘无上传权限，请确认 Drive API 已启用并重新连接"
+		}
+	}
+	message := strings.ToLower(err.Error())
+	if strings.Contains(message, "oauth2") || strings.Contains(message, "token") {
+		return "Google 授权已失效，请打开配置，断开后重新连接"
+	}
+	return "上传 Google 云端硬盘失败，请检查服务器网络或重新连接 Google 账号"
 }
 
 func (a *App) sendBackupToTelegram(ctx context.Context, path string) error {
+	a.ensureBackupTransfer("telegram", path)
 	schedule, _ := a.loadBackupSchedule(ctx)
 	token, chatID, err := a.backupTelegramCredentials(ctx, schedule)
 	if err != nil {
@@ -1137,7 +1320,7 @@ func (a *App) sendTelegramDocument(ctx context.Context, token, chatID, path stri
 			return
 		}
 		defer file.Close()
-		_, writeErr = io.Copy(part, file)
+		_, writeErr = io.Copy(part, &backupProgressReader{reader: file, onProgress: func(uploaded int64) { a.updateBackupTransfer("telegram", path, uploaded) }})
 	}()
 	endpoint := strings.TrimRight(a.telegramURL, "/") + "/bot" + token + "/sendDocument"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, reader)
@@ -1155,6 +1338,21 @@ func (a *App) sendTelegramDocument(ctx context.Context, token, chatID, path stri
 		return fmt.Errorf("telegram %s: %s", resp.Status, raw)
 	}
 	return nil
+}
+
+type backupProgressReader struct {
+	reader     io.Reader
+	uploaded   int64
+	onProgress func(int64)
+}
+
+func (r *backupProgressReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	if n > 0 {
+		r.uploaded += int64(n)
+		r.onProgress(r.uploaded)
+	}
+	return n, err
 }
 
 func (a *App) listBackups() ([]backupItem, error) {
@@ -1302,18 +1500,34 @@ func (a *App) runScheduledBackup(ctx context.Context) {
 	path, runErr := a.createDisasterBackup(ctx, password)
 	password = ""
 	localBackupSucceeded := runErr == nil
+	var deliveryMessages []string
 	if localBackupSucceeded {
 		now := a.now().UTC().Format(time.RFC3339Nano)
 		_, _ = a.db.ExecContext(ctx, `INSERT INTO system_settings(key,value,updated_at) VALUES('backupScheduleLastRun',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`, now, now)
 		var deliveryErrors []error
 		if schedule.GoogleDriveEnabled {
+			a.queueBackupTransfer("googleDrive", path)
+		}
+		if schedule.TelegramEnabled {
+			a.queueBackupTransfer("telegram", path)
+		}
+		if schedule.GoogleDriveEnabled {
 			if driveErr := a.uploadBackupToGoogleDrive(ctx, path); driveErr != nil {
+				message := googleDriveUploadMessage(driveErr)
+				a.finishBackupTransfer("googleDrive", path, message)
+				deliveryMessages = append(deliveryMessages, message)
 				deliveryErrors = append(deliveryErrors, fmt.Errorf("google drive: %w", driveErr))
+			} else {
+				a.finishBackupTransfer("googleDrive", path, "")
 			}
 		}
 		if schedule.TelegramEnabled {
 			if telegramErr := a.sendBackupToTelegram(ctx, path); telegramErr != nil {
+				a.finishBackupTransfer("telegram", path, telegramErr.Error())
+				deliveryMessages = append(deliveryMessages, "Telegram 发送失败："+telegramErr.Error())
 				deliveryErrors = append(deliveryErrors, fmt.Errorf("telegram: %w", telegramErr))
+			} else {
+				a.finishBackupTransfer("telegram", path, "")
 			}
 		}
 		runErr = errors.Join(deliveryErrors...)
@@ -1322,7 +1536,11 @@ func (a *App) runScheduledBackup(ctx context.Context) {
 	publicError := ""
 	if runErr != nil {
 		status = "failed"
-		publicError = "定时备份或云端推送失败，请查看服务日志"
+		if len(deliveryMessages) > 0 {
+			publicError = strings.Join(deliveryMessages, "；")
+		} else {
+			publicError = "定时备份创建失败，请检查服务器存储空间"
+		}
 		a.log.Error("scheduled backup", "error", runErr)
 	}
 	a.backupMu.Lock()

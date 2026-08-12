@@ -24,7 +24,7 @@ import { SystemVersionDialog } from "@/components/system-version-dialog"
 import { useMe } from "@/hooks/use-me"
 import { useToast } from "@/hooks/use-toast"
 import { hasAnyPermission, hasPermission } from "@/lib/permissions"
-import type { PermissionKey, TelegramPairing } from "@/lib/api-types"
+import type { BackupTransfer, PermissionKey, TelegramPairing } from "@/lib/api-types"
 
 type Section = "overview" | "users" | "permissionGroups" | "domains" | "mailboxes" | "aliases" | "messages" | "sendAudit" | "backups" | "settings"
 type SettingsTab = "base" | "smtp" | "storage" | "mail" | "notifications" | "externalImap" | "templates" | "security" | "about"
@@ -271,7 +271,7 @@ function BackupsSection() {
   const backups = useQuery({
     queryKey: ["admin", "backups"],
     queryFn: api.backups,
-    refetchInterval: (query) => query.state.data?.job?.status === "running" ? 2000 : false,
+    refetchInterval: (query) => query.state.data?.job?.status === "running" || query.state.data?.transfers?.some((item) => item.status === "running" || item.status === "queued") ? 2000 : false,
   })
   const [createOpen, setCreateOpen] = React.useState(false)
   const [password, setPassword] = React.useState("")
@@ -346,7 +346,7 @@ function BackupsSection() {
   })
   const sendTelegram = useMutation({
     mutationFn: api.sendBackupTelegram,
-    onSuccess: () => toast({ title: "已发送到 Telegram" }),
+    onSuccess: async () => { await qc.invalidateQueries({ queryKey: ["admin", "backups"] }); toast({ title: "已开始发送到 Telegram" }) },
     onError: (error) => toast({ title: "发送失败", description: error instanceof Error ? error.message : "请稍后重试" }),
   })
   const testBackupTelegram = useMutation({
@@ -370,7 +370,7 @@ function BackupsSection() {
   })
   const sendDrive = useMutation({
     mutationFn: api.sendBackupGoogleDrive,
-    onSuccess: () => toast({ title: "已上传到 Google 云端硬盘" }),
+    onSuccess: async () => { await qc.invalidateQueries({ queryKey: ["admin", "backups"] }); toast({ title: "已开始上传到 Google 云端硬盘" }) },
     onError: (error) => toast({ title: "上传失败", description: error instanceof Error ? error.message : "请稍后重试" }),
   })
   const connectDrive = useMutation({
@@ -445,6 +445,10 @@ function BackupsSection() {
     if (schedulePassword !== scheduleConfirmPassword) { toast({ title: "两次输入的备份密码不一致" }); return }
     savePassword.mutate()
   }
+  const transferGroups = Object.values((backups.data?.transfers || []).reduce<Record<string, BackupTransfer[]>>((groups, transfer) => {
+    ;(groups[transfer.name] ||= []).push(transfer)
+    return groups
+  }, {})).sort((left, right) => Date.parse(right[0]?.startedAt || "") - Date.parse(left[0]?.startedAt || ""))
   return (
     <div className="space-y-3">
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1.35fr)_minmax(300px,.65fr)]">
@@ -461,6 +465,18 @@ function BackupsSection() {
             {job?.status === "failed" && <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{job.error || "备份生成失败"}</div>}
             {job?.status === "success" && <div className="rounded-md border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-800">最近一次备份已完成。</div>}
             {!job && <p className="text-sm text-muted-foreground">手动备份与定时备份共用同一个恢复密码，避免不同备份使用不同密码。</p>}
+            {transferGroups.slice(0, 3).map((transfers) => <div key={transfers[0].name} className="space-y-3 rounded-md border px-3 py-3">
+              <div className="truncate text-sm font-medium" title={transfers[0].name}>{transfers[0].name}</div>
+              {transfers.sort((a, b) => (a.provider === "telegram" ? 0 : 1) - (b.provider === "telegram" ? 0 : 1)).map((transfer) => {
+                const percent = transfer.total > 0 ? Math.min(100, Math.round(transfer.uploaded * 100 / transfer.total)) : 0
+                const label = transfer.provider === "telegram" ? "Telegram" : "Google 云端硬盘"
+                return <div key={transfer.provider} className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-3 text-xs"><span>{label}</span><span className={cn("shrink-0", transfer.status === "failed" ? "text-destructive" : "text-muted-foreground")}>{transfer.status === "queued" ? "等待上传" : transfer.status === "running" ? `${percent}% · ${formatBytes(transfer.uploaded)} / ${formatBytes(transfer.total)}` : transfer.status === "success" ? "上传完成" : "上传失败"}</span></div>
+                  <div className="h-2 overflow-hidden rounded-full bg-muted"><div className={cn("h-full transition-[width]", transfer.status === "failed" ? "bg-destructive" : transfer.status === "success" ? "bg-green-600" : "bg-primary")} style={{ width: `${transfer.status === "success" ? 100 : percent}%` }} /></div>
+                  {transfer.error && <p className="text-xs text-destructive">{transfer.error}</p>}
+                </div>
+              })}
+            </div>)}
             <div className="border-t pt-3">
               <div className="mb-2 flex items-center justify-between"><span className="text-sm font-medium">本地备份</span><span className="text-xs text-muted-foreground">保留最近 10 份</span></div>
               <div className="divide-y rounded-md border">
