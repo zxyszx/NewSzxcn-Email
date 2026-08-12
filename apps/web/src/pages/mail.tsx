@@ -3916,6 +3916,7 @@ function ComposeDialog({ mailboxes, mailbox, open, draft, limits, canSend, canMa
   const [subjectValue, setSubjectValue] = React.useState(draft?.subject || "")
   const [draftStatus, setDraftStatus] = React.useState<"idle" | "saving" | "saved" | "error">("idle")
   const [lastSavedAt, setLastSavedAt] = React.useState<Date | null>(null)
+  const [closing, setClosing] = React.useState(false)
   const [scheduleDialogOpen, setScheduleDialogOpen] = React.useState(false)
   const [sendIntent, setSendIntent] = React.useState<ComposeSendIntent | null>(null)
   const sendStartedRef = React.useRef(false)
@@ -4031,7 +4032,7 @@ function ComposeDialog({ mailboxes, mailbox, open, draft, limits, canSend, canMa
   }, [files])
 
   React.useEffect(() => {
-    if (!open || sendStartedRef.current || !hasDraftContent || !canManageDrafts) return
+    if (!open || closing || sendStartedRef.current || !hasDraftContent || !canManageDrafts) return
     const payloadKey = JSON.stringify({ ...composePayload, draftId })
     if (payloadKey === lastSavedPayloadRef.current) return
     const timer = window.setTimeout(async () => {
@@ -4052,7 +4053,7 @@ function ComposeDialog({ mailboxes, mailbox, open, draft, limits, canSend, canMa
       }
     }, 5000)
     return () => window.clearTimeout(timer)
-  }, [open, hasDraftContent, composePayload, draftId, qc, canManageDrafts])
+  }, [open, closing, hasDraftContent, composePayload, draftId, qc, canManageDrafts])
 
   function buildSendWarnings(attachmentsCount: number) {
     const warnings: string[] = []
@@ -4104,6 +4105,10 @@ function ComposeDialog({ mailboxes, mailbox, open, draft, limits, canSend, canMa
     const to = splitEmails(toValue)
     const cc = showCc ? splitEmails(ccValue) : []
     const bcc = showBcc ? splitEmails(bccValue) : []
+    if (to.length === 0) {
+      toast({ title: "请填写收件人" })
+      return
+    }
     const text = body.text
     const html = body.html || plainTextToHtml(text)
     const payload: SendPayload = { mailboxId: senderMailbox.id, to, cc, bcc, subject: subjectValue, text, html, attachments }
@@ -4139,11 +4144,18 @@ function ComposeDialog({ mailboxes, mailbox, open, draft, limits, canSend, canMa
     }
     if (!attachmentsWithinLimit()) return
     const attachments = await Promise.all(files.map(fileToAttachment))
+    const to = splitEmails(toValue)
+    const cc = showCc ? splitEmails(ccValue) : []
+    const bcc = showBcc ? splitEmails(bccValue) : []
+    if (to.length === 0) {
+      toast({ title: "请填写收件人" })
+      return
+    }
     const payload: SendPayload & { draftId?: string; sendAt: string } = {
       mailboxId: senderMailbox.id,
-      to: splitEmails(toValue),
-      cc: showCc ? splitEmails(ccValue) : [],
-      bcc: showBcc ? splitEmails(bccValue) : [],
+      to,
+      cc,
+      bcc,
       subject: subjectValue,
       text: body.text,
       html: body.html || plainTextToHtml(body.text),
@@ -4163,15 +4175,45 @@ function ComposeDialog({ mailboxes, mailbox, open, draft, limits, canSend, canMa
       },
     })
   }
+
+  async function closeCompose() {
+    if (closing) return
+    if (!canManageDrafts || sendStartedRef.current || !hasDraftContent) {
+      onOpenChange(false)
+      return
+    }
+    setClosing(true)
+    setDraftStatus("saving")
+    try {
+      const attachments = await Promise.all(files.map(fileToAttachment))
+      const payload: DraftPayload = { ...composePayload, attachments }
+      const saved = await api.saveDraft(payload, draftId || undefined)
+      setDraftId(saved.id)
+      lastSavedPayloadRef.current = JSON.stringify({ ...payload, draftId: saved.id })
+      setLastSavedAt(new Date())
+      setDraftStatus("saved")
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["messages"] }),
+        qc.invalidateQueries({ queryKey: ["folders"] }),
+        qc.invalidateQueries({ queryKey: ["mail-stats"] }),
+      ])
+      onOpenChange(false)
+    } catch (error) {
+      setDraftStatus("error")
+      toast({ title: "草稿保存失败", description: error instanceof Error ? error.message : "请稍后重试" })
+    } finally {
+      setClosing(false)
+    }
+  }
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(nextOpen) => { if (nextOpen) onOpenChange(true); else void closeCompose() }}>
       <DialogContent
-        className="flex h-svh w-screen max-w-none overflow-hidden p-0 sm:h-auto sm:max-h-[92vh] sm:w-[min(92vw,72rem)]"
+        className="flex h-svh w-screen max-w-none overflow-hidden p-0 sm:h-[min(88vh,48rem)] sm:w-[min(92vw,56rem)]"
         onInteractOutside={(event) => event.preventDefault()}
         onPointerDownOutside={(event) => event.preventDefault()}
       >
-        <form key={draft?.key || "new"} className="flex min-h-0 flex-1 flex-col sm:max-h-[90vh]" onSubmit={submit}>
-          <DialogHeader className="border-b px-4 py-3 text-left sm:px-6 sm:py-4">
+        <form key={draft?.key || "new"} className="flex min-h-0 min-w-0 flex-1 flex-col" onSubmit={submit}>
+          <DialogHeader className="border-b bg-muted/20 px-4 py-3 text-left sm:px-5">
             <DialogTitle className="flex min-w-0 flex-col gap-1 pr-8 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:pr-6">
               <span>{draftId ? "编辑草稿" : "写信"}</span>
               <span className={cn("text-xs font-normal", draftStatus === "error" ? "text-destructive" : "text-muted-foreground")}>
@@ -4219,7 +4261,7 @@ function ComposeDialog({ mailboxes, mailbox, open, draft, limits, canSend, canMa
                 <Input name="bcc" placeholder="bcc@example.com" value={bccValue} onChange={(event) => setBccValue(event.target.value)} className="h-10 flex-1 rounded-none border-0 px-0 shadow-none focus-visible:ring-0" />
               </ComposeField>
             )}
-            <ComposeField label="主　题">
+            <ComposeField label="主题">
               <Input name="subject" placeholder="输入主题" value={subjectValue} onChange={(event) => setSubjectValue(event.target.value)} className="h-10 flex-1 rounded-none border-0 px-0 shadow-none focus-visible:ring-0" />
             </ComposeField>
             {defaultSignature.isError && (
@@ -4241,10 +4283,12 @@ function ComposeDialog({ mailboxes, mailbox, open, draft, limits, canSend, canMa
               onRemoveFile={(index) => { setAttachmentsTouched(true); setFiles((current) => current.filter((_, itemIndex) => itemIndex !== index)) }}
             />
           </div>
-          <DialogFooter className="grid grid-cols-3 gap-2 border-t bg-background px-4 py-3 sm:flex sm:flex-row sm:justify-end sm:px-6 sm:py-4">
-            <Button type="button" variant="outline" className="min-h-10 px-3" onClick={() => onOpenChange(false)}>取消</Button>
-            {canSchedule && <Button type="button" variant="outline" className="min-h-10 px-3" disabled={send.isPending || scheduleSend.isPending || !senderMailbox} onClick={() => setScheduleDialogOpen(true)}><Calendar className="h-4 w-4" />定时</Button>}
-            {canSend && <Button className="min-h-10 px-4" disabled={send.isPending || !senderMailbox}><Send className="h-4 w-4" />{send.isPending ? "发送中..." : "发送"}</Button>}
+          <DialogFooter className="flex flex-row items-center justify-between gap-3 border-t bg-muted/15 px-4 py-3 sm:px-5">
+            <div className="flex min-w-0 items-center gap-2">
+              {canSend && <Button className="min-h-10 px-4" disabled={send.isPending || !senderMailbox}><Send className="h-4 w-4" />{send.isPending ? "发送中..." : "发送"}</Button>}
+              {canSchedule && <Button type="button" variant="outline" size="icon" className="h-10 w-10 shrink-0" title="定时发送" aria-label="定时发送" disabled={send.isPending || scheduleSend.isPending || !senderMailbox} onClick={() => setScheduleDialogOpen(true)}><Calendar className="h-4 w-4" /></Button>}
+            </div>
+            <Button type="button" variant="ghost" className="min-h-10 px-3" disabled={closing} onClick={() => { void closeCompose() }}>{closing ? "保存中..." : "取消"}</Button>
           </DialogFooter>
         </form>
         <ScheduleSendDialog open={scheduleDialogOpen} pending={scheduleSend.isPending} onOpenChange={setScheduleDialogOpen} onConfirm={scheduleAt} />
@@ -4264,8 +4308,8 @@ function ComposeDialog({ mailboxes, mailbox, open, draft, limits, canSend, canMa
 
 function ComposeField({ label, children, action }: { label: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
-    <div className="flex min-h-14 flex-col gap-2 border-b px-4 py-2 sm:flex-row sm:items-center sm:px-6">
-      <Label className="shrink-0 text-base font-normal text-foreground sm:w-20">{label}</Label>
+    <div className="flex min-h-12 flex-col gap-1 border-b px-4 py-1.5 transition-colors focus-within:bg-muted/20 sm:flex-row sm:items-center sm:gap-2 sm:px-5">
+      <Label className="shrink-0 text-sm font-normal text-muted-foreground sm:w-16">{label}</Label>
       <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
         {children}
         {action}
@@ -4337,11 +4381,17 @@ type InsertDialogValue = { url: string; text: string; alt: string }
 const composerFontOptions = ["Arial", "Georgia", "Times New Roman", "Courier New", "Microsoft YaHei"]
 const composerFontSizeOptions = [
   ["2", "小号"],
-  ["3", "正文"],
+  ["3", "标准"],
   ["4", "中号"],
   ["5", "大号"],
 ] as const
 const composerFontSizeValueByKey: Record<string, string> = { "2": "13px", "3": "16px", "4": "20px", "5": "24px" }
+const composerParagraphOptions: ReadonlyArray<{ key: string; label: string; level?: 1 | 2 | 3 }> = [
+  { key: "paragraph", label: "正文" },
+  { key: "heading-1", label: "标题 1", level: 1 as const },
+  { key: "heading-2", label: "标题 2", level: 2 as const },
+  { key: "heading-3", label: "标题 3", level: 3 as const },
+] as const
 const composerTextColors = [["#111827", "默认"], ["#dc2626", "红色"], ["#2563eb", "蓝色"], ["#16a34a", "绿色"], ["#9333ea", "紫色"]] as const
 const composerHighlightColors = [["transparent", "无高亮"], ["#fef3c7", "黄色"], ["#dcfce7", "绿色"], ["#dbeafe", "蓝色"], ["#fce7f3", "粉色"]] as const
 const composerEmojiOptions = ["😀", "😄", "😊", "🙂", "😉", "😍", "😘", "😎", "🤔", "👍", "👏", "🙏", "💪", "🎉", "🔥", "✨", "❤️", "✅", "📌", "📅", "☕", "💡", "🚀", "⭐"]
@@ -4383,7 +4433,15 @@ function fontLabel(value: string) {
 
 function fontSizeLabel(value: string) {
   const normalized = normalizeFontSize(value) || "3"
-  return composerFontSizeOptions.find(([size]) => size === normalized)?.[1] || "正文"
+  return composerFontSizeOptions.find(([size]) => size === normalized)?.[1] || "标准"
+}
+
+function paragraphStyleLabel(editor?: Editor | null) {
+  if (!editor) return "正文"
+  for (const option of composerParagraphOptions) {
+    if (option.level && editor.isActive("heading", { level: option.level })) return option.label
+  }
+  return "正文"
 }
 
 function normalizeInsertUrl(value: string, kind: InsertDialogState["kind"]) {
@@ -4509,8 +4567,10 @@ function MailBodyComposer({ defaultValue, defaultHtml, files, signatureText, max
     content: composerInitialHtml(defaultValue, defaultHtml),
     editorProps: {
       attributes: {
-        class: "mail-html min-h-[240px] min-w-0 flex-1 overflow-y-auto px-4 py-4 text-base leading-7 outline-none sm:min-h-[280px] sm:px-6 sm:py-5",
+        class: "mail-html min-h-[220px] min-w-0 flex-1 overflow-y-auto px-4 py-4 text-base leading-7 outline-none sm:min-h-[260px] sm:px-5",
         "aria-label": "正文",
+        spellcheck: "true",
+        autocorrect: "on",
       },
       handlePaste(view, event) {
         const clipboard = event.clipboardData
@@ -4564,6 +4624,7 @@ function MailBodyComposer({ defaultValue, defaultHtml, files, signatureText, max
   const activeFontSize = normalizeFontSize(textStyleAttributes?.fontSize || "") || "3"
   const activeColor = textStyleAttributes?.color || ""
   const activeHighlight = textStyleAttributes?.backgroundColor || ""
+  const characterCount = editor?.getText().replace(/\s/g, "").length || 0
   void selectionVersion
 
   function applyFont(font: string) {
@@ -4631,9 +4692,9 @@ function MailBodyComposer({ defaultValue, defaultHtml, files, signatureText, max
   }
 
   return (
-    <div className="flex min-h-[330px] flex-1 flex-col bg-background sm:min-h-[420px]">
+    <div className="flex min-h-[300px] min-w-0 flex-1 flex-col bg-background sm:min-h-[360px]">
       <Input ref={fileInputRef} type="file" multiple className="hidden" onChange={handlePickedFiles} />
-      <div className="flex min-h-11 flex-wrap items-center gap-1 overflow-visible border-b px-3 py-2 sm:px-6">
+      <div className="flex min-h-11 flex-wrap items-center gap-1 overflow-visible border-b px-3 py-2 sm:px-5">
         <ToolbarButton label="撤销" disabled={!editor?.can().undo()} onClick={() => editor?.chain().focus().undo().run()}><Undo2 className="h-4 w-4" /></ToolbarButton>
         <ToolbarButton label="重做" disabled={!editor?.can().redo()} onClick={() => editor?.chain().focus().redo().run()}><Redo2 className="h-4 w-4" /></ToolbarButton>
         <Separator orientation="vertical" className="mx-2 h-6" />
@@ -4650,7 +4711,7 @@ function MailBodyComposer({ defaultValue, defaultHtml, files, signatureText, max
             <DropdownMenuItem className={composerMenuItemClass} onSelect={() => editor?.chain().focus().setHorizontalRule().run()}><span className="h-4 w-4 border-t border-current" aria-hidden />分隔线</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <span className="rounded-md border px-2 py-1 text-xs text-muted-foreground">附件 {maxAttachmentText}</span>
+        <span className="px-1 text-xs text-muted-foreground" title={`单个附件上限 ${maxAttachmentText}`}>附件上限 {maxAttachmentText}</span>
         <ToolbarTextButton label="日程" icon={<Calendar className="h-4 w-4" />} onClick={() => setScheduleOpen(true)} />
         <DropdownMenu open={emojiOpen} onOpenChange={setEmojiOpen}>
           <DropdownMenuTrigger asChild>
@@ -4675,9 +4736,24 @@ function MailBodyComposer({ defaultValue, defaultHtml, files, signatureText, max
         </div>
       </div>
       {formatOpen && (
-        <div className="flex min-h-14 flex-wrap items-center gap-1 overflow-visible border-b bg-muted/40 px-3 py-2 sm:px-6">
+        <div className="flex min-h-14 flex-wrap items-center gap-1 overflow-visible border-b bg-muted/40 px-3 py-2 sm:px-5">
           <ToolbarButton label="清除格式" disabled={!editor} onClick={() => editor?.chain().focus().unsetAllMarks().clearNodes().run()}><Eraser className="h-4 w-4" /></ToolbarButton>
-          <Separator orientation="vertical" className="mx-2 h-6" />
+          <Separator orientation="vertical" className="mx-1 h-6" />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="ghost" size="sm" className={cn("h-8 min-w-[76px] justify-between rounded-md border border-transparent px-2 font-normal hover:border-border hover:bg-accent", paragraphStyleLabel(editor) !== "正文" && "border-primary/35 bg-primary/10 text-primary")} onMouseDown={(event) => event.preventDefault()} disabled={!editor}>
+                {paragraphStyleLabel(editor)}<ChevronDown className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              {composerParagraphOptions.map((option) => (
+                <DropdownMenuItem key={option.key} className={composerMenuItemClass} onSelect={() => option.level ? editor?.chain().focus().toggleHeading({ level: option.level }).run() : editor?.chain().focus().setParagraph().run()}>
+                  <Check className={cn("h-4 w-4", paragraphStyleLabel(editor) === option.label ? "opacity-100" : "opacity-0")} />
+                  <span className={cn(option.level === 1 && "text-lg font-semibold", option.level === 2 && "text-base font-semibold", option.level === 3 && "text-sm font-semibold")}>{option.label}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button type="button" variant="ghost" size="sm" className={cn("h-8 min-w-[112px] justify-between rounded-md border border-transparent px-2 font-normal hover:border-border hover:bg-accent hover:shadow-sm", activeFont && "border-primary/35 bg-primary/10 text-primary shadow-sm")} onMouseDown={(event) => event.preventDefault()} disabled={!editor}>
@@ -4708,7 +4784,7 @@ function MailBodyComposer({ defaultValue, defaultHtml, files, signatureText, max
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
-          <Separator orientation="vertical" className="mx-2 h-6" />
+          <Separator orientation="vertical" className="mx-1 h-6" />
           <ToolbarButton label="加粗" active={editor?.isActive("bold")} disabled={!editor} onClick={() => editor?.chain().focus().toggleBold().run()}><Bold className="h-4 w-4" /></ToolbarButton>
           <ToolbarButton label="斜体" active={editor?.isActive("italic")} disabled={!editor} onClick={() => editor?.chain().focus().toggleItalic().run()}><Italic className="h-4 w-4" /></ToolbarButton>
           <ToolbarButton label="下划线" active={editor?.isActive("underline")} disabled={!editor} onClick={() => editor?.chain().focus().toggleUnderline().run()}><Underline className="h-4 w-4" /></ToolbarButton>
@@ -4743,30 +4819,39 @@ function MailBodyComposer({ defaultValue, defaultHtml, files, signatureText, max
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
-          <Separator orientation="vertical" className="mx-2 h-6" />
+          <Separator orientation="vertical" className="mx-1 h-6" />
           <ToolbarButton label="无序列表" active={editor?.isActive("bulletList")} disabled={!editor} onClick={() => editor?.chain().focus().toggleBulletList().run()}><List className="h-4 w-4" /></ToolbarButton>
           <ToolbarButton label="有序列表" active={editor?.isActive("orderedList")} disabled={!editor} onClick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered className="h-4 w-4" /></ToolbarButton>
-          <ToolbarButton label="减少缩进" disabled={!editor?.can().liftListItem("listItem")} onClick={() => editor?.chain().focus().liftListItem("listItem").run()}><IndentDecrease className="h-4 w-4" /></ToolbarButton>
-          <ToolbarButton label="增加缩进" disabled={!editor?.can().sinkListItem("listItem")} onClick={() => editor?.chain().focus().sinkListItem("listItem").run()}><IndentIncrease className="h-4 w-4" /></ToolbarButton>
-          <Separator orientation="vertical" className="mx-2 h-6" />
-          <ToolbarButton label="左对齐" active={editor?.isActive({ textAlign: "left" })} disabled={!editor} onClick={() => editor?.chain().focus().setTextAlign("left").run()}><AlignLeft className="h-4 w-4" /></ToolbarButton>
-          <ToolbarButton label="居中" active={editor?.isActive({ textAlign: "center" })} disabled={!editor} onClick={() => editor?.chain().focus().setTextAlign("center").run()}><AlignCenter className="h-4 w-4" /></ToolbarButton>
-          <ToolbarButton label="右对齐" active={editor?.isActive({ textAlign: "right" })} disabled={!editor} onClick={() => editor?.chain().focus().setTextAlign("right").run()}><AlignRight className="h-4 w-4" /></ToolbarButton>
-          <ToolbarButton label="引用" active={editor?.isActive("blockquote")} disabled={!editor} onClick={() => editor?.chain().focus().toggleBlockquote().run()}><Quote className="h-4 w-4" /></ToolbarButton>
-          <ToolbarButton label="代码块" active={editor?.isActive("codeBlock")} disabled={!editor} onClick={() => editor?.chain().focus().toggleCodeBlock().run()}><Code2 className="h-4 w-4" /></ToolbarButton>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="ghost" size="icon" className="h-8 w-8 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" title="更多格式" aria-label="更多格式" onMouseDown={(event) => event.preventDefault()} disabled={!editor}>
+                <Ellipsis className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem className={composerMenuItemClass} disabled={!editor?.can().liftListItem("listItem")} onSelect={() => editor?.chain().focus().liftListItem("listItem").run()}><IndentDecrease className="h-4 w-4" />减少缩进</DropdownMenuItem>
+              <DropdownMenuItem className={composerMenuItemClass} disabled={!editor?.can().sinkListItem("listItem")} onSelect={() => editor?.chain().focus().sinkListItem("listItem").run()}><IndentIncrease className="h-4 w-4" />增加缩进</DropdownMenuItem>
+              <DropdownMenuItem className={composerMenuItemClass} onSelect={() => editor?.chain().focus().setTextAlign("left").run()}><AlignLeft className="h-4 w-4" />左对齐</DropdownMenuItem>
+              <DropdownMenuItem className={composerMenuItemClass} onSelect={() => editor?.chain().focus().setTextAlign("center").run()}><AlignCenter className="h-4 w-4" />居中</DropdownMenuItem>
+              <DropdownMenuItem className={composerMenuItemClass} onSelect={() => editor?.chain().focus().setTextAlign("right").run()}><AlignRight className="h-4 w-4" />右对齐</DropdownMenuItem>
+              <DropdownMenuItem className={composerMenuItemClass} onSelect={() => editor?.chain().focus().toggleBlockquote().run()}><Quote className="h-4 w-4" />引用</DropdownMenuItem>
+              <DropdownMenuItem className={composerMenuItemClass} onSelect={() => editor?.chain().focus().toggleCodeBlock().run()}><Code2 className="h-4 w-4" />代码块</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <span className="ml-auto whitespace-nowrap px-1 text-xs tabular-nums text-muted-foreground" aria-live="polite">{characterCount} 字</span>
         </div>
       )}
       <div className={cn(
-        "composer-editor relative flex min-h-[240px] flex-1 border-b focus-within:bg-card/40 sm:min-h-[280px]",
-        "[&_.ProseMirror]:min-h-[240px] [&_.ProseMirror]:w-full [&_.ProseMirror]:flex-1 [&_.ProseMirror]:overflow-y-auto [&_.ProseMirror]:px-4 [&_.ProseMirror]:py-4 [&_.ProseMirror]:text-base [&_.ProseMirror]:leading-7 [&_.ProseMirror]:outline-none sm:[&_.ProseMirror]:min-h-[280px] sm:[&_.ProseMirror]:px-6 sm:[&_.ProseMirror]:py-5",
+        "composer-editor relative flex min-h-[220px] min-w-0 flex-1 overflow-hidden border-b focus-within:bg-card/40 sm:min-h-[260px]",
+        "[&_.ProseMirror]:min-h-[220px] [&_.ProseMirror]:min-w-0 [&_.ProseMirror]:w-full [&_.ProseMirror]:max-w-full [&_.ProseMirror]:flex-1 [&_.ProseMirror]:overflow-x-hidden [&_.ProseMirror]:overflow-y-auto [&_.ProseMirror]:px-4 [&_.ProseMirror]:py-4 [&_.ProseMirror]:text-base [&_.ProseMirror]:leading-7 [&_.ProseMirror]:outline-none [&_.ProseMirror]:[overflow-wrap:anywhere] sm:[&_.ProseMirror]:min-h-[260px] sm:[&_.ProseMirror]:px-5",
         "[&_.ProseMirror_p.is-editor-empty:first-child::before]:pointer-events-none [&_.ProseMirror_p.is-editor-empty:first-child::before]:float-left [&_.ProseMirror_p.is-editor-empty:first-child::before]:h-0 [&_.ProseMirror_p.is-editor-empty:first-child::before]:text-muted-foreground [&_.ProseMirror_p.is-editor-empty:first-child::before]:content-[attr(data-placeholder)]",
-        "[&_.ProseMirror_ul]:list-disc [&_.ProseMirror_ol]:list-decimal [&_.ProseMirror_ul]:pl-6 [&_.ProseMirror_ol]:pl-6 [&_.ProseMirror_blockquote]:border-l-4 [&_.ProseMirror_blockquote]:border-border [&_.ProseMirror_blockquote]:pl-4 [&_.ProseMirror_blockquote]:text-muted-foreground [&_.ProseMirror_pre]:rounded-md [&_.ProseMirror_pre]:bg-muted [&_.ProseMirror_pre]:p-3",
+        "[&_.ProseMirror_a]:break-all [&_.ProseMirror_p]:max-w-full [&_.ProseMirror_ul]:list-disc [&_.ProseMirror_ol]:list-decimal [&_.ProseMirror_ul]:pl-6 [&_.ProseMirror_ol]:pl-6 [&_.ProseMirror_blockquote]:border-l-4 [&_.ProseMirror_blockquote]:border-border [&_.ProseMirror_blockquote]:pl-4 [&_.ProseMirror_blockquote]:text-muted-foreground [&_.ProseMirror_pre]:max-w-full [&_.ProseMirror_pre]:whitespace-pre-wrap [&_.ProseMirror_pre]:break-words [&_.ProseMirror_pre]:rounded-md [&_.ProseMirror_pre]:bg-muted [&_.ProseMirror_pre]:p-3",
         empty && "bg-background"
       )}>
-        <EditorContent editor={editor} className="flex min-h-0 flex-1" />
+        <EditorContent editor={editor} className="flex min-h-0 min-w-0 flex-1 overflow-hidden" />
       </div>
       {files.length > 0 && (
-        <div className="border-t px-4 py-3 sm:px-6">
+        <div className="border-t px-4 py-3 sm:px-5">
           <div className="flex flex-wrap gap-2">
             {files.map((file, index) => (
               <Badge key={`${file.name}-${file.size}-${index}`} variant="outline" className="h-8 gap-2 rounded-md px-2 font-normal">
@@ -4788,7 +4873,7 @@ function MailBodyComposer({ defaultValue, defaultHtml, files, signatureText, max
           <DialogHeader>
             <DialogTitle>邮件预览</DialogTitle>
           </DialogHeader>
-          <div className="mail-html max-h-[60vh] overflow-y-auto rounded-md border bg-background p-5 text-sm leading-7" dangerouslySetInnerHTML={{ __html: sanitizeComposerHtml(editor?.getHTML() || "") || "<p></p>" }} />
+          <div className="mail-html max-h-[60vh] max-w-full overflow-x-hidden overflow-y-auto rounded-md border bg-background p-5 text-sm leading-7 [overflow-wrap:anywhere] [&_a]:break-all [&_pre]:max-w-full [&_pre]:whitespace-pre-wrap [&_pre]:break-words" dangerouslySetInnerHTML={{ __html: sanitizeComposerHtml(editor?.getHTML() || "") || "<p></p>" }} />
         </DialogContent>
       </Dialog>
     </div>

@@ -566,6 +566,7 @@ function BackupsSection() {
         <DialogContent className="w-[calc(100vw-2rem)] max-w-lg rounded-lg">
           <DialogHeader><DialogTitle>Google 云端硬盘</DialogTitle></DialogHeader>
           <div className="space-y-4">
+            <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"><div className="font-medium">连接前必须启用 Google Drive API</div><p className="mt-1 text-xs">请在 OAuth 客户端所属的同一个 Google Cloud 项目中启用 API。启用后若仍提示无权限，请先断开连接，再重新授权。</p><Button asChild type="button" variant="link" className="mt-1 h-auto p-0 text-amber-900"><a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noreferrer">打开 Google Drive API <ExternalLink className="ml-1 h-3.5 w-3.5" /></a></Button></div>
             <div className="space-y-2"><Label htmlFor="google-client-id">OAuth 客户端 ID</Label><Input id="google-client-id" value={googleClientId} onChange={(e) => setGoogleClientId(e.target.value)} /></div>
             <div className="space-y-2"><Label htmlFor="google-client-secret">OAuth 客户端密钥</Label><Input id="google-client-secret" type="password" value={googleClientSecret} onChange={(e) => setGoogleClientSecret(e.target.value)} placeholder={backups.data?.googleDrive.clientSecretSet ? "已安全保存，留空不变" : "请输入客户端密钥"} /></div>
             <div className="space-y-2"><Label htmlFor="google-folder-name">备份文件夹</Label><Input id="google-folder-name" value={googleFolderName} onChange={(e) => setGoogleFolderName(e.target.value)} /></div>
