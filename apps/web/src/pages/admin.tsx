@@ -287,7 +287,6 @@ function BackupsSection() {
   const [schedulePassword, setSchedulePassword] = React.useState("")
   const [scheduleConfirmPassword, setScheduleConfirmPassword] = React.useState("")
   const [showSchedulePassword, setShowSchedulePassword] = React.useState(false)
-  const [serverIp, setServerIp] = React.useState("")
   const [backupChatId, setBackupChatId] = React.useState("")
   const [telegramMode, setTelegramMode] = React.useState<"system" | "custom">("system")
   const [telegramEnabled, setTelegramEnabled] = React.useState(true)
@@ -305,7 +304,6 @@ function BackupsSection() {
     setScheduleEnabled(backups.data.schedule.enabled)
     setScheduleDays([3, 5, 7, 30].includes(days) ? String(days) : "custom")
     setCustomDays(String(days))
-    setServerIp(backups.data.schedule.serverIp || "")
     setBackupChatId(backups.data.schedule.chatId || "")
     setTelegramMode(backups.data.schedule.telegramMode === "custom" ? "custom" : "system")
     setTelegramEnabled(backups.data.schedule.telegramEnabled)
@@ -331,7 +329,7 @@ function BackupsSection() {
     onError: (error) => toast({ title: "无法创建备份", description: error instanceof Error ? error.message : "请稍后重试" }),
   })
   const saveSchedule = useMutation({
-    mutationFn: () => api.updateBackupSettings({ enabled: scheduleEnabled, days: scheduleDays === "custom" ? Number(customDays) : Number(scheduleDays), password: schedulePassword, confirmPassword: scheduleConfirmPassword, serverIp, chatId: backupChatId, telegramMode, telegramEnabled, googleDriveEnabled, googleClientId, googleClientSecret, googleFolderName }),
+    mutationFn: () => api.updateBackupSettings({ enabled: scheduleEnabled, days: scheduleDays === "custom" ? Number(customDays) : Number(scheduleDays), password: schedulePassword, confirmPassword: scheduleConfirmPassword, serverIp: "", chatId: backupChatId, telegramMode, telegramEnabled, googleDriveEnabled, googleClientId, googleClientSecret, googleFolderName }),
     onSuccess: async () => { setSchedulePassword(""); setScheduleConfirmPassword(""); setGoogleClientSecret(""); await qc.invalidateQueries({ queryKey: ["admin", "backups"] }); toast({ title: "备份设置已保存" }) },
     onError: (error) => toast({ title: "保存失败", description: error instanceof Error ? error.message : "请稍后重试" }),
   })
@@ -371,7 +369,7 @@ function BackupsSection() {
   })
   const connectDrive = useMutation({
     mutationFn: async () => {
-      await api.updateBackupSettings({ enabled: scheduleEnabled, days: scheduleDays === "custom" ? Number(customDays) : Number(scheduleDays), password: schedulePassword, confirmPassword: scheduleConfirmPassword, serverIp, chatId: backupChatId, telegramMode, telegramEnabled, googleDriveEnabled: false, googleClientId, googleClientSecret, googleFolderName })
+      await api.updateBackupSettings({ enabled: scheduleEnabled, days: scheduleDays === "custom" ? Number(customDays) : Number(scheduleDays), password: schedulePassword, confirmPassword: scheduleConfirmPassword, serverIp: "", chatId: backupChatId, telegramMode, telegramEnabled, googleDriveEnabled: false, googleClientId, googleClientSecret, googleFolderName })
       return api.connectGoogleDrive()
     },
     onSuccess: ({ url }) => { window.location.href = url },
@@ -450,7 +448,7 @@ function BackupsSection() {
             </Button>
           </CardHeader>
           <CardContent className="space-y-3">
-            {!backups.data?.enabled && <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">当前部署尚未启用完整备份目录，请先更新服务器部署文件。</div>}
+            {!backups.data?.enabled && <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">当前版本缺少完整备份组件。请更新到最新修复版本，更新完成后刷新本页即可创建备份。</div>}
             {job?.status === "failed" && <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{job.error || "备份生成失败"}</div>}
             {job?.status === "success" && <div className="rounded-md border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-800">最近一次备份已完成。</div>}
             {!job && <p className="text-sm text-muted-foreground">创建时必须设置独立备份密码。密码不会保存，丢失后无法解密恢复。</p>}
@@ -490,7 +488,7 @@ function BackupsSection() {
         <CardContent className="space-y-3">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <div className="space-y-2"><Label>备份周期</Label><div className={cn("grid gap-2", scheduleDays === "custom" && "grid-cols-[minmax(0,1fr)_5.5rem]")}><Select value={scheduleDays} onValueChange={setScheduleDays}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="3">每 3 天</SelectItem><SelectItem value="5">每 5 天</SelectItem><SelectItem value="7">每 7 天</SelectItem><SelectItem value="30">每 30 天</SelectItem><SelectItem value="custom">自定义</SelectItem></SelectContent></Select>{scheduleDays === "custom" && <Input id="backup-custom-days" aria-label="自定义天数" title="自定义天数" type="number" min={1} max={365} value={customDays} onChange={(event) => setCustomDays(event.target.value)} />}</div></div>
-            <div className="space-y-2"><Label htmlFor="backup-server-ip">服务器 IP</Label><Input id="backup-server-ip" value={serverIp} onChange={(event) => setServerIp(event.target.value)} placeholder="例如 165.99.42.243" /></div>
+            <div className="space-y-2"><div className="flex h-7 items-center justify-between gap-2"><Label htmlFor="backup-server-ip">服务器 IP</Label><Button type="button" variant="ghost" size="icon" className="h-7 w-7" title="重新检测" aria-label="重新检测服务器 IP" disabled={backups.isFetching} onClick={() => backups.refetch()}><RefreshCcw className={cn("h-4 w-4", backups.isFetching && "animate-spin")} /></Button></div><Input id="backup-server-ip" readOnly value={backups.data?.schedule.serverIp || ""} placeholder={backups.isLoading ? "正在自动检测" : "未检测到，请检查邮局主机名 DNS"} /><p className="text-xs text-muted-foreground">根据当前邮局主机名的公网 DNS 自动识别。</p></div>
             <div className="space-y-2"><div className="flex h-7 items-center justify-between gap-2"><Label htmlFor="backup-schedule-password">备份密码</Label><PasswordTools value={schedulePassword} visible={showSchedulePassword} onVisibleChange={setShowSchedulePassword} onGenerate={generateSchedulePassword} /></div><Input id="backup-schedule-password" type={showSchedulePassword ? "text" : "password"} autoComplete="new-password" value={schedulePassword} onChange={(event) => setSchedulePassword(event.target.value)} placeholder={backups.data?.schedule.passwordSet ? "已保存，留空不变" : "至少 8 个字符"} /></div>
             <div className="space-y-2"><div className="flex h-7 items-center"><Label htmlFor="backup-schedule-confirm-password">确认备份密码</Label></div><Input id="backup-schedule-confirm-password" type={showSchedulePassword ? "text" : "password"} autoComplete="new-password" value={scheduleConfirmPassword} onChange={(event) => setScheduleConfirmPassword(event.target.value)} placeholder={schedulePassword ? "再次输入备份密码" : "留空则不修改"} /></div>
           </div>
@@ -547,7 +545,7 @@ function BackupsSection() {
             <div className="space-y-2"><Label htmlFor="google-client-id">OAuth 客户端 ID</Label><Input id="google-client-id" value={googleClientId} onChange={(e) => setGoogleClientId(e.target.value)} /></div>
             <div className="space-y-2"><Label htmlFor="google-client-secret">OAuth 客户端密钥</Label><Input id="google-client-secret" type="password" value={googleClientSecret} onChange={(e) => setGoogleClientSecret(e.target.value)} placeholder={backups.data?.googleDrive.clientSecretSet ? "已安全保存，留空不变" : "请输入客户端密钥"} /></div>
             <div className="space-y-2"><Label htmlFor="google-folder-name">备份文件夹</Label><Input id="google-folder-name" value={googleFolderName} onChange={(e) => setGoogleFolderName(e.target.value)} /></div>
-            <p className="text-xs text-muted-foreground">Google Cloud 回调地址：{window.location.origin}/api/admin/backups/google-drive/callback</p>
+            <div className="space-y-2"><Label htmlFor="google-callback-url">Google Cloud 回调地址</Label><div className="flex gap-2"><Input id="google-callback-url" readOnly className="min-w-0 font-mono text-xs" value={`${window.location.origin}/api/admin/backups/google-drive/callback`} /><Button type="button" variant="outline" size="icon" className="shrink-0" title="复制回调地址" aria-label="复制 Google Cloud 回调地址" onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/api/admin/backups/google-drive/callback`); toast({ title: "回调地址已复制" }) }}><Copy className="h-4 w-4" /></Button></div></div>
           </div>
           <DialogFooter className="gap-2 sm:justify-between">
             {backups.data?.googleDrive.connected ? <Button type="button" variant="outline" className="text-destructive" onClick={() => { disconnectDrive.mutate(); setGoogleConfigOpen(false) }}>断开连接</Button> : <span />}

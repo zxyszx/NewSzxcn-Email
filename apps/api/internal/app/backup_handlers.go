@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/textproto"
 	"net/url"
@@ -70,6 +71,42 @@ type backupSchedule struct {
 	TelegramMode       string `json:"telegramMode"`
 	TelegramEnabled    bool   `json:"telegramEnabled"`
 	GoogleDriveEnabled bool   `json:"googleDriveEnabled"`
+}
+
+func detectPublicServerIP(ctx context.Context, hostname string) string {
+	hostname = strings.TrimSpace(hostname)
+	if hostname == "" {
+		return ""
+	}
+	if ip := net.ParseIP(hostname); ip != nil {
+		if isPublicIP(ip) {
+			return ip.String()
+		}
+		return ""
+	}
+	lookupCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	addresses, err := net.DefaultResolver.LookupIPAddr(lookupCtx, hostname)
+	if err != nil {
+		return ""
+	}
+	var ipv6 string
+	for _, address := range addresses {
+		if !isPublicIP(address.IP) {
+			continue
+		}
+		if address.IP.To4() != nil {
+			return address.IP.String()
+		}
+		if ipv6 == "" {
+			ipv6 = address.IP.String()
+		}
+	}
+	return ipv6
+}
+
+func isPublicIP(ip net.IP) bool {
+	return ip != nil && ip.IsGlobalUnicast() && !ip.IsPrivate() && !ip.IsLoopback() && !ip.IsLinkLocalUnicast()
 }
 
 type updateBackupScheduleRequest struct {
@@ -136,9 +173,10 @@ func (a *App) handleListBackups(w http.ResponseWriter, r *http.Request) {
 	}
 	a.backupMu.Unlock()
 	schedule, _ := a.loadBackupSchedule(r.Context())
+	schedule.ServerIP = detectPublicServerIP(r.Context(), a.config().PublicHostname)
 	telegramToken, telegramDestination, _ := a.backupTelegramCredentials(r.Context(), schedule)
 	respondJSON(w, http.StatusOK, backupListResponse{
-		Enabled:       strings.TrimSpace(a.config().BackupSourceDir) != "" && strings.TrimSpace(a.config().BackupDir) != "",
+		Enabled:       a.backupAssetsAvailable(),
 		TelegramSet:   strings.TrimSpace(telegramToken) != "" && validTelegramPrivateChatID(telegramDestination),
 		TelegramLimit: backupTelegramLimit, Job: job, Items: items, Schedule: schedule,
 		GoogleDrive: a.loadGoogleDriveStatus(r.Context()),
@@ -162,8 +200,7 @@ func (a *App) handleCreateBackup(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, errors.New("两次输入的备份密码不一致"))
 		return
 	}
-	cfg := a.config()
-	if strings.TrimSpace(cfg.BackupSourceDir) == "" || strings.TrimSpace(cfg.BackupDir) == "" {
+	if !a.backupAssetsAvailable() {
 		respondError(w, http.StatusServiceUnavailable, "当前部署尚未启用完整备份")
 		return
 	}
@@ -291,7 +328,7 @@ func (a *App) handleUpdateBackupSettings(w http.ResponseWriter, r *http.Request)
 	}
 	values := map[string]string{
 		"backupScheduleEnabled": fmt.Sprint(req.Enabled), "backupScheduleDays": fmt.Sprint(req.Days),
-		"backupServerIp": strings.TrimSpace(req.ServerIP), "backupTelegramChatId": chatID,
+		"backupServerIp": "", "backupTelegramChatId": chatID,
 		"backupTelegramMode":   telegramMode,
 		"backupPasswordCipher": ciphertext, "backupTelegramEnabled": fmt.Sprint(req.TelegramEnabled),
 		"backupGoogleDriveEnabled": fmt.Sprint(req.GoogleDriveEnabled), "backupGoogleClientId": strings.TrimSpace(req.GoogleClientID),
@@ -314,7 +351,7 @@ func (a *App) handleUpdateBackupSettings(w http.ResponseWriter, r *http.Request)
 		respondError(w, 500, "保存失败")
 		return
 	}
-	respondJSON(w, 200, backupSchedule{Enabled: req.Enabled, Days: req.Days, PasswordSet: ciphertext != "", ServerIP: strings.TrimSpace(req.ServerIP), ChatID: chatID, TelegramMode: telegramMode, TelegramEnabled: req.TelegramEnabled, GoogleDriveEnabled: req.GoogleDriveEnabled})
+	respondJSON(w, 200, backupSchedule{Enabled: req.Enabled, Days: req.Days, PasswordSet: ciphertext != "", ServerIP: detectPublicServerIP(r.Context(), a.config().PublicHostname), ChatID: chatID, TelegramMode: telegramMode, TelegramEnabled: req.TelegramEnabled, GoogleDriveEnabled: req.GoogleDriveEnabled})
 }
 
 func validBackupPassword(password string) bool {
@@ -519,7 +556,7 @@ func (a *App) loadGoogleDriveStatus(ctx context.Context) googleDriveStatus {
 
 func (a *App) createDisasterBackup(ctx context.Context, password string) (string, error) {
 	cfg := a.config()
-	if cfg.BackupSourceDir == "" || cfg.BackupDir == "" {
+	if !a.backupAssetsAvailable() {
 		return "", errors.New("backup directories are not configured")
 	}
 	if err := os.MkdirAll(cfg.BackupDir, 0o700); err != nil {
@@ -553,8 +590,14 @@ func (a *App) createDisasterBackup(ctx context.Context, password string) (string
 			return "", err
 		}
 	}
-	for _, name := range []string{".env", "docker-compose.yml"} {
-		if err := copyFile(filepath.Join(cfg.BackupSourceDir, name), filepath.Join(root, name)); err != nil {
+	if err := copyFile(filepath.Join(cfg.BackupSourceDir, "docker-compose.yml"), filepath.Join(root, "docker-compose.yml")); err != nil {
+		return "", err
+	}
+	if err := copyFile(filepath.Join(cfg.BackupSourceDir, ".env"), filepath.Join(root, ".env")); err != nil {
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+		if err := writeRuntimeBackupEnv(filepath.Join(root, ".env")); err != nil {
 			return "", err
 		}
 	}
@@ -596,6 +639,38 @@ func (a *App) createDisasterBackup(ctx context.Context, password string) (string
 		a.log.Warn("prune disaster backups", "error", err)
 	}
 	return outPath, nil
+}
+
+func (a *App) backupAssetsAvailable() bool {
+	cfg := a.config()
+	if strings.TrimSpace(cfg.BackupDir) == "" || strings.TrimSpace(cfg.BackupSourceDir) == "" {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(cfg.BackupSourceDir, "docker-compose.yml"))
+	return err == nil && info.Mode().IsRegular()
+}
+
+func writeRuntimeBackupEnv(path string) error {
+	values := make([]string, 0)
+	containerOnly := map[string]bool{
+		"LANQIN_BACKUP_DIR":          true,
+		"LANQIN_BACKUP_SOURCE_DIR":   true,
+		"LANQIN_UPDATE_SERVICE_TOKEN": true,
+		"LANQIN_UPDATE_SERVICE_URL":   true,
+	}
+	for _, item := range os.Environ() {
+		key, value, found := strings.Cut(item, "=")
+		if !found || containerOnly[key] || (!strings.HasPrefix(key, "LANQIN_") && key != "TZ") {
+			continue
+		}
+		value = strings.ReplaceAll(value, "\\", "\\\\")
+		value = strings.ReplaceAll(value, "'", "\\'")
+		value = strings.ReplaceAll(value, "\r", "\\r")
+		value = strings.ReplaceAll(value, "\n", "\\n")
+		values = append(values, key+"='"+value+"'")
+	}
+	sort.Strings(values)
+	return os.WriteFile(path, []byte(strings.Join(values, "\n")+"\n"), 0o600)
 }
 
 func (a *App) handleDownloadBackup(w http.ResponseWriter, r *http.Request) {
@@ -878,7 +953,6 @@ func (a *App) backupTelegramCredentials(ctx context.Context, schedule backupSche
 
 func (a *App) backupTelegramReport(ctx context.Context, path string, info os.FileInfo) (string, error) {
 	cfg := a.config()
-	schedule, _ := a.loadBackupSchedule(ctx)
 	sum, _ := fileSHA256(path)
 	domains, err := queryBackupStrings(ctx, a.db, `SELECT name FROM domains ORDER BY name`)
 	if err != nil {
@@ -914,9 +988,9 @@ func (a *App) backupTelegramReport(ctx context.Context, path string, info os.Fil
 		}
 		return strings.Join(items, "、") + suffix
 	}
-	serverIP := strings.TrimSpace(schedule.ServerIP)
+	serverIP := detectPublicServerIP(ctx, cfg.PublicHostname)
 	if serverIP == "" {
-		serverIP = "未填写"
+		serverIP = "未检测到"
 	}
 	return fmt.Sprintf("<b>%s 备份成功</b>\n\n<b>邮局域名：</b>%s\n<b>服务器 IP：</b>%s\n<b>系统版本：</b>%s\n\n<b>已有域名：</b>\n%s\n\n<b>管理员账号：</b>\n%s\n\n<b>普通用户账号：</b>\n%s\n\n<b>邮箱账号：</b>\n%s\n\n<b>备份文件：</b>%s\n<b>文件大小：</b>%s\n<b>SHA-256：</b><code>%s</code>\n\n<b>恢复教程：</b>\n1. 请不要解压、改名或修改压缩备份文件。\n2. 将原始附件上传到新服务器的 <code>/root/</code> 目录。\n3. 运行官方安装脚本，显示管理菜单后输入 2，选择“备份恢复”。\n4. 选择“本地上传”，系统会自动检测 /root/ 中的备份。\n5. 只有一份时自动选中；多份时显示 1、2、3 等序号。\n6. 输入对应序号，例如输入 1 恢复第 1 份。\n7. 输入备份密码后开始恢复。没有检测到文件时才手动输入路径。\n8. 恢复完成后，账号继续使用原登录密码。\n9. 以后需要管理系统时，可以直接输入 ns 打开管理菜单。\n\n<b>安全提示：</b>备份密码不会发送到 Telegram，请从 1Password 等独立位置取用。", info.ModTime().Local().Format("2006-01-02"), htmlEscape(cfg.PublicHostname), htmlEscape(serverIP), htmlEscape(cfg.AppVersion), list(domains), list(admins), list(users), list(mailboxes), htmlEscape(filepath.Base(path)), humanBackupBytes(info.Size()), sum), nil
 }

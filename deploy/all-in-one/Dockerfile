@@ -43,6 +43,7 @@ COPY --from=web-build /src/apps/web/dist /usr/share/nginx/html
 COPY deploy/all-in-one/supervisord.conf /etc/supervisor/conf.d/lanqin.conf
 COPY deploy/all-in-one/nginx.conf /etc/nginx/sites-enabled/default
 COPY deploy/all-in-one/entrypoint.sh /entrypoint.sh
+COPY deploy/docker-compose.yml /usr/share/newszxcn-email/deploy/docker-compose.yml
 
 COPY deploy/postfix/main.cf /etc/postfix/main.cf
 COPY deploy/postfix/master.cf /etc/postfix/master.cf

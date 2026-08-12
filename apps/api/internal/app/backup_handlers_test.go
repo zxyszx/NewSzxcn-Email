@@ -6,6 +6,7 @@ import (
 	"io"
 	"mime"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -116,6 +117,82 @@ func TestBackupPasswordValidation(t *testing.T) {
 		if validBackupPassword(invalid) {
 			t.Errorf("invalid password accepted: %q", invalid)
 		}
+	}
+}
+
+func TestPublicServerIPValidation(t *testing.T) {
+	for _, value := range []string{"203.0.113.10", "2001:4860:4860::8888"} {
+		if !isPublicIP(net.ParseIP(value)) {
+			t.Errorf("public IP rejected: %s", value)
+		}
+	}
+	for _, value := range []string{"127.0.0.1", "10.0.0.1", "192.168.1.1", "169.254.1.1", "::1", "fc00::1"} {
+		if isPublicIP(net.ParseIP(value)) {
+			t.Errorf("non-public IP accepted: %s", value)
+		}
+	}
+	if got := detectPublicServerIP(context.Background(), "203.0.113.10"); got != "203.0.113.10" {
+		t.Fatalf("literal public IP = %q", got)
+	}
+	if got := detectPublicServerIP(context.Background(), "127.0.0.1"); got != "" {
+		t.Fatalf("literal private IP = %q", got)
+	}
+}
+
+func TestWriteRuntimeBackupEnv(t *testing.T) {
+	t.Setenv("LANQIN_PUBLIC_HOSTNAME", "mail.example.com")
+	t.Setenv("LANQIN_TEST_QUOTED", "value'with\\slashes\nand-newline")
+	t.Setenv("LANQIN_BACKUP_DIR", "/backups")
+	t.Setenv("LANQIN_UPDATE_SERVICE_URL", "http://updater:8080/v1/update")
+	t.Setenv("UNRELATED_SECRET", "must-not-be-backed-up")
+	path := filepath.Join(t.TempDir(), ".env")
+	if err := writeRuntimeBackupEnv(path); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents := string(raw)
+	for _, expected := range []string{"LANQIN_PUBLIC_HOSTNAME='mail.example.com'", `LANQIN_TEST_QUOTED='value\'with\\slashes\nand-newline'`} {
+		if !strings.Contains(contents, expected) {
+			t.Errorf("backup environment missing %q: %s", expected, contents)
+		}
+	}
+	for _, excluded := range []string{"UNRELATED_SECRET", "must-not-be-backed-up", "LANQIN_BACKUP_DIR", "LANQIN_UPDATE_SERVICE_URL", "http://updater:8080"} {
+		if strings.Contains(contents, excluded) {
+			t.Fatalf("backup environment included excluded value %q", excluded)
+		}
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("backup environment permissions = %v, %v", info.Mode().Perm(), err)
+	}
+}
+
+func TestBackupAssetsAvailableWithBundledCompose(t *testing.T) {
+	dir := t.TempDir()
+	compose := filepath.Join(dir, "deploy", "docker-compose.yml")
+	if err := os.MkdirAll(filepath.Dir(compose), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(compose, []byte("services: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := newTestAppWithConfig(t, Config{
+		Addr: ":0", DBPath: filepath.Join(dir, "data", "lanqin.db"), DataDir: filepath.Join(dir, "data"),
+		CookieName: "lanqin_test", SessionTTLHours: 24, AdminEmail: "admin@example.com", AdminPassword: "ChangeMe123!",
+		AllowInsecureHTTP: true, BackupSourceDir: filepath.Dir(compose), BackupDir: filepath.Join(dir, "data", "disaster-backups"),
+	})
+	stopTestWorkers(a)
+	if !a.backupAssetsAvailable() {
+		t.Fatal("bundled compose did not enable complete backups")
+	}
+	if err := os.Remove(compose); err != nil {
+		t.Fatal(err)
+	}
+	if a.backupAssetsAvailable() {
+		t.Fatal("missing bundled compose incorrectly enabled complete backups")
 	}
 }
 
