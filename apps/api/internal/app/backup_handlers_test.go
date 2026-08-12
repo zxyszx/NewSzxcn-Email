@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBackupEndpointsRejectMismatchedConfirmation(t *testing.T) {
@@ -117,6 +118,137 @@ func TestBackupPasswordValidation(t *testing.T) {
 		if validBackupPassword(invalid) {
 			t.Errorf("invalid password accepted: %q", invalid)
 		}
+	}
+}
+
+func TestBackupPasswordHint(t *testing.T) {
+	if got := backupPasswordHint("A23456789Z"); got != "A••••••••Z" {
+		t.Fatalf("password hint = %q", got)
+	}
+	if got := backupPasswordHint("ab"); got != "ab" {
+		t.Fatalf("two-character password hint = %q", got)
+	}
+	if got := backupPasswordHint(""); got != "" {
+		t.Fatalf("empty password hint = %q", got)
+	}
+}
+
+func TestSavedBackupPasswordAndHint(t *testing.T) {
+	dir := t.TempDir()
+	a := newTestAppWithConfig(t, Config{
+		Addr: ":0", DBPath: filepath.Join(dir, "data", "lanqin.db"), DataDir: filepath.Join(dir, "data"),
+		CookieName: "lanqin_test", SessionTTLHours: 24, AdminEmail: "admin@example.com", AdminPassword: "ChangeMe123!",
+		AllowInsecureHTTP: true, UpdateServiceToken: "test-update-secret",
+	})
+	stopTestWorkers(a)
+	ciphertext, err := a.encryptBackupPassword("A23456789Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := a.now().UTC().Format("2006-01-02T15:04:05Z")
+	if _, err = a.db.Exec(`INSERT INTO system_settings(key,value,updated_at) VALUES('backupPasswordCipher',?,?)`, ciphertext, now); err != nil {
+		t.Fatal(err)
+	}
+	password, err := a.savedBackupPassword(context.Background())
+	if err != nil || password != "A23456789Z" {
+		t.Fatalf("saved password = %q, %v", password, err)
+	}
+	schedule, err := a.loadBackupSchedule(context.Background())
+	if err != nil || !schedule.PasswordSet || schedule.PasswordHint != "A••••••••Z" {
+		t.Fatalf("schedule password state = %+v, %v", schedule, err)
+	}
+}
+
+func TestUpdateBackupPasswordDoesNotChangeScheduleSettings(t *testing.T) {
+	dir := t.TempDir()
+	a := newTestAppWithConfig(t, Config{
+		Addr: ":0", DBPath: filepath.Join(dir, "data", "lanqin.db"), DataDir: filepath.Join(dir, "data"),
+		CookieName: "lanqin_test", SessionTTLHours: 24, AdminEmail: "admin@example.com", AdminPassword: "ChangeMe123!",
+		AllowInsecureHTTP: true, UpdateServiceToken: "test-update-secret",
+	})
+	stopTestWorkers(a)
+	now := a.now().UTC().Format(time.RFC3339Nano)
+	for key, value := range map[string]string{
+		"backupScheduleEnabled":  "true",
+		"backupScheduleDays":     "30",
+		"backupTelegramMode":     "custom",
+		"backupTelegramChatId":   "-1001234567890",
+		"backupGoogleFolderName": "Existing Backups",
+	} {
+		if _, err := a.db.Exec(`INSERT INTO system_settings(key,value,updated_at) VALUES(?,?,?)`, key, value, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	server := httptest.NewServer(a.Router())
+	defer server.Close()
+	admin := &testClient{t: t, server: server}
+	var response map[string]any
+	if code := admin.do("POST", "/api/auth/login", map[string]string{"email": "admin@example.com", "password": "ChangeMe123!"}, &response); code != http.StatusOK {
+		t.Fatalf("login code=%d body=%v", code, response)
+	}
+	response = nil
+	if code := admin.do("POST", "/api/admin/backups/password", map[string]string{"password": "NewSharedPassword9", "confirmPassword": "NewSharedPassword9"}, &response); code != http.StatusOK {
+		t.Fatalf("password update code=%d body=%v", code, response)
+	}
+	if response["passwordHint"] != "N••••••••••9" {
+		t.Fatalf("password hint = %v", response["passwordHint"])
+	}
+	password, err := a.savedBackupPassword(context.Background())
+	if err != nil || password != "NewSharedPassword9" {
+		t.Fatalf("saved password = %q, %v", password, err)
+	}
+	for key, want := range map[string]string{
+		"backupScheduleEnabled":  "true",
+		"backupScheduleDays":     "30",
+		"backupTelegramMode":     "custom",
+		"backupTelegramChatId":   "-1001234567890",
+		"backupGoogleFolderName": "Existing Backups",
+	} {
+		var got string
+		if err := a.db.QueryRow(`SELECT value FROM system_settings WHERE key=?`, key).Scan(&got); err != nil || got != want {
+			t.Fatalf("setting %s = %q, %v; want %q", key, got, err, want)
+		}
+	}
+}
+
+func TestManualBackupReusesSavedPassword(t *testing.T) {
+	dir := t.TempDir()
+	deployDir := filepath.Join(dir, "deploy")
+	if err := os.MkdirAll(deployDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(deployDir, "docker-compose.yml"), []byte("services: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := newTestAppWithConfig(t, Config{
+		Addr: ":0", DBPath: filepath.Join(dir, "data", "lanqin.db"), DataDir: filepath.Join(dir, "data"),
+		CookieName: "lanqin_test", SessionTTLHours: 24, AdminEmail: "admin@example.com", AdminPassword: "ChangeMe123!",
+		AllowInsecureHTTP: true, UpdateServiceToken: "test-update-secret", BackupSourceDir: deployDir,
+		BackupDir: filepath.Join(dir, "data", "disaster-backups"),
+	})
+	stopTestWorkers(a)
+	ciphertext, err := a.encryptBackupPassword("SharedBackupPassword9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := a.now().UTC().Format("2006-01-02T15:04:05Z")
+	if _, err = a.db.Exec(`INSERT INTO system_settings(key,value,updated_at) VALUES('backupPasswordCipher',?,?)`, ciphertext, now); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(a.Router())
+	defer server.Close()
+	admin := &testClient{t: t, server: server}
+	var response map[string]any
+	if code := admin.do("POST", "/api/auth/login", map[string]string{"email": "admin@example.com", "password": "ChangeMe123!"}, &response); code != http.StatusOK {
+		t.Fatalf("login code=%d body=%v", code, response)
+	}
+	response = nil
+	if code := admin.do("POST", "/api/admin/backups", map[string]any{"password": "", "confirmPassword": "", "sendTelegram": false, "uploadGoogleDrive": false}, &response); code != http.StatusAccepted {
+		t.Fatalf("manual backup code=%d body=%v", code, response)
+	}
+	password, err := a.savedBackupPassword(context.Background())
+	if err != nil || password != "SharedBackupPassword9" {
+		t.Fatalf("saved password changed: %q, %v", password, err)
 	}
 }
 

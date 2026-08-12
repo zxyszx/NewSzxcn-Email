@@ -298,6 +298,7 @@ function BackupsSection() {
   const [backupGroupPairing, setBackupGroupPairing] = React.useState<TelegramPairing | null>(null)
   const [discoveredBackupGroups, setDiscoveredBackupGroups] = React.useState<{ chatId: string; displayName: string }[]>([])
   const [googleConfigOpen, setGoogleConfigOpen] = React.useState(false)
+  const [passwordConfigOpen, setPasswordConfigOpen] = React.useState(false)
   React.useEffect(() => {
     if (!backups.data) return
     const days = backups.data.schedule.days || 7
@@ -329,9 +330,14 @@ function BackupsSection() {
     onError: (error) => toast({ title: "无法创建备份", description: error instanceof Error ? error.message : "请稍后重试" }),
   })
   const saveSchedule = useMutation({
-    mutationFn: () => api.updateBackupSettings({ enabled: scheduleEnabled, days: scheduleDays === "custom" ? Number(customDays) : Number(scheduleDays), password: schedulePassword, confirmPassword: scheduleConfirmPassword, serverIp: "", chatId: backupChatId, telegramMode, telegramEnabled, googleDriveEnabled, googleClientId, googleClientSecret, googleFolderName }),
-    onSuccess: async () => { setSchedulePassword(""); setScheduleConfirmPassword(""); setGoogleClientSecret(""); await qc.invalidateQueries({ queryKey: ["admin", "backups"] }); toast({ title: "备份设置已保存" }) },
+    mutationFn: () => api.updateBackupSettings({ enabled: scheduleEnabled, days: scheduleDays === "custom" ? Number(customDays) : Number(scheduleDays), password: "", confirmPassword: "", serverIp: "", chatId: backupChatId, telegramMode, telegramEnabled, googleDriveEnabled, googleClientId, googleClientSecret, googleFolderName }),
+    onSuccess: async () => { setGoogleClientSecret(""); await qc.invalidateQueries({ queryKey: ["admin", "backups"] }); toast({ title: "备份设置已保存" }) },
     onError: (error) => toast({ title: "保存失败", description: error instanceof Error ? error.message : "请稍后重试" }),
+  })
+  const savePassword = useMutation({
+    mutationFn: () => api.updateBackupPassword(schedulePassword, scheduleConfirmPassword),
+    onSuccess: async () => { setPasswordConfigOpen(false); setSchedulePassword(""); setScheduleConfirmPassword(""); setShowSchedulePassword(false); await qc.invalidateQueries({ queryKey: ["admin", "backups"] }); toast({ title: "统一备份密码已保存", description: "以后创建的手动和定时备份都会使用新密码。" }) },
+    onError: (error) => toast({ title: "密码保存失败", description: error instanceof Error ? error.message : "请稍后重试" }),
   })
   const verify = useMutation({
     mutationFn: api.verifyBackup,
@@ -369,7 +375,7 @@ function BackupsSection() {
   })
   const connectDrive = useMutation({
     mutationFn: async () => {
-      await api.updateBackupSettings({ enabled: scheduleEnabled, days: scheduleDays === "custom" ? Number(customDays) : Number(scheduleDays), password: schedulePassword, confirmPassword: scheduleConfirmPassword, serverIp: "", chatId: backupChatId, telegramMode, telegramEnabled, googleDriveEnabled: false, googleClientId, googleClientSecret, googleFolderName })
+      await api.updateBackupSettings({ enabled: scheduleEnabled, days: scheduleDays === "custom" ? Number(customDays) : Number(scheduleDays), password: "", confirmPassword: "", serverIp: "", chatId: backupChatId, telegramMode, telegramEnabled, googleDriveEnabled: false, googleClientId, googleClientSecret, googleFolderName })
       return api.connectGoogleDrive()
     },
     onSuccess: ({ url }) => { window.location.href = url },
@@ -387,8 +393,8 @@ function BackupsSection() {
   const job = backups.data?.job
   const canCreate = backups.data?.enabled && job?.status !== "running"
   function submitCreate() {
-    if (password.length < 8) { toast({ title: "密码至少需要 8 个字符" }); return }
-    if (password !== confirmPassword) { toast({ title: "两次输入的密码不一致" }); return }
+    if (!backups.data?.schedule.passwordSet && password.length < 8) { toast({ title: "密码至少需要 8 个字符" }); return }
+    if (!backups.data?.schedule.passwordSet && password !== confirmPassword) { toast({ title: "两次输入的密码不一致" }); return }
     create.mutate()
   }
   function generateCreatePassword() {
@@ -431,10 +437,13 @@ function BackupsSection() {
     </div>
   }
   function submitSchedule() {
-    if (schedulePassword && schedulePassword.length < 8) { toast({ title: "备份密码至少需要 8 个字符" }); return }
-    if (schedulePassword !== scheduleConfirmPassword) { toast({ title: "两次输入的备份密码不一致" }); return }
-    if (scheduleEnabled && !schedulePassword && !backups.data?.schedule.passwordSet) { toast({ title: "请设置并确认备份密码" }); return }
+    if (scheduleEnabled && !backups.data?.schedule.passwordSet) { setPasswordConfigOpen(true); toast({ title: "请先设置统一备份密码" }); return }
     saveSchedule.mutate()
+  }
+  function submitPassword() {
+    if (schedulePassword.length < 8) { toast({ title: "备份密码至少需要 8 个字符" }); return }
+    if (schedulePassword !== scheduleConfirmPassword) { toast({ title: "两次输入的备份密码不一致" }); return }
+    savePassword.mutate()
   }
   return (
     <div className="space-y-3">
@@ -451,7 +460,7 @@ function BackupsSection() {
             {!backups.data?.enabled && <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">当前版本缺少完整备份组件。请更新到最新修复版本，更新完成后刷新本页即可创建备份。</div>}
             {job?.status === "failed" && <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{job.error || "备份生成失败"}</div>}
             {job?.status === "success" && <div className="rounded-md border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-800">最近一次备份已完成。</div>}
-            {!job && <p className="text-sm text-muted-foreground">创建时必须设置独立备份密码。密码不会保存，丢失后无法解密恢复。</p>}
+            {!job && <p className="text-sm text-muted-foreground">手动备份与定时备份共用同一个恢复密码，避免不同备份使用不同密码。</p>}
             <div className="border-t pt-3">
               <div className="mb-2 flex items-center justify-between"><span className="text-sm font-medium">本地备份</span><span className="text-xs text-muted-foreground">保留最近 10 份</span></div>
               <div className="divide-y rounded-md border">
@@ -486,11 +495,10 @@ function BackupsSection() {
       <Card>
         <CardHeader className="flex-row items-center justify-between space-y-0 pb-3"><div><CardTitle>定时备份</CardTitle><p className="mt-1 text-sm text-muted-foreground">按周期创建加密备份并保存到选定位置。</p></div><Switch checked={scheduleEnabled} onCheckedChange={setScheduleEnabled} /></CardHeader>
         <CardContent className="space-y-3">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             <div className="space-y-2"><Label>备份周期</Label><div className={cn("grid gap-2", scheduleDays === "custom" && "grid-cols-[minmax(0,1fr)_5.5rem]")}><Select value={scheduleDays} onValueChange={setScheduleDays}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="3">每 3 天</SelectItem><SelectItem value="5">每 5 天</SelectItem><SelectItem value="7">每 7 天</SelectItem><SelectItem value="30">每 30 天</SelectItem><SelectItem value="custom">自定义</SelectItem></SelectContent></Select>{scheduleDays === "custom" && <Input id="backup-custom-days" aria-label="自定义天数" title="自定义天数" type="number" min={1} max={365} value={customDays} onChange={(event) => setCustomDays(event.target.value)} />}</div></div>
             <div className="space-y-2"><div className="flex h-7 items-center justify-between gap-2"><Label htmlFor="backup-server-ip">服务器 IP</Label><Button type="button" variant="ghost" size="icon" className="h-7 w-7" title="重新检测" aria-label="重新检测服务器 IP" disabled={backups.isFetching} onClick={() => backups.refetch()}><RefreshCcw className={cn("h-4 w-4", backups.isFetching && "animate-spin")} /></Button></div><Input id="backup-server-ip" readOnly value={backups.data?.schedule.serverIp || ""} placeholder={backups.isLoading ? "正在自动检测" : "未检测到，请检查邮局主机名 DNS"} /><p className="text-xs text-muted-foreground">根据当前邮局主机名的公网 DNS 自动识别。</p></div>
-            <div className="space-y-2"><div className="flex h-7 items-center justify-between gap-2"><Label htmlFor="backup-schedule-password">备份密码</Label><PasswordTools value={schedulePassword} visible={showSchedulePassword} onVisibleChange={setShowSchedulePassword} onGenerate={generateSchedulePassword} /></div><Input id="backup-schedule-password" type={showSchedulePassword ? "text" : "password"} autoComplete="new-password" value={schedulePassword} onChange={(event) => setSchedulePassword(event.target.value)} placeholder={backups.data?.schedule.passwordSet ? "已保存，留空不变" : "至少 8 个字符"} /></div>
-            <div className="space-y-2"><div className="flex h-7 items-center"><Label htmlFor="backup-schedule-confirm-password">确认备份密码</Label></div><Input id="backup-schedule-confirm-password" type={showSchedulePassword ? "text" : "password"} autoComplete="new-password" value={scheduleConfirmPassword} onChange={(event) => setScheduleConfirmPassword(event.target.value)} placeholder={schedulePassword ? "再次输入备份密码" : "留空则不修改"} /></div>
+            <div className="space-y-2"><div className="flex h-7 items-center"><Label>恢复密码</Label></div><div className="flex h-10 items-center gap-3 rounded-md border bg-background px-3"><KeyRound className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="min-w-0 flex-1 truncate font-mono text-sm">{backups.data?.schedule.passwordHint || "尚未设置"}</span><Button type="button" variant="ghost" size="sm" className="shrink-0" onClick={() => setPasswordConfigOpen(true)}>{backups.data?.schedule.passwordSet ? "更换" : "设置"}</Button></div><p className="text-xs text-muted-foreground">手动与定时备份共用。</p></div>
           </div>
           <div className="divide-y rounded-md border">
             <div className="flex items-center gap-3 p-3">
@@ -553,15 +561,26 @@ function BackupsSection() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <Dialog open={passwordConfigOpen} onOpenChange={(open) => { if (!savePassword.isPending) { setPasswordConfigOpen(open); if (!open) { setSchedulePassword(""); setScheduleConfirmPassword(""); setShowSchedulePassword(false) } } }}>
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-md rounded-lg">
+          <DialogHeader><DialogTitle>{backups.data?.schedule.passwordSet ? "更换统一备份密码" : "设置统一备份密码"}</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            {backups.data?.schedule.passwordSet && <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">当前密码：<span className="font-mono">{backups.data.schedule.passwordHint}</span>。更换只影响以后创建的备份，已有备份仍需原密码恢复。</div>}
+            <div className="space-y-2"><div className="flex h-7 items-center justify-between gap-2"><Label htmlFor="backup-schedule-password">新备份密码</Label><PasswordTools value={schedulePassword} visible={showSchedulePassword} onVisibleChange={setShowSchedulePassword} onGenerate={generateSchedulePassword} /></div><Input id="backup-schedule-password" type={showSchedulePassword ? "text" : "password"} autoComplete="new-password" value={schedulePassword} onChange={(event) => setSchedulePassword(event.target.value)} placeholder="至少 8 个字符" /></div>
+            <div className="space-y-2"><Label htmlFor="backup-schedule-confirm-password">确认新备份密码</Label><Input id="backup-schedule-confirm-password" type={showSchedulePassword ? "text" : "password"} autoComplete="new-password" value={scheduleConfirmPassword} onChange={(event) => setScheduleConfirmPassword(event.target.value)} placeholder="再次输入新备份密码" /></div>
+            <p className="text-xs text-muted-foreground">生成密码后可查看、复制或下载密码文本。请存入密码管理器，并与备份文件分开保存。</p>
+          </div>
+          <DialogFooter><Button type="button" variant="outline" onClick={() => setPasswordConfigOpen(false)} disabled={savePassword.isPending}>取消</Button><Button type="button" onClick={submitPassword} disabled={savePassword.isPending}>{savePassword.isPending ? "保存中" : "保存密码"}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={createOpen} onOpenChange={(open) => { if (!create.isPending) setCreateOpen(open) }}>
         <DialogContent className="w-[calc(100vw-2rem)] max-w-md rounded-lg">
           <DialogHeader><DialogTitle>创建完整备份</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            <div className="space-y-2"><div className="flex h-7 items-center justify-between gap-2"><Label htmlFor="backup-password">备份密码</Label><PasswordTools value={password} visible={showCreatePassword} onVisibleChange={setShowCreatePassword} onGenerate={generateCreatePassword} /></div><Input id="backup-password" type={showCreatePassword ? "text" : "password"} autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="自己输入或自动生成" /></div>
-            <div className="space-y-2"><Label htmlFor="backup-confirm-password">确认备份密码</Label><Input id="backup-confirm-password" type={showCreatePassword ? "text" : "password"} autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /></div>
+            {backups.data?.schedule.passwordSet ? <div className="rounded-md border bg-muted/40 px-3 py-3"><div className="text-sm font-medium">使用已保存的备份密码</div><div className="mt-1 font-mono text-sm text-muted-foreground">{backups.data.schedule.passwordHint || "密码已安全保存"}</div><p className="mt-1 text-xs text-muted-foreground">与定时备份共用同一个恢复密码。</p></div> : <><div className="space-y-2"><div className="flex h-7 items-center justify-between gap-2"><Label htmlFor="backup-password">首次设置备份密码</Label><PasswordTools value={password} visible={showCreatePassword} onVisibleChange={setShowCreatePassword} onGenerate={generateCreatePassword} /></div><Input id="backup-password" type={showCreatePassword ? "text" : "password"} autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="自己输入或自动生成" /></div><div className="space-y-2"><Label htmlFor="backup-confirm-password">确认备份密码</Label><Input id="backup-confirm-password" type={showCreatePassword ? "text" : "password"} autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /></div></>}
             <div className="flex items-center justify-between gap-4 rounded-md border px-3 py-2"><div><div className="text-sm font-medium">完成后发送到 Telegram</div><div className="text-xs text-muted-foreground">同时发送详细恢复说明和加密附件。</div></div><Switch checked={sendAfterCreate} onCheckedChange={setSendAfterCreate} disabled={!backups.data?.telegramSet} /></div>
             <div className="flex items-center justify-between gap-4 rounded-md border px-3 py-2"><div><div className="text-sm font-medium">上传到 Google 云端硬盘</div><div className="text-xs text-muted-foreground">保存加密备份到已连接的云端文件夹。</div></div><Switch checked={driveAfterCreate} onCheckedChange={setDriveAfterCreate} disabled={!backups.data?.googleDrive.connected} /></div>
-            <p className="text-xs text-muted-foreground">下载的是明文密码文本，请导入密码管理器后妥善处理，不要与备份文件存放在同一位置。</p>
+            {!backups.data?.schedule.passwordSet && <p className="text-xs text-muted-foreground">首次设置后，手动和定时备份都会使用这个密码。请保存到密码管理器，不要与备份文件放在同一位置。</p>}
           </div>
           <DialogFooter><Button type="button" variant="outline" onClick={() => setCreateOpen(false)} disabled={create.isPending}>取消</Button><Button type="button" onClick={submitCreate} disabled={create.isPending}>{create.isPending ? "启动中" : "开始备份"}</Button></DialogFooter>
         </DialogContent>

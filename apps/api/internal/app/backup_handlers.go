@@ -66,6 +66,7 @@ type backupSchedule struct {
 	Enabled            bool   `json:"enabled"`
 	Days               int    `json:"days"`
 	PasswordSet        bool   `json:"passwordSet"`
+	PasswordHint       string `json:"passwordHint,omitempty"`
 	ServerIP           string `json:"serverIp"`
 	ChatID             string `json:"chatId"`
 	TelegramMode       string `json:"telegramMode"`
@@ -122,6 +123,11 @@ type updateBackupScheduleRequest struct {
 	GoogleClientID     string `json:"googleClientId"`
 	GoogleClientSecret string `json:"googleClientSecret"`
 	GoogleFolderName   string `json:"googleFolderName"`
+}
+
+type updateBackupPasswordRequest struct {
+	Password        string `json:"password"`
+	ConfirmPassword string `json:"confirmPassword"`
 }
 
 type testBackupTelegramRequest struct {
@@ -192,27 +198,53 @@ func (a *App) handleCreateBackup(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, err)
 		return
 	}
-	if !validBackupPassword(req.Password) {
-		badRequest(w, errors.New("备份密码至少需要 8 个字符"))
+	a.backupMu.Lock()
+	locked := true
+	defer func() {
+		if locked {
+			a.backupMu.Unlock()
+		}
+	}()
+	if a.backupJob != nil && a.backupJob.Status == "running" {
+		respondError(w, http.StatusConflict, "已有备份任务正在运行")
 		return
 	}
-	if req.Password != req.ConfirmPassword {
-		badRequest(w, errors.New("两次输入的备份密码不一致"))
+	password, err := a.savedBackupPassword(r.Context())
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		respondError(w, http.StatusInternalServerError, "无法读取已保存的备份密码")
 		return
+	}
+	if password == "" {
+		if !validBackupPassword(req.Password) {
+			badRequest(w, errors.New("首次创建备份时，密码至少需要 8 个字符"))
+			return
+		}
+		if req.Password != req.ConfirmPassword {
+			badRequest(w, errors.New("两次输入的备份密码不一致"))
+			return
+		}
 	}
 	if !a.backupAssetsAvailable() {
 		respondError(w, http.StatusServiceUnavailable, "当前部署尚未启用完整备份")
 		return
 	}
-	a.backupMu.Lock()
-	if a.backupJob != nil && a.backupJob.Status == "running" {
-		a.backupMu.Unlock()
-		respondError(w, http.StatusConflict, "已有备份任务正在运行")
-		return
+	if password == "" {
+		ciphertext, encryptErr := a.encryptBackupPassword(req.Password)
+		if encryptErr != nil {
+			respondError(w, http.StatusInternalServerError, "无法安全保存备份密码")
+			return
+		}
+		now := a.now().UTC().Format(time.RFC3339Nano)
+		if _, err = a.db.ExecContext(r.Context(), `INSERT INTO system_settings(key,value,updated_at) VALUES('backupPasswordCipher',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`, ciphertext, now); err != nil {
+			respondError(w, http.StatusInternalServerError, "无法保存备份密码")
+			return
+		}
+		password = req.Password
 	}
 	a.backupJob = &backupJob{Status: "running", StartedAt: a.now().UTC()}
 	a.backupMu.Unlock()
-	password, sendTelegram, uploadGoogleDrive := req.Password, req.SendTelegram, req.UploadGoogleDrive
+	locked = false
+	sendTelegram, uploadGoogleDrive := req.SendTelegram, req.UploadGoogleDrive
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 		defer cancel()
@@ -351,11 +383,64 @@ func (a *App) handleUpdateBackupSettings(w http.ResponseWriter, r *http.Request)
 		respondError(w, 500, "保存失败")
 		return
 	}
-	respondJSON(w, 200, backupSchedule{Enabled: req.Enabled, Days: req.Days, PasswordSet: ciphertext != "", ServerIP: detectPublicServerIP(r.Context(), a.config().PublicHostname), ChatID: chatID, TelegramMode: telegramMode, TelegramEnabled: req.TelegramEnabled, GoogleDriveEnabled: req.GoogleDriveEnabled})
+	passwordHint := ""
+	if password, err := a.decryptBackupPassword(ciphertext); err == nil {
+		passwordHint = backupPasswordHint(password)
+	}
+	respondJSON(w, 200, backupSchedule{Enabled: req.Enabled, Days: req.Days, PasswordSet: ciphertext != "", PasswordHint: passwordHint, ServerIP: detectPublicServerIP(r.Context(), a.config().PublicHostname), ChatID: chatID, TelegramMode: telegramMode, TelegramEnabled: req.TelegramEnabled, GoogleDriveEnabled: req.GoogleDriveEnabled})
+}
+
+func (a *App) handleUpdateBackupPassword(w http.ResponseWriter, r *http.Request) {
+	if !a.requireSystemAdmin(w, r) {
+		return
+	}
+	var req updateBackupPasswordRequest
+	if err := decodeJSON(r, &req); err != nil {
+		badRequest(w, err)
+		return
+	}
+	if !validBackupPassword(req.Password) {
+		badRequest(w, errors.New("备份密码至少需要 8 个字符"))
+		return
+	}
+	if req.Password != req.ConfirmPassword {
+		badRequest(w, errors.New("两次输入的备份密码不一致"))
+		return
+	}
+	ciphertext, err := a.encryptBackupPassword(req.Password)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "无法安全保存备份密码")
+		return
+	}
+	now := a.now().UTC().Format(time.RFC3339Nano)
+	if _, err = a.db.ExecContext(r.Context(), `INSERT INTO system_settings(key,value,updated_at) VALUES('backupPasswordCipher',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`, ciphertext, now); err != nil {
+		respondError(w, http.StatusInternalServerError, "无法保存备份密码")
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]any{"passwordSet": true, "passwordHint": backupPasswordHint(req.Password)})
 }
 
 func validBackupPassword(password string) bool {
 	return len(password) >= 8 && len(password) <= 1024 && !strings.ContainsAny(password, "\r\n\x00")
+}
+
+func backupPasswordHint(password string) string {
+	runes := []rune(password)
+	if len(runes) < 2 {
+		return ""
+	}
+	return string(runes[0]) + strings.Repeat("•", minimumInt(len(runes)-2, 10)) + string(runes[len(runes)-1])
+}
+
+func (a *App) savedBackupPassword(ctx context.Context) (string, error) {
+	var ciphertext string
+	if err := a.db.QueryRowContext(ctx, `SELECT value FROM system_settings WHERE key='backupPasswordCipher'`).Scan(&ciphertext); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(ciphertext) == "" {
+		return "", sql.ErrNoRows
+	}
+	return a.decryptBackupPassword(ciphertext)
 }
 
 func (a *App) handleTestBackupTelegram(w http.ResponseWriter, r *http.Request) {
@@ -653,8 +738,8 @@ func (a *App) backupAssetsAvailable() bool {
 func writeRuntimeBackupEnv(path string) error {
 	values := make([]string, 0)
 	containerOnly := map[string]bool{
-		"LANQIN_BACKUP_DIR":          true,
-		"LANQIN_BACKUP_SOURCE_DIR":   true,
+		"LANQIN_BACKUP_DIR":           true,
+		"LANQIN_BACKUP_SOURCE_DIR":    true,
 		"LANQIN_UPDATE_SERVICE_TOKEN": true,
 		"LANQIN_UPDATE_SERVICE_URL":   true,
 	}
@@ -1160,6 +1245,11 @@ func (a *App) loadBackupSchedule(ctx context.Context) (backupSchedule, error) {
 			}
 		case "backupPasswordCipher":
 			result.PasswordSet = value != ""
+			if value != "" {
+				if password, err := a.decryptBackupPassword(value); err == nil {
+					result.PasswordHint = backupPasswordHint(password)
+				}
+			}
 		case "backupTelegramEnabled":
 			result.TelegramEnabled = value == "true"
 		case "backupGoogleDriveEnabled":

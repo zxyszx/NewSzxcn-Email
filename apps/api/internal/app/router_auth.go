@@ -141,6 +141,7 @@ func (a *App) Router() http.Handler {
 			r.Post("/admin/system/update", a.handleSystemUpdate)
 			r.Get("/admin/backups", a.handleListBackups)
 			r.Post("/admin/backups/settings", a.handleUpdateBackupSettings)
+			r.Post("/admin/backups/password", a.handleUpdateBackupPassword)
 			r.Post("/admin/backups/telegram/test", a.handleTestBackupTelegram)
 			r.Post("/admin/backups/telegram/discover-group", a.handleDiscoverBackupTelegramGroup)
 			r.Post("/admin/backups/google-drive/connect", a.handleGoogleDriveConnect)
