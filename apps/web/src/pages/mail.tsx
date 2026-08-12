@@ -4286,15 +4286,15 @@ function ComposeDialog({ mailboxes, mailbox, open, draft, limits, canSend, canMa
           <DialogFooter className="flex flex-row items-center justify-between gap-3 border-t bg-muted/15 px-4 py-3 sm:px-5">
             {canSend && (
               <div className="flex min-w-0 items-center">
-                <Button className={cn("min-h-10 px-4", canSchedule && "rounded-r-none")} disabled={send.isPending || !senderMailbox}><Send className="h-4 w-4" />{send.isPending ? "发送中..." : "发送"}</Button>
+                <Button className={cn("compose-send-button min-h-10 px-4", canSchedule && "rounded-r-none")} disabled={send.isPending || !senderMailbox}><Send className="h-4 w-4" />{send.isPending ? "发送中..." : "发送"}</Button>
                 {canSchedule && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button type="button" size="icon" className="h-10 w-9 shrink-0 rounded-l-none border-l border-primary-foreground/25 px-0" title="发送选项" aria-label="发送选项" disabled={send.isPending || scheduleSend.isPending || !senderMailbox}>
+                      <Button type="button" size="icon" className="compose-send-button h-10 w-9 shrink-0 rounded-l-none border-l border-white/30 px-0" title="发送选项" aria-label="发送选项" disabled={send.isPending || scheduleSend.isPending || !senderMailbox}>
                         <ChevronDown className="h-4 w-4" />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" side="top" className="w-40">
+                    <DropdownMenuContent align="end" side="top" sideOffset={8} collisionPadding={12} className="w-40">
                       <DropdownMenuItem className={composerMenuItemClass} onSelect={() => setScheduleDialogOpen(true)}><Clock3 className="h-4 w-4" />定时发送</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>

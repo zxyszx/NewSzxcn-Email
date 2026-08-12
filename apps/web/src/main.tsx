@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { Navigate, RouterProvider, createBrowserRouter } from "react-router-dom"
 import { Toaster } from "@/components/ui/toaster"
 import { LanguageDomSync } from "@/lib/language"
+import { applyTheme, getInitialTheme } from "@/lib/theme"
 import { ProtectedLayout } from "@/components/protected-layout"
 import { AdminOnly } from "@/components/admin-only"
 import "./index.css"
@@ -14,6 +15,8 @@ const MailPage = React.lazy(() => import("@/pages/mail").then((module) => ({ def
 const AdminPage = React.lazy(() => import("@/pages/admin").then((module) => ({ default: module.AdminPage })))
 const ProfilePage = React.lazy(() => import("@/pages/profile").then((module) => ({ default: module.ProfilePage })))
 const NotFoundPage = React.lazy(() => import("@/pages/not-found").then((module) => ({ default: module.NotFoundPage })))
+
+applyTheme(getInitialTheme())
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { refetchOnWindowFocus: false, staleTime: 10_000 } } })
 const router = createBrowserRouter([

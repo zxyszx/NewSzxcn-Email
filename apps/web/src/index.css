@@ -12,6 +12,8 @@
     --popover-foreground: 0 0% 9%;
     --primary: 0 0% 12%;
     --primary-foreground: 0 0% 98%;
+    --action-primary: 0 0% 12%;
+    --action-primary-foreground: 0 0% 98%;
     --secondary: 0 0% 96.1%;
     --secondary-foreground: 0 0% 12%;
     --muted: 0 0% 96.1%;
@@ -33,6 +35,8 @@
     --sidebar-accent-foreground: 0 0% 12%;
     --sidebar-border: 0 0% 89.8%;
     --sidebar-ring: 0 0% 42%;
+    --compose-send: 217 89% 43%;
+    --compose-send-hover: 216 94% 32%;
   }
 
   * { @apply border-border; }
@@ -61,6 +65,8 @@
     --popover-foreground: 0 0% 98%;
     --primary: 0 0% 98%;
     --primary-foreground: 240 5.9% 10%;
+    --action-primary: 240 4% 24%;
+    --action-primary-foreground: 0 0% 98%;
     --secondary: 240 3.7% 15.9%;
     --secondary-foreground: 0 0% 98%;
     --muted: 240 3.7% 15.9%;
@@ -80,10 +86,22 @@
     --sidebar-accent-foreground: 240 4.8% 95.9%;
     --sidebar-border: 240 3.7% 15.9%;
     --sidebar-ring: 217.2 91.2% 59.8%;
+    --compose-send: 217 89% 52%;
+    --compose-send-hover: 214 94% 60%;
   }
 }
 
 @layer components {
+  .compose-send-button.compose-send-button {
+    background: hsl(var(--compose-send));
+    color: white;
+  }
+
+  .compose-send-button.compose-send-button:hover {
+    background: hsl(var(--compose-send-hover));
+    color: white;
+  }
+
   .mail-shell-grid {
     display: grid;
     grid-template-columns: var(--app-sidebar-width, 18rem) minmax(0, 1fr);
