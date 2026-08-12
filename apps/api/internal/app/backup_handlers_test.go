@@ -316,6 +316,19 @@ func TestManualBackupReusesSavedPassword(t *testing.T) {
 	if err != nil || password != "SharedBackupPassword9" {
 		t.Fatalf("saved password changed: %q, %v", password, err)
 	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		a.backupMu.Lock()
+		status := a.backupJob.Status
+		a.backupMu.Unlock()
+		if status != "running" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("manual backup did not finish before timeout")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 func TestPublicServerIPValidation(t *testing.T) {
