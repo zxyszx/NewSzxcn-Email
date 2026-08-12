@@ -4294,7 +4294,7 @@ function ComposeDialog({ mailboxes, mailbox, open, draft, limits, canSend, canMa
                         <ChevronDown className="h-4 w-4" />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" side="top" sideOffset={8} collisionPadding={12} className="w-40">
+                    <DropdownMenuContent align="end" side="top" sideOffset={8} collisionPadding={12} className="w-[120px] min-w-[120px]">
                       <DropdownMenuItem className={composerMenuItemClass} onSelect={() => setScheduleDialogOpen(true)}><Clock3 className="h-4 w-4" />定时发送</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
