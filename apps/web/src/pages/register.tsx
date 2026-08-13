@@ -14,6 +14,7 @@ import { PasswordInput } from "@/components/ui/password-input"
 import { TurnstileBox } from "@/components/turnstile-box"
 import { validatePasswordConfirm } from "@/lib/validation"
 import { AuthError, AuthLoading } from "@/components/auth-states"
+import { BrandMark } from "@/components/brand-mark"
 
 export function RegisterPage() {
   const me = useMe()
@@ -63,7 +64,8 @@ export function RegisterPage() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-muted/20 px-4 py-10">
       <div className="w-full max-w-[420px]">
-        <div className="mb-7 text-center">
+        <div className="mb-7 flex items-center justify-center gap-3 text-center">
+          <BrandMark className="size-11 [&>svg]:size-7" />
           <h1 className="text-3xl font-semibold tracking-tight">NewSzxcn 邮箱</h1>
         </div>
         <div className="rounded-lg border bg-background p-6 shadow-sm sm:p-7">

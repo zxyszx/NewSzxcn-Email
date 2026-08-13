@@ -2,8 +2,8 @@ import * as React from "react"
 import DOMPurify from "dompurify"
 import { useSearchParams } from "react-router-dom"
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { BookOpen, CheckCircle2, ChevronDown, Circle, ClipboardList, Cloud, Copy, Download, ExternalLink, Eye, EyeOff, Github, Globe2, HardDrive, KeyRound, Loader2, Mail, Mailbox, MoreHorizontal, RefreshCcw, Scale, Search, Send, ShieldCheck, Star, Trash2, Users } from "lucide-react"
-import { api, AdminUser, Alias, DNSRecord, Domain, Mailbox as MailboxType, MailMessage, MailTemplate, MaildirSyncHealth, PermissionGroup, PermissionInfo, PermissionLimits, SystemSettings } from "@/lib/api"
+import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight, Circle, ClipboardList, Clock3, Cloud, Copy, Database, Download, ExternalLink, Eye, EyeOff, Globe2, HardDrive, KeyRound, Loader2, Mail, MoreHorizontal, RefreshCcw, Search, Send, ShieldCheck, Trash2, UserRound } from "lucide-react"
+import { api, AdminOverview, AdminUser, Alias, DNSRecord, Domain, Mailbox as MailboxType, MailMessage, MailTemplate, MaildirSyncHealth, PermissionGroup, PermissionInfo, PermissionLimits, SystemSettings } from "@/lib/api"
 import { cn, decodeMimeHeader, formatBytes, formatDate } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -20,27 +20,26 @@ import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import { ConfirmDialog } from "@/components/confirm-dialog"
-import { SystemVersionDialog } from "@/components/system-version-dialog"
 import { useMe } from "@/hooks/use-me"
 import { useToast } from "@/hooks/use-toast"
 import { hasAnyPermission, hasPermission } from "@/lib/permissions"
 import type { BackupTransfer, PermissionKey, TelegramPairing } from "@/lib/api-types"
 
 type Section = "overview" | "users" | "permissionGroups" | "domains" | "mailboxes" | "aliases" | "messages" | "sendAudit" | "backups" | "settings"
-type SettingsTab = "base" | "smtp" | "storage" | "mail" | "notifications" | "externalImap" | "templates" | "security" | "about"
+type SettingsTab = "base" | "smtp" | "storage" | "mail" | "notifications" | "externalImap" | "templates" | "security"
 type PendingConfirm = { title: string; description?: string; confirmText: string; onConfirm: () => void }
 
-const sectionMeta: Record<Section, { label: string; frontLabel: string; description: string }> = {
-  overview: { label: "数据总览", frontLabel: "数据统计", description: "系统运行、DNS、邮箱和消息状态集中查看。" },
-  users: { label: "账号管理", frontLabel: "账号设置", description: "管理登录账号、身份状态、邮箱数量上限和共享存储容量。" },
-  permissionGroups: { label: "权限配置", frontLabel: "账号权限", description: "配置自定义权限、发信频率、附件和邮箱创建额度。" },
-  domains: { label: "域名管理", frontLabel: "邮箱地址", description: "维护邮件域名、DKIM 和 DNS 检测。" },
-  mailboxes: { label: "邮箱管理", frontLabel: "邮箱管理", description: "按归属账号查看和管理子邮箱，默认邮箱受保护。" },
-  aliases: { label: "邮件转发", frontLabel: "邮件转发", description: "管理域名转发规则。" },
-  messages: { label: "全部邮件", frontLabel: "全部邮箱", description: "按邮箱、文件夹和关键词查看全站邮件。" },
-  sendAudit: { label: "发送队列", frontLabel: "发送队列", description: "查看发信投递、重试和失败记录。" },
-  backups: { label: "备份与恢复", frontLabel: "数据保护", description: "创建、校验和下载可迁移的加密完整备份。" },
-  settings: { label: "系统设置", frontLabel: "账号设置", description: "管理站点、发信、存储、注册、安全和邮件模板。" },
+const sectionMeta: Record<Section, { label: string; description: string }> = {
+  overview: { label: "仪表盘", description: "邮件运行、域名与系统状态集中查看。" },
+  users: { label: "账号管理", description: "管理登录账号、身份状态、邮箱数量上限和共享存储容量。" },
+  permissionGroups: { label: "权限配置", description: "配置自定义权限、发信频率、附件和邮箱创建额度。" },
+  domains: { label: "域名管理", description: "维护邮件域名、DKIM 和 DNS 检测。" },
+  mailboxes: { label: "邮箱管理", description: "按归属账号查看和管理子邮箱，默认邮箱受保护。" },
+  aliases: { label: "邮件转发", description: "管理域名转发规则。" },
+  messages: { label: "全部邮件", description: "按邮箱、文件夹和关键词查看全站邮件。" },
+  sendAudit: { label: "发送队列", description: "查看发信投递、重试和失败记录。" },
+  backups: { label: "备份与恢复", description: "创建、校验和下载可迁移的加密完整备份。" },
+  settings: { label: "系统设置", description: "管理站点、发信、存储、注册、安全和邮件模板。" },
 }
 const sectionLabels = Object.fromEntries(Object.entries(sectionMeta).map(([key, value]) => [key, value.label])) as Record<Section, string>
 const sectionKeys = Object.keys(sectionLabels) as Section[]
@@ -56,8 +55,6 @@ const sectionPermissions: Record<Section, PermissionKey[]> = {
   backups: ["admin.settings.view"],
   settings: ["admin.settings.view", "admin.templates.view"],
 }
-const projectRepositoryUrl = "https://github.com/zxyszx/NewSzxcn-Email"
-const projectTelegramUrl = "https://t.me/+EhII7MSyi3QwNDQ5"
 const defaultPermissionLimits: PermissionLimits = { maxAttachmentMb: 25, maxMailboxCount: 9, smtpDailyLimit: 200, smtpMinuteLimit: 20, imapMinuteLimit: 200, pop3MinuteLimit: 150 }
 const defaultMailboxLimitOverride = 9
 const defaultUserStorageQuotaMb = 100
@@ -133,23 +130,26 @@ export function AdminPage() {
     }
   }
 
+  const overviewChecklist = setupChecklist(overview.data, domainItems, settings.data).filter((item) => visibleSections.includes(item.section))
+  const changeSection = (next: Section) => setParams(next === "overview" ? {} : { section: next })
+
   return (
     <ScrollArea className="h-[calc(100svh-3rem)] md:h-svh">
-      <main className="admin-page mx-auto w-full max-w-[1440px] px-3 pb-8 pt-3 sm:px-4 sm:pt-4">
-        <AdminPageHeader section={section} refreshing={refreshing} onRefresh={refreshAdminPage} />
+      <main className="admin-page mx-auto w-full max-w-[1320px] px-3 pb-8 pt-3 sm:px-4 sm:pt-4">
+        <AdminPageHeader section={section} refreshing={refreshing} onRefresh={refreshAdminPage} checklist={section === "overview" ? overviewChecklist : undefined} onSectionChange={changeSection} />
 
         {sectionQuery?.isError && <QueryFailure error={sectionQuery.error} onRetry={() => { void sectionQuery.refetch() }} />}
 
         {section === "overview" && canOverview && (
-          <section className="mb-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Stat icon={<Users />} label="账号" value={overview.data?.users || 0} detail={`${overview.data?.activeUsers || 0} 个活跃`} />
-            <Stat icon={<Globe2 />} label="邮件域名" value={overview.data?.domains || 0} detail={`${domainItems.filter((domain) => domain.dnsStatus === "ok").length} 个 DNS 正常`} />
-            <Stat icon={<Mailbox />} label="邮箱" value={overview.data?.mailboxes || 0} detail={`${overview.data?.activeMailboxes || 0} 个活跃`} />
-            <Stat icon={<ShieldCheck />} label="存储用量" value={formatBytes(overview.data?.storageBytes || 0)} detail={`${overview.data?.unreadMessages || 0} 封未读 · ${overview.data?.aliases || 0} 个转发`} />
+          <section className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Stat icon={<UserRound />} tone="primary" label="账号" value={overview.data?.users || 0} detail={`${overview.data?.activeUsers || 0} 个活跃`} />
+            <Stat icon={<Globe2 />} tone="cyan" label="邮件域名" value={overview.data?.domains || 0} detail={domainItems.some((domain) => domain.dnsStatus === "ok") ? `${domainItems.filter((domain) => domain.dnsStatus === "ok").length} 个 DNS 正常` : "待检测"} />
+            <Stat icon={<Mail />} tone="sky" label="邮箱" value={overview.data?.mailboxes || 0} detail={`${overview.data?.activeMailboxes || 0} 个活跃`} />
+            <Stat icon={<Database />} tone="violet" label="存储用量" value={formatBytes(overview.data?.storageBytes || 0)} detail={`${overview.data?.unreadMessages || 0} 封未读 · ${overview.data?.aliases || 0} 个转发`} />
           </section>
         )}
 
-        {section === "overview" && <OverviewSection overview={overview.data} domains={domainItems} settings={settings.data} visibleSections={visibleSections} onSectionChange={(next) => setParams(next === "overview" ? {} : { section: next })} />}
+        {section === "overview" && <OverviewSection overview={overview.data} domains={domainItems} settings={settings.data} visibleSections={visibleSections} onSectionChange={changeSection} />}
         {section === "users" && <UsersSection users={userItems} permissionGroups={assignablePermissionGroups} domains={domainItems} />}
         {section === "permissionGroups" && <PermissionGroupsSection groups={permissionGroups.data?.items || []} catalog={permissionGroups.data?.catalog || []} />}
         {section === "domains" && <DomainsSection domains={domainItems} />}
@@ -164,23 +164,22 @@ export function AdminPage() {
   )
 }
 
-function AdminPageHeader({ section, refreshing, onRefresh }: { section: Section; refreshing: boolean; onRefresh: () => void }) {
+type SetupChecklistItem = ReturnType<typeof setupChecklist>[number]
+
+function AdminPageHeader({ section, refreshing, onRefresh, checklist, onSectionChange }: { section: Section; refreshing: boolean; onRefresh: () => void; checklist?: SetupChecklistItem[]; onSectionChange: (section: Section) => void }) {
   const meta = sectionMeta[section]
   return (
-    <div className="mb-4 border-b pb-3">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+    <div className="mb-4 border-b border-border/80 pb-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span>后台管理</span>
-            <span className="h-1 w-1 rounded-full bg-muted-foreground/50" />
-            <span>前台：{meta.frontLabel}</span>
-          </div>
           <h1 className="text-[20px] font-semibold leading-7 tracking-tight">{meta.label}</h1>
-          <p className="mt-1 text-sm leading-5 text-muted-foreground">{meta.description}</p>
+          <p className="mt-1 text-sm leading-5 text-muted-foreground/80">{meta.description}</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" size="icon" className="h-8 w-8 shadow-none" onClick={onRefresh} disabled={refreshing} aria-label="刷新后台数据" title="刷新后台数据">
+          {checklist && <SetupChecklistDialog checklist={checklist} onSectionChange={onSectionChange} />}
+          <Button type="button" variant="outline" size="sm" className="h-9 gap-2 shadow-none" onClick={onRefresh} disabled={refreshing} aria-label="刷新后台数据" title="刷新后台数据">
             <RefreshCcw className={cn("h-4 w-4", refreshing && "animate-spin")} />
+            <span className="hidden sm:inline">刷新</span>
           </Button>
         </div>
       </div>
@@ -188,51 +187,107 @@ function AdminPageHeader({ section, refreshing, onRefresh }: { section: Section;
   )
 }
 
-function OverviewSection({ overview, domains, settings, visibleSections, onSectionChange }: { overview?: { activeUsers: number; activeMailboxes: number; aliases: number; messages: number; unreadMessages: number }; domains: Domain[]; settings?: SystemSettings; visibleSections: Section[]; onSectionChange: (section: Section) => void }) {
-  const checklist = setupChecklist(overview, domains, settings).filter((item) => visibleSections.includes(item.section))
+function SetupChecklistDialog({ checklist, onSectionChange }: { checklist: SetupChecklistItem[]; onSectionChange: (section: Section) => void }) {
+  const [open, setOpen] = React.useState(false)
+  const completed = checklist.filter((item) => item.done).length
+  const complete = checklist.length > 0 && completed === checklist.length
   return (
-    <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(340px,.65fr)]">
-      <Card>
-        <CardHeader className="pb-3"><CardTitle>首次配置</CardTitle></CardHeader>
-        <CardContent className="grid gap-2 sm:grid-cols-2">
-            {checklist.map((item) => (
-              <Button key={item.key} type="button" variant="outline" className="h-auto min-h-[64px] w-full justify-start gap-3 px-3 py-2 text-left font-normal last:sm:col-span-2" onClick={() => onSectionChange(item.section)}>
-                {item.done ? <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" /> : <Circle className="h-4 w-4 shrink-0 text-muted-foreground" />}
-                <span className="min-w-0 flex-1">
-                  <span className="block font-medium">{item.title}</span>
-                  <span className="block truncate text-xs text-muted-foreground">{item.detail}</span>
-                </span>
-              </Button>
-            ))}
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button type="button" variant="outline" size="sm" className="h-9 gap-2 shadow-none">
+          {complete ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <Circle className="h-4 w-4 text-amber-600" />}
+          <span>{complete ? "初始化完成" : `初始化 ${completed}/${checklist.length}`}</span>
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-xl gap-3 p-5">
+        <DialogHeader><DialogTitle>首次配置</DialogTitle></DialogHeader>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {checklist.map((item) => (
+            <Button key={item.key} type="button" variant="outline" className="h-auto min-h-[62px] justify-start gap-3 px-3 py-2 text-left font-normal last:sm:col-span-2" onClick={() => { setOpen(false); onSectionChange(item.section) }}>
+              {item.done ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" /> : <Circle className="h-4 w-4 shrink-0 text-muted-foreground" />}
+              <span className="min-w-0 flex-1"><span className="block font-medium">{item.title}</span><span className="block truncate text-xs text-muted-foreground">{item.detail}</span></span>
+              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+            </Button>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function OverviewSection({ overview, domains, settings, visibleSections, onSectionChange }: { overview?: AdminOverview; domains: Domain[]; settings?: SystemSettings; visibleSections: Section[]; onSectionChange: (section: Section) => void }) {
+  const { toast } = useToast()
+  const dnsOK = domains.length > 0 && domains.every((domain) => domain.dnsStatus === "ok")
+  const dnsWarning = domains.length > 0 && domains.some((domain) => domain.dnsStatus === "ok")
+  return (
+    <div className="space-y-3">
+      <Card className="border-border/80">
+        <CardHeader className="px-4 pb-2 pt-3 sm:px-4"><CardTitle className="text-base">邮件运行概览</CardTitle></CardHeader>
+        <CardContent className="px-4 pb-3 sm:px-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+            <OverviewMetric icon={<Send />} label="今日发送" value={overview?.todaySent || 0} tone="primary" />
+            <OverviewMetric icon={<Download />} label="今日接收" value={overview?.todayReceived || 0} tone="success" />
+            <OverviewMetric icon={<CheckCircle2 />} label="发送成功" value={overview?.sendDelivered || 0} tone="success" />
+            <OverviewMetric icon={<AlertCircle />} label="发送失败" value={overview?.sendFailed || 0} tone={(overview?.sendFailed || 0) > 0 ? "danger" : "muted"} />
+            <OverviewMetric icon={<Clock3 />} label="队列邮件" value={overview?.queueMessages || 0} tone={(overview?.queueMessages || 0) > 0 ? "warning" : "muted"} />
+            <OverviewMetric icon={<Mail />} label="未读邮件" value={overview?.unreadMessages || 0} tone={(overview?.unreadMessages || 0) > 0 ? "primary" : "muted"} />
+          </div>
         </CardContent>
       </Card>
-      <Card>
-        <CardHeader className="pb-3"><CardTitle>系统状态</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          <section>
-            <h3 className="mb-2 text-xs font-medium text-muted-foreground">DNS 状态</h3>
-            <div className="space-y-2">
-            {domains.map((domain) => <DomainBadgeRow key={domain.id} domain={domain} />)}
-            {domains.length === 0 && <Empty text="暂无域名" />}
+
+      <Card className="border-border/80">
+        <CardHeader className="px-4 pb-2 pt-3"><CardTitle className="text-base">系统状态</CardTitle></CardHeader>
+        <CardContent className="grid gap-2.5 px-4 pb-3 md:grid-cols-3">
+          <div className="rounded-md border border-border/80 px-3 py-2">
+            <DashboardGroupTitle>系统健康</DashboardGroupTitle>
+            <div className="grid grid-cols-3 gap-2">
+              <DashboardStatusItem label="系统" status={<LightStatus state="success" label="运行中" />} />
+              <DashboardStatusItem label="DNS" status={<LightStatus state={dnsOK ? "success" : dnsWarning ? "warning" : "muted"} label={dnsOK ? "正常" : dnsWarning ? "部分正常" : domains.length ? "未检测" : "未配置"} />} />
+              <DashboardStatusItem label="SMTP" status={<LightStatus state={settings?.smtpHost ? "success" : "warning"} label={settings?.smtpHost ? "已配置" : "未配置"} />} />
             </div>
-          </section>
-          <Separator />
-          <section>
-            <h3 className="mb-2 text-xs font-medium text-muted-foreground">运行信息</h3>
-            <div className="space-y-2 text-sm text-muted-foreground">
-            <InfoLine label="公网地址" value={settings?.publicBaseUrl || "-"} />
-            <InfoLine label="SMTP" value={settings?.smtpHost ? `${settings.smtpHost}:${settings.smtpPort}` : "-"} />
-            <InfoLine label="注册" value={settings?.openRegistration ? "已开放" : "关闭"} />
-            <InfoLine label="自助申请邮箱" value={settings?.userMailboxApplyEnabled ? "已启用" : "关闭"} />
+          </div>
+          <div className="rounded-md border border-border/80 px-3 py-2">
+            <DashboardGroupTitle>服务信息</DashboardGroupTitle>
+            <div className="grid grid-cols-2 gap-3">
+              <DashboardInfoItem label="公网地址" value={settings?.publicBaseUrl || "-"} onCopy={settings?.publicBaseUrl ? () => copyOverviewValue(settings.publicBaseUrl, "公网地址", toast) : undefined} />
+              <DashboardInfoItem label="SMTP" value={settings?.smtpHost ? `${settings.smtpHost}:${settings.smtpPort}` : "未配置"} onCopy={settings?.smtpHost ? () => copyOverviewValue(`${settings.smtpHost}:${settings.smtpPort}`, "SMTP 地址", toast) : undefined} />
             </div>
-          </section>
+          </div>
+          <div className="rounded-md border border-border/80 px-3 py-2">
+            <DashboardGroupTitle>功能状态</DashboardGroupTitle>
+            <div className="grid grid-cols-2 gap-3">
+              <DashboardStatusItem label="注册" status={<LightStatus state={settings?.openRegistration ? "success" : "muted"} label={settings?.openRegistration ? "已开放" : "关闭"} />} />
+              <DashboardStatusItem label="自助申请邮箱" status={<LightStatus state={settings?.userMailboxApplyEnabled ? "success" : "muted"} label={settings?.userMailboxApplyEnabled ? "已启用" : "关闭"} />} />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/80">
+        <CardHeader className="flex-row items-center justify-between space-y-0 px-4 pb-2 pt-3"><div className="flex items-baseline gap-2"><CardTitle className="text-base">域名状态</CardTitle><span className="text-xs text-muted-foreground">{domains.length} 个域名</span></div>{visibleSections.includes("domains") && <Button type="button" variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => onSectionChange("domains")}>管理域名<ChevronRight className="h-3.5 w-3.5" /></Button>}</CardHeader>
+        <CardContent className="px-4 pb-3">
+          {domains.length > 0 ? <div className="overflow-hidden rounded-md border border-border/80">
+            <div className="hidden grid-cols-[minmax(0,1fr)_120px_140px_150px_24px] items-center gap-3 border-b bg-muted/20 px-3 py-1.5 text-[11px] font-medium text-muted-foreground md:grid"><span>邮件域名</span><span>使用状态</span><span>DNS 状态</span><span>最近检测</span><span /></div>
+            <div className="divide-y">{domains.slice(0, 5).map((domain) => {
+              const dnsDisplay = dnsStatusDisplay(domain.dnsStatus)
+              return <Button key={domain.id} type="button" variant="ghost" className="grid h-auto min-h-12 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-none px-3 py-2 text-left font-normal transition-colors hover:bg-muted/35 md:grid-cols-[minmax(0,1fr)_120px_140px_150px_24px]" onClick={() => onSectionChange("domains")}>
+                <span className="min-w-0 truncate text-sm font-medium">{domain.name}</span>
+                <span className="hidden md:block"><LightStatus state={domain.status === "active" ? "success" : "muted"} label={domain.status === "active" ? "已启用" : "已停用"} /></span>
+                <span className="justify-self-end md:justify-self-start"><LightStatus state={dnsDisplay.state} label={dnsDisplay.label} /></span>
+                <span className="hidden text-xs text-muted-foreground md:block">{domain.dnsCheckedAt ? formatDate(domain.dnsCheckedAt) : "尚未检测"}</span>
+                <ChevronRight className="hidden h-4 w-4 text-muted-foreground md:block" />
+                <span className="col-span-2 flex items-center gap-2 text-[11px] text-muted-foreground md:hidden"><span>{domain.status === "active" ? "已启用" : "已停用"}</span><span>·</span><span>{domain.dnsCheckedAt ? `检测于 ${formatDate(domain.dnsCheckedAt)}` : "尚未检测"}</span></span>
+              </Button>
+            })}</div>
+            {domains.length > 5 && <Button type="button" variant="ghost" className="h-auto w-full justify-start rounded-none border-t px-3 py-2 text-left text-xs font-normal text-muted-foreground transition-colors hover:bg-muted/35 hover:text-foreground" onClick={() => onSectionChange("domains")}>还有 {domains.length - 5} 个域名，查看全部</Button>}
+          </div> : <Empty text="暂无邮件域名" />}
         </CardContent>
       </Card>
     </div>
   )
 }
 
-function setupChecklist(overview: { activeUsers: number; activeMailboxes: number; aliases: number; messages: number; unreadMessages: number } | undefined, domains: Domain[], settings?: SystemSettings) {
+function setupChecklist(overview: AdminOverview | undefined, domains: Domain[], settings?: SystemSettings) {
   const hasDomain = domains.length > 0
   const dnsReady = domains.some((domain) => domain.dnsStatus === "ok")
   const hasMailbox = (overview?.activeMailboxes || 0) > 0
@@ -244,6 +299,38 @@ function setupChecklist(overview: { activeUsers: number; activeMailboxes: number
     { key: "smtp", title: "确认发信链路", detail: settings?.smtpHost ? `内置 Postfix：${settings.smtpHost}:${settings.smtpPort}` : "默认使用内置 Postfix", done: true, section: "settings" as Section },
     { key: "mail", title: "完成收发测试", detail: hasMail ? `${overview?.messages || 0} 封邮件已入库` : "发送或接收一封测试邮件", done: hasMail, section: "messages" as Section },
   ]
+}
+
+function OverviewMetric({ icon, label, value, tone }: { icon: React.ReactNode; label: string; value: number; tone: "primary" | "success" | "warning" | "danger" | "muted" }) {
+  return <div className="flex min-h-[50px] items-center gap-2 rounded-md border border-border/80 px-2 py-1"><div className={cn("grid h-7 w-7 shrink-0 place-items-center rounded-full [&>svg]:h-3.5 [&>svg]:w-3.5", tone === "primary" && "bg-primary/5 text-primary", tone === "success" && "bg-emerald-500/10 text-emerald-600", tone === "warning" && "bg-amber-500/10 text-amber-600", tone === "danger" && "bg-destructive/10 text-destructive", tone === "muted" && "bg-muted text-muted-foreground")}>{icon}</div><div className="min-w-0"><div className="truncate text-[10px] leading-3 text-muted-foreground">{label}</div><div className={cn("text-base font-semibold leading-5 tabular-nums", tone === "success" && "text-emerald-700 dark:text-emerald-400", tone === "warning" && "text-amber-700 dark:text-amber-400", tone === "danger" && "text-destructive")}>{value}</div></div></div>
+}
+
+function dnsStatusDisplay(status: string): { state: "success" | "warning" | "danger" | "muted"; label: string } {
+  if (status === "ok") return { state: "success", label: "DNS 正常" }
+  if (status === "error") return { state: "danger", label: "DNS 异常" }
+  if (!status || status === "unchecked") return { state: "muted", label: "未检测" }
+  return { state: "warning", label: "需检查" }
+}
+
+function LightStatus({ state, label }: { state: "success" | "warning" | "danger" | "muted"; label: string }) {
+  return <span className={cn("inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-full px-1.5 text-xs font-medium", state === "success" && "bg-emerald-500/[0.07] text-emerald-700 dark:text-emerald-400", state === "warning" && "bg-amber-500/[0.07] text-amber-700 dark:text-amber-400", state === "danger" && "bg-destructive/[0.07] text-destructive", state === "muted" && "bg-muted/70 text-muted-foreground")}><span className={cn("h-1.5 w-1.5 rounded-full", state === "success" && "bg-emerald-600", state === "warning" && "bg-amber-500", state === "danger" && "bg-destructive", state === "muted" && "bg-muted-foreground/60")} />{label}</span>
+}
+
+function DashboardGroupTitle({ children }: { children: React.ReactNode }) {
+  return <div className="mb-1.5 text-[11px] font-medium text-muted-foreground">{children}</div>
+}
+
+function DashboardStatusItem({ label, status }: { label: string; status: React.ReactNode }) {
+  return <div className="min-w-0"><div className="mb-0.5 truncate text-[10px] text-muted-foreground">{label}</div>{status}</div>
+}
+
+function DashboardInfoItem({ label, value, onCopy }: { label: string; value: string; onCopy?: () => void }) {
+  return <div className="flex min-w-0 items-end gap-1"><div className="min-w-0 flex-1"><div className="text-[10px] text-muted-foreground">{label}</div><div className="truncate text-xs font-medium" title={value}>{value}</div></div>{onCopy && <Button type="button" variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={onCopy} title={`复制${label}`} aria-label={`复制${label}`}><Copy className="h-3 w-3" /></Button>}</div>
+}
+
+async function copyOverviewValue(value: string, label: string, toast: ReturnType<typeof useToast>["toast"]) {
+  await navigator.clipboard.writeText(value)
+  toast({ title: `${label}已复制` })
 }
 
 function InfoLine({ label, value }: { label: string; value: React.ReactNode }) {
@@ -996,11 +1083,11 @@ function DomainsSection({ domains }: { domains: Domain[] }) {
           <div key={domain.id} className="flex flex-col gap-3 rounded-lg border p-4 md:flex-row md:items-center md:justify-between">
             <div>
               <div className="font-medium">{domain.name}</div>
-              <div className="text-xs text-muted-foreground">selector: {domain.dkimSelector}</div>
+              <div className="text-xs text-muted-foreground">DKIM 选择器：{domain.dkimSelector}</div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <StatusText active={domain.status === "active"} activeLabel="启用" inactiveLabel="停用" />
-              <StatusText active={domain.dnsStatus === "ok"} activeLabel="DNS 正常" inactiveLabel={domain.dnsStatus || "未检测"} />
+              <LightStatus state={dnsStatusDisplay(domain.dnsStatus).state} label={dnsStatusDisplay(domain.dnsStatus).label} />
               {canViewDNS && <DomainDNSDialog domain={domain} />}
               {canUpdate && <Button variant="outline" size="sm" onClick={() => update.mutate({ id: domain.id, status: domain.status === "active" ? "disabled" : "active" })}>{domain.status === "active" ? "停用" : "启用"}</Button>}
               {canDelete && <Button variant="outline" size="sm" onClick={() => setPendingConfirm({ title: "删除域名？", description: `将删除 ${domain.name}，相关邮箱、转发和邮件也可能受影响。`, confirmText: "删除域名", onConfirm: () => remove.mutate(domain.id) })}><Trash2 className="h-4 w-4" />删除</Button>}
@@ -1063,7 +1150,7 @@ function MailboxesSection({ mailboxes, users, domains }: { mailboxes: MailboxTyp
     .filter((group) => !keyword || [group.owner ? accountPrimaryEmail(group.owner) : "", group.owner?.displayName || "", ...group.mailboxes.map((mailbox) => mailbox.address)].some((value) => value.toLowerCase().includes(keyword)))
   const toggleOwner = (ownerID: string) => setExpandedOwners((current) => current.includes(ownerID) ? current.filter((id) => id !== ownerID) : [...current, ownerID])
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardHeader>
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <CardTitle>邮箱管理</CardTitle>
@@ -1073,7 +1160,7 @@ function MailboxesSection({ mailboxes, users, domains }: { mailboxes: MailboxTyp
           </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="min-w-0 space-y-4">
         <div className="relative">
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索账号或邮箱" className="pl-9" />
@@ -1219,7 +1306,7 @@ function AdminMessagesSection({ mailboxes, systemAdmin }: { mailboxes: MailboxTy
   const detail = useQuery({ queryKey: ["admin", "message", selectedId], queryFn: () => api.adminMessage(selectedId!), enabled: !!selectedId })
   const items = messages.data?.pages.flatMap((page) => page.items || []) || []
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardHeader>
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <CardTitle>全部邮件</CardTitle>
@@ -1228,7 +1315,7 @@ function AdminMessagesSection({ mailboxes, systemAdmin }: { mailboxes: MailboxTy
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="min-w-0 space-y-4">
         <div className="flex flex-col gap-3 xl:flex-row">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -1277,17 +1364,17 @@ function AdminMessagesSection({ mailboxes, systemAdmin }: { mailboxes: MailboxTy
             </div>
           ))}
         </div>
-        <div className="hidden md:block">
-          <Table>
+        <div className="min-w-0 overflow-hidden md:block max-md:hidden">
+          <Table className="table-fixed">
             <TableHeader>
               <TableRow>
-                <TableHead>邮件</TableHead>
-                <TableHead>邮箱</TableHead>
-                <TableHead>发件人</TableHead>
-                <TableHead>收件人</TableHead>
-                <TableHead>文件夹</TableHead>
-                <TableHead>时间</TableHead>
-                <TableHead className="w-20"></TableHead>
+                <TableHead className="w-[25%]">邮件</TableHead>
+                <TableHead className="w-[17%]">邮箱</TableHead>
+                <TableHead className="w-[15%]">发件人</TableHead>
+                <TableHead className="w-[17%]">收件人</TableHead>
+                <TableHead className="w-[9%]">文件夹</TableHead>
+                <TableHead className="w-[10%]">时间</TableHead>
+                <TableHead className="w-[7%]"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1297,9 +1384,9 @@ function AdminMessagesSection({ mailboxes, systemAdmin }: { mailboxes: MailboxTy
                     <div className="truncate font-medium">{message.subject}</div>
                     <div className="truncate text-xs text-muted-foreground">{message.snippet}</div>
                   </TableCell>
-                  <TableCell>
-                    <div className="font-medium">{message.mailboxAddress || message.recipientAddress || "-"}</div>
-                    {message.ownerEmail && <div className="text-xs text-muted-foreground">{message.ownerEmail}</div>}
+                  <TableCell className="min-w-0">
+                    <div className="truncate font-medium" title={message.mailboxAddress || message.recipientAddress || "-"}>{message.mailboxAddress || message.recipientAddress || "-"}</div>
+                    {message.ownerEmail && <div className="truncate text-xs text-muted-foreground" title={message.ownerEmail}>{message.ownerEmail}</div>}
                   </TableCell>
                   <TableCell className="max-w-[220px] truncate" title={adminSenderTitle(message)}>{adminSenderDisplayName(message)}</TableCell>
                   <TableCell className="max-w-[220px] truncate">{message.recipientAddress || message.to?.join(", ") || ""}</TableCell>
@@ -1453,7 +1540,7 @@ function SystemSettingsSection({ settings, domains, mailboxes, initialTab }: { s
   const canResetTemplates = hasPermission(user, "admin.templates.reset")
   const templates = useQuery({ queryKey: ["admin", "mail-templates"], queryFn: api.mailTemplates, enabled: canViewTemplates })
   const requestedTab = initialTab as SettingsTab | undefined
-  const [settingsTab, setSettingsTab] = React.useState<SettingsTab>(() => requestedTab && ["base", "smtp", "storage", "mail", "notifications", "externalImap", "templates", "security", "about"].includes(requestedTab) ? requestedTab : "base")
+  const [settingsTab, setSettingsTab] = React.useState<SettingsTab>(() => requestedTab && ["base", "smtp", "storage", "mail", "notifications", "externalImap", "templates", "security"].includes(requestedTab) ? requestedTab : "base")
   const maildirHealth = useQuery({ queryKey: ["admin", "maildir-sync", "health"], queryFn: api.maildirSyncHealth, enabled: canSettingsView && settingsTab === "storage" })
   const [smtpRequireTls, setSmtpRequireTls] = React.useState(false)
   const [allowInsecureHttp, setAllowInsecureHttp] = React.useState(true)
@@ -1613,11 +1700,10 @@ function SystemSettingsSection({ settings, domains, mailboxes, initialTab }: { s
     ] : []),
     ...(canViewTemplates ? [{ key: "templates" as const, label: "模板" }] : []),
     ...(canSettingsView ? [{ key: "security" as const, label: "安全" }] : []),
-    { key: "about", label: "关于" },
   ]
   React.useEffect(() => {
     if (tabs.some((tab) => tab.key === settingsTab)) return
-    setSettingsTab(tabs[0]?.key || "about")
+    setSettingsTab(tabs[0]?.key || "base")
   }, [settingsTab, tabs])
   return (
     <form key={formKey} onSubmit={(event) => { event.preventDefault(); if (canUpdateSettings) save.mutate(new FormData(event.currentTarget)) }} className="space-y-6">
@@ -1860,9 +1946,7 @@ function SystemSettingsSection({ settings, domains, mailboxes, initialTab }: { s
         </CardContent>
       </Card>}
 
-      {settingsTab === "about" && <AboutProjectCard />}
-
-      {settingsTab !== "about" && canUpdateSettings && <div className="flex justify-end">
+      {canUpdateSettings && <div className="flex justify-end">
         <Button disabled={save.isPending || !settings}>{save.isPending ? "保存中..." : "保存设置"}</Button>
       </div>}
     </form>
@@ -1963,76 +2047,6 @@ function formatDuration(value?: number) {
 
 function queryErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "读取 Maildir 同步健康失败"
-}
-
-function AboutProjectCard() {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>关于</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4 text-sm">
-        <AboutRow label="版本">
-          <SystemVersionDialog mode="inline" />
-        </AboutRow>
-        <AboutRow label="交流">
-          <div className="flex flex-wrap gap-3">
-            <Button type="button" variant="outline" className="h-11 justify-start px-4 text-base font-normal" asChild>
-              <a href={projectRepositoryUrl} target="_blank" rel="noreferrer">
-                <Github className="h-5 w-5" />
-                GitHub
-              </a>
-            </Button>
-            <Button type="button" variant="outline" className="h-11 justify-start px-4 text-base font-normal" asChild>
-              <a href={`${projectRepositoryUrl}/issues`} target="_blank" rel="noreferrer">
-                <Circle className="h-5 w-5 text-muted-foreground" />
-                Issues
-              </a>
-            </Button>
-            <Button type="button" variant="outline" className="h-11 justify-start px-4 text-base font-normal" asChild>
-              <a href={projectTelegramUrl} target="_blank" rel="noreferrer">
-                <ExternalLink className="h-5 w-5 text-sky-500" />
-                Telegram 群组
-              </a>
-            </Button>
-          </div>
-        </AboutRow>
-        <AboutRow label="支持">
-          <Button type="button" variant="outline" className="h-11 justify-start px-4 text-base font-normal" asChild>
-            <a href={projectRepositoryUrl} target="_blank" rel="noreferrer">
-              <Star className="h-5 w-5 text-yellow-500" />
-              给项目点 Star
-            </a>
-          </Button>
-        </AboutRow>
-        <AboutRow label="帮助">
-          <div className="flex flex-wrap gap-3">
-            <Button type="button" variant="outline" className="h-11 justify-start px-4 text-base font-normal" asChild>
-              <a href={`${projectRepositoryUrl}#readme`} target="_blank" rel="noreferrer">
-                <BookOpen className="h-5 w-5 text-sky-500" />
-                项目文档
-              </a>
-            </Button>
-            <Button type="button" variant="outline" className="h-11 justify-start px-4 text-base font-normal" asChild>
-              <a href={`${projectRepositoryUrl}/blob/main/LICENSE`} target="_blank" rel="noreferrer">
-                <Scale className="h-5 w-5 text-emerald-500" />
-                开源协议
-              </a>
-            </Button>
-          </div>
-        </AboutRow>
-      </CardContent>
-    </Card>
-  )
-}
-
-function AboutRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="grid gap-2 sm:grid-cols-[4.5rem_minmax(0,1fr)] sm:items-center">
-      <div className="font-medium text-muted-foreground">{label}：</div>
-      <div className="min-w-0">{children}</div>
-    </div>
-  )
 }
 
 function TestSMTPDialog({ disabled }: { disabled?: boolean }) {
@@ -2215,8 +2229,8 @@ function sendAuditBadgeVariant(event?: string) {
   return "secondary"
 }
 
-function Stat({ icon, label, value, detail }: { icon: React.ReactNode; label: string; value: React.ReactNode; detail: string }) {
-  return <Card><CardContent className="flex min-h-[84px] items-center gap-3 p-4"><div className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-muted text-foreground [&>svg]:h-4 [&>svg]:w-4">{icon}</div><div className="min-w-0"><div className="flex items-baseline gap-2"><div className="truncate text-xl font-semibold leading-7">{value}</div><div className="truncate text-sm text-muted-foreground">{label}</div></div><div className="mt-0.5 truncate text-xs text-muted-foreground">{detail}</div></div></CardContent></Card>
+function Stat({ icon, tone, label, value, detail }: { icon: React.ReactNode; tone: "primary" | "cyan" | "sky" | "violet"; label: string; value: React.ReactNode; detail: string }) {
+  return <Card className="border-border/80"><CardContent className="flex min-h-[88px] items-center gap-3 p-3 !pt-3"><div className={cn("grid h-10 w-10 shrink-0 place-items-center rounded-lg [&>svg]:h-5 [&>svg]:w-5", tone === "primary" && "bg-primary/5 text-primary", tone === "cyan" && "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400", tone === "sky" && "bg-sky-500/10 text-sky-600 dark:text-sky-400", tone === "violet" && "bg-violet-500/10 text-violet-600 dark:text-violet-400")}>{icon}</div><div className="min-w-0"><div className="truncate text-xs font-medium">{label}</div><div className="truncate text-2xl font-semibold leading-7 tabular-nums">{value}</div><div className="truncate text-[11px] text-muted-foreground">{detail}</div></div></CardContent></Card>
 }
 function InfoBox({ label, value }: { label: string; value: React.ReactNode }) { return <div className="rounded-lg border p-4"><div className="text-xl font-semibold tracking-tight sm:text-2xl">{value}</div><div className="text-xs text-muted-foreground">{label}</div></div> }
 function Empty({ text }: { text: string }) { return <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">{text}</div> }
@@ -2232,7 +2246,6 @@ function QueryFailure({ error, onRetry, compact = false }: { error: unknown; onR
     </div>
   )
 }
-function DomainBadgeRow({ domain }: { domain: Domain }) { return <div className="flex items-center justify-between rounded-lg border p-3"><span className="font-medium">{domain.name}</span><Badge variant={domain.dnsStatus === "ok" ? "default" : "secondary"}>{domain.dnsStatus === "ok" ? "正常" : domain.dnsStatus}</Badge></div> }
 function invalidateAdmin(qc: ReturnType<typeof useQueryClient>) { qc.invalidateQueries({ queryKey: ["admin"] }); qc.invalidateQueries({ queryKey: ["mailboxes"] }); qc.invalidateQueries({ queryKey: ["me"] }) }
 
 function UserMailboxCell({ user }: { user: AdminUser }) {

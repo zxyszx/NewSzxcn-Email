@@ -1,12 +1,13 @@
 import * as React from "react"
 import { Outlet, Link, useLocation } from "react-router-dom"
-import { ArchiveRestore, BarChart3, ClipboardList, Forward, Globe2, Inbox, LogOut, Mail, Mailbox, Settings, ShieldCheck, UserCog } from "lucide-react"
+import { ArchiveRestore, ClipboardList, Forward, Globe2, Inbox, LayoutDashboard, LogOut, Mailbox, Settings, ShieldCheck, UserCog } from "lucide-react"
 import { useMe } from "@/hooks/use-me"
 import { useLogout } from "@/hooks/use-logout"
 import { AuthGuard } from "@/components/auth-guard"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { SystemVersionDialog } from "@/components/system-version-dialog"
+import { BrandMark } from "@/components/brand-mark"
 import { hasAnyPermission } from "@/lib/permissions"
 import type { PermissionKey } from "@/lib/api-types"
 import {
@@ -27,7 +28,7 @@ import {
 } from "@/components/ui/sidebar"
 
 const adminSections: { key: string; label: string; icon: React.ReactNode; permissions: PermissionKey[] }[] = [
-  { key: "overview", label: "数据总览", icon: <BarChart3 />, permissions: ["admin.overview.view"] },
+  { key: "overview", label: "仪表盘", icon: <LayoutDashboard />, permissions: ["admin.overview.view"] },
   { key: "users", label: "账号管理", icon: <UserCog />, permissions: ["admin.users.view"] },
   { key: "permissionGroups", label: "权限配置", icon: <ShieldCheck />, permissions: ["admin.permission_groups.view"] },
   { key: "domains", label: "域名管理", icon: <Globe2 />, permissions: ["admin.domains.view", "admin.dns.view"] },
@@ -72,9 +73,7 @@ function ProtectedContent() {
               <SidebarMenuItem>
                 <SidebarMenuButton size="lg" asChild>
                   <Link to="/">
-                    <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                      <Mail className="size-4" />
-                    </div>
+                    <BrandMark className="size-8 rounded-md [&>svg]:size-5" />
                     <div className="grid flex-1 text-left text-sm leading-tight">
                       <span className="truncate font-semibold">NewSzxcn 邮箱</span>
                     </div>
@@ -115,7 +114,7 @@ function ProtectedContent() {
             </SidebarMenuItem>
           </SidebarMenu>
           <div className="p-2">
-            <Button variant="outline" size="sm" className="w-full gap-2 text-xs" onClick={logout}>
+            <Button variant="outline" size="sm" className="w-full gap-2 border-destructive/35 text-xs text-destructive shadow-none hover:border-destructive/55 hover:bg-destructive/10 hover:text-destructive dark:border-destructive/45 dark:hover:bg-destructive/15" onClick={logout}>
               <LogOut className="h-3.5 w-3.5" />退出登录
             </Button>
           </div>
