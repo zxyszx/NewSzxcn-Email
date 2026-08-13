@@ -2,7 +2,7 @@ import * as React from "react"
 import DOMPurify from "dompurify"
 import { useSearchParams } from "react-router-dom"
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { AlertCircle, BookOpen, CheckCircle2, ChevronDown, ChevronRight, Circle, ClipboardList, Clock3, Cloud, Copy, Database, Download, ExternalLink, Eye, EyeOff, Github, Globe2, HardDrive, KeyRound, Loader2, Mail, MoreHorizontal, RefreshCcw, Scale, Search, Send, ShieldCheck, Star, Trash2, UserRound } from "lucide-react"
+import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight, Circle, ClipboardList, Clock3, Cloud, Copy, Database, Download, ExternalLink, Eye, EyeOff, Globe2, HardDrive, KeyRound, Loader2, Mail, MoreHorizontal, RefreshCcw, Search, Send, ShieldCheck, Trash2, UserRound } from "lucide-react"
 import { api, AdminOverview, AdminUser, Alias, DNSRecord, Domain, Mailbox as MailboxType, MailMessage, MailTemplate, MaildirSyncHealth, PermissionGroup, PermissionInfo, PermissionLimits, SystemSettings } from "@/lib/api"
 import { cn, decodeMimeHeader, formatBytes, formatDate } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -20,14 +20,13 @@ import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import { ConfirmDialog } from "@/components/confirm-dialog"
-import { SystemVersionDialog } from "@/components/system-version-dialog"
 import { useMe } from "@/hooks/use-me"
 import { useToast } from "@/hooks/use-toast"
 import { hasAnyPermission, hasPermission } from "@/lib/permissions"
 import type { BackupTransfer, PermissionKey, TelegramPairing } from "@/lib/api-types"
 
 type Section = "overview" | "users" | "permissionGroups" | "domains" | "mailboxes" | "aliases" | "messages" | "sendAudit" | "backups" | "settings"
-type SettingsTab = "base" | "smtp" | "storage" | "mail" | "notifications" | "externalImap" | "templates" | "security" | "about"
+type SettingsTab = "base" | "smtp" | "storage" | "mail" | "notifications" | "externalImap" | "templates" | "security"
 type PendingConfirm = { title: string; description?: string; confirmText: string; onConfirm: () => void }
 
 const sectionMeta: Record<Section, { label: string; description: string }> = {
@@ -56,8 +55,6 @@ const sectionPermissions: Record<Section, PermissionKey[]> = {
   backups: ["admin.settings.view"],
   settings: ["admin.settings.view", "admin.templates.view"],
 }
-const projectRepositoryUrl = "https://github.com/zxyszx/NewSzxcn-Email"
-const projectTelegramUrl = "https://t.me/+EhII7MSyi3QwNDQ5"
 const defaultPermissionLimits: PermissionLimits = { maxAttachmentMb: 25, maxMailboxCount: 9, smtpDailyLimit: 200, smtpMinuteLimit: 20, imapMinuteLimit: 200, pop3MinuteLimit: 150 }
 const defaultMailboxLimitOverride = 9
 const defaultUserStorageQuotaMb = 100
@@ -1543,7 +1540,7 @@ function SystemSettingsSection({ settings, domains, mailboxes, initialTab }: { s
   const canResetTemplates = hasPermission(user, "admin.templates.reset")
   const templates = useQuery({ queryKey: ["admin", "mail-templates"], queryFn: api.mailTemplates, enabled: canViewTemplates })
   const requestedTab = initialTab as SettingsTab | undefined
-  const [settingsTab, setSettingsTab] = React.useState<SettingsTab>(() => requestedTab && ["base", "smtp", "storage", "mail", "notifications", "externalImap", "templates", "security", "about"].includes(requestedTab) ? requestedTab : "base")
+  const [settingsTab, setSettingsTab] = React.useState<SettingsTab>(() => requestedTab && ["base", "smtp", "storage", "mail", "notifications", "externalImap", "templates", "security"].includes(requestedTab) ? requestedTab : "base")
   const maildirHealth = useQuery({ queryKey: ["admin", "maildir-sync", "health"], queryFn: api.maildirSyncHealth, enabled: canSettingsView && settingsTab === "storage" })
   const [smtpRequireTls, setSmtpRequireTls] = React.useState(false)
   const [allowInsecureHttp, setAllowInsecureHttp] = React.useState(true)
@@ -1703,11 +1700,10 @@ function SystemSettingsSection({ settings, domains, mailboxes, initialTab }: { s
     ] : []),
     ...(canViewTemplates ? [{ key: "templates" as const, label: "模板" }] : []),
     ...(canSettingsView ? [{ key: "security" as const, label: "安全" }] : []),
-    { key: "about", label: "关于" },
   ]
   React.useEffect(() => {
     if (tabs.some((tab) => tab.key === settingsTab)) return
-    setSettingsTab(tabs[0]?.key || "about")
+    setSettingsTab(tabs[0]?.key || "base")
   }, [settingsTab, tabs])
   return (
     <form key={formKey} onSubmit={(event) => { event.preventDefault(); if (canUpdateSettings) save.mutate(new FormData(event.currentTarget)) }} className="space-y-6">
@@ -1950,9 +1946,7 @@ function SystemSettingsSection({ settings, domains, mailboxes, initialTab }: { s
         </CardContent>
       </Card>}
 
-      {settingsTab === "about" && <AboutProjectCard />}
-
-      {settingsTab !== "about" && canUpdateSettings && <div className="flex justify-end">
+      {canUpdateSettings && <div className="flex justify-end">
         <Button disabled={save.isPending || !settings}>{save.isPending ? "保存中..." : "保存设置"}</Button>
       </div>}
     </form>
@@ -2053,76 +2047,6 @@ function formatDuration(value?: number) {
 
 function queryErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "读取 Maildir 同步健康失败"
-}
-
-function AboutProjectCard() {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>关于</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4 text-sm">
-        <AboutRow label="版本">
-          <SystemVersionDialog mode="inline" />
-        </AboutRow>
-        <AboutRow label="交流">
-          <div className="flex flex-wrap gap-3">
-            <Button type="button" variant="outline" className="h-11 justify-start px-4 text-base font-normal" asChild>
-              <a href={projectRepositoryUrl} target="_blank" rel="noreferrer">
-                <Github className="h-5 w-5" />
-                GitHub
-              </a>
-            </Button>
-            <Button type="button" variant="outline" className="h-11 justify-start px-4 text-base font-normal" asChild>
-              <a href={`${projectRepositoryUrl}/issues`} target="_blank" rel="noreferrer">
-                <Circle className="h-5 w-5 text-muted-foreground" />
-                Issues
-              </a>
-            </Button>
-            <Button type="button" variant="outline" className="h-11 justify-start px-4 text-base font-normal" asChild>
-              <a href={projectTelegramUrl} target="_blank" rel="noreferrer">
-                <ExternalLink className="h-5 w-5 text-sky-500" />
-                Telegram 群组
-              </a>
-            </Button>
-          </div>
-        </AboutRow>
-        <AboutRow label="支持">
-          <Button type="button" variant="outline" className="h-11 justify-start px-4 text-base font-normal" asChild>
-            <a href={projectRepositoryUrl} target="_blank" rel="noreferrer">
-              <Star className="h-5 w-5 text-yellow-500" />
-              给项目点 Star
-            </a>
-          </Button>
-        </AboutRow>
-        <AboutRow label="帮助">
-          <div className="flex flex-wrap gap-3">
-            <Button type="button" variant="outline" className="h-11 justify-start px-4 text-base font-normal" asChild>
-              <a href={`${projectRepositoryUrl}#readme`} target="_blank" rel="noreferrer">
-                <BookOpen className="h-5 w-5 text-sky-500" />
-                项目文档
-              </a>
-            </Button>
-            <Button type="button" variant="outline" className="h-11 justify-start px-4 text-base font-normal" asChild>
-              <a href={`${projectRepositoryUrl}/blob/main/LICENSE`} target="_blank" rel="noreferrer">
-                <Scale className="h-5 w-5 text-emerald-500" />
-                开源协议
-              </a>
-            </Button>
-          </div>
-        </AboutRow>
-      </CardContent>
-    </Card>
-  )
-}
-
-function AboutRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="grid gap-2 sm:grid-cols-[4.5rem_minmax(0,1fr)] sm:items-center">
-      <div className="font-medium text-muted-foreground">{label}：</div>
-      <div className="min-w-0">{children}</div>
-    </div>
-  )
 }
 
 function TestSMTPDialog({ disabled }: { disabled?: boolean }) {
