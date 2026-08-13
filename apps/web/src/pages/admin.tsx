@@ -17,6 +17,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import { ConfirmDialog } from "@/components/confirm-dialog"
@@ -86,11 +87,13 @@ export function AdminPage() {
   const canMessagesView = hasPermission(user, "admin.messages.view")
   const canSettingsView = hasPermission(user, "admin.settings.view")
   const canTemplatesView = hasPermission(user, "admin.templates.view")
+  const canLoadDomains = canUsersView || canDomainsView || canDNSView || canMailboxesView || canAliasesView || canSettingsView || canTemplatesView
+  const canLoadMailboxes = canMailboxesView || canMessagesView || canSettingsView
   const overview = useQuery({ queryKey: ["admin", "overview"], queryFn: api.adminOverview, enabled: !!user && canOverview })
   const users = useQuery({ queryKey: ["admin", "users"], queryFn: api.users, enabled: !!user && (canUsersView || canMailboxesView) })
   const permissionGroups = useQuery({ queryKey: ["admin", "permission-groups"], queryFn: api.permissionGroups, enabled: !!user && (canPermissionGroupsView || canUsersView) })
-  const domains = useQuery({ queryKey: ["admin", "domains"], queryFn: api.domains, enabled: !!user && (canUsersView || canDomainsView || canDNSView || canMailboxesView || canAliasesView || canSettingsView || canTemplatesView) })
-  const mailboxes = useQuery({ queryKey: ["admin", "mailboxes"], queryFn: api.mailboxes, enabled: !!user && (canMailboxesView || canMessagesView || canSettingsView) })
+  const domains = useQuery({ queryKey: ["admin", "domains"], queryFn: api.domains, enabled: !!user && canLoadDomains })
+  const mailboxes = useQuery({ queryKey: ["admin", "mailboxes"], queryFn: api.mailboxes, enabled: !!user && canLoadMailboxes })
   const aliases = useQuery({ queryKey: ["admin", "aliases"], queryFn: api.aliases, enabled: !!user && canAliasesView })
   const settings = useQuery({ queryKey: ["admin", "settings"], queryFn: api.systemSettings, enabled: !!user && canSettingsView })
   const [params, setParams] = useSearchParams()
@@ -104,14 +107,18 @@ export function AdminPage() {
   const visibleSections = sectionKeys.filter((key) => hasAnyPermission(user, sectionPermissions[key]) && (key !== "backups" || user?.role === "admin"))
   const rawSection = params.get("section") as Section | null
   const section: Section = rawSection && visibleSections.includes(rawSection) ? rawSection : visibleSections[0] || "overview"
-  const sectionQuery = section === "overview" ? overview
-    : section === "users" ? users
-      : section === "permissionGroups" ? permissionGroups
-        : section === "domains" ? domains
-          : section === "mailboxes" ? mailboxes
-            : section === "aliases" ? aliases
-              : section === "settings" ? settings
-                : null
+  const sectionQueries = section === "overview" ? [overview, ...(canLoadDomains ? [domains] : []), ...(canSettingsView ? [settings] : [])]
+    : section === "users" ? [users, permissionGroups, domains]
+      : section === "permissionGroups" ? [permissionGroups]
+        : section === "domains" ? [domains]
+          : section === "mailboxes" ? [mailboxes, users, domains]
+            : section === "aliases" ? [aliases, domains]
+              : section === "messages" || section === "sendAudit" ? [mailboxes]
+                : section === "settings" ? [domains, ...(canLoadMailboxes ? [mailboxes] : []), ...(canSettingsView ? [settings] : [])]
+                  : []
+  const sectionLoading = sectionQueries.some((query) => query.isPending)
+  const sectionError = sectionQueries.find((query) => query.isError)
+  const sectionReady = !sectionLoading && !sectionError
 
   async function refreshAdminPage() {
     if (refreshing) return
@@ -130,17 +137,18 @@ export function AdminPage() {
     }
   }
 
-  const overviewChecklist = setupChecklist(overview.data, domainItems, settings.data).filter((item) => visibleSections.includes(item.section))
+  const overviewChecklist = sectionReady && section === "overview" ? setupChecklist(overview.data, domainItems, settings.data).filter((item) => visibleSections.includes(item.section)) : undefined
   const changeSection = (next: Section) => setParams(next === "overview" ? {} : { section: next })
 
   return (
     <ScrollArea className="h-[calc(100svh-3rem)] md:h-svh">
       <main className="admin-page mx-auto w-full max-w-[1320px] px-3 pb-8 pt-3 sm:px-4 sm:pt-4">
-        <AdminPageHeader section={section} refreshing={refreshing} onRefresh={refreshAdminPage} checklist={section === "overview" ? overviewChecklist : undefined} onSectionChange={changeSection} />
+        <AdminPageHeader section={section} refreshing={refreshing} onRefresh={refreshAdminPage} checklist={overviewChecklist} onSectionChange={changeSection} />
 
-        {sectionQuery?.isError && <QueryFailure error={sectionQuery.error} onRetry={() => { void sectionQuery.refetch() }} />}
+        {sectionError && <QueryFailure error={sectionError.error} onRetry={() => { void Promise.all(sectionQueries.map((query) => query.refetch())) }} />}
+        {sectionLoading && <AdminSectionLoading overview={section === "overview"} />}
 
-        {section === "overview" && canOverview && (
+        {sectionReady && section === "overview" && canOverview && (
           <section className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Stat icon={<UserRound />} tone="primary" label="账号" value={overview.data?.users || 0} detail={`${overview.data?.activeUsers || 0} 个活跃`} />
             <Stat icon={<Globe2 />} tone="cyan" label="邮件域名" value={overview.data?.domains || 0} detail={domainItems.some((domain) => domain.dnsStatus === "ok") ? `${domainItems.filter((domain) => domain.dnsStatus === "ok").length} 个 DNS 正常` : "待检测"} />
@@ -149,18 +157,29 @@ export function AdminPage() {
           </section>
         )}
 
-        {section === "overview" && <OverviewSection overview={overview.data} domains={domainItems} settings={settings.data} visibleSections={visibleSections} onSectionChange={changeSection} />}
-        {section === "users" && <UsersSection users={userItems} permissionGroups={assignablePermissionGroups} domains={domainItems} />}
-        {section === "permissionGroups" && <PermissionGroupsSection groups={permissionGroups.data?.items || []} catalog={permissionGroups.data?.catalog || []} />}
-        {section === "domains" && <DomainsSection domains={domainItems} />}
-        {section === "mailboxes" && <MailboxesSection mailboxes={mailboxItems} users={userItems} domains={domainItems} />}
-        {section === "aliases" && <AliasesSection aliases={aliasItems} domains={domainItems} />}
-        {section === "messages" && <AdminMessagesSection mailboxes={mailboxItems} systemAdmin={user?.role === "admin"} />}
-        {section === "sendAudit" && <AdminSendAuditSection mailboxes={mailboxItems} />}
-        {section === "backups" && <BackupsSection />}
-        {section === "settings" && <SystemSettingsSection settings={settings.data} domains={domainItems} mailboxes={mailboxItems} initialTab={params.get("settingsTab")} />}
+        {sectionReady && section === "overview" && <OverviewSection overview={overview.data} domains={domainItems} domainsAvailable={canLoadDomains} settings={settings.data} settingsAvailable={canSettingsView} visibleSections={visibleSections} onSectionChange={changeSection} />}
+        {sectionReady && section === "users" && <UsersSection users={userItems} permissionGroups={assignablePermissionGroups} domains={domainItems} />}
+        {sectionReady && section === "permissionGroups" && <PermissionGroupsSection groups={permissionGroups.data?.items || []} catalog={permissionGroups.data?.catalog || []} />}
+        {sectionReady && section === "domains" && <DomainsSection domains={domainItems} />}
+        {sectionReady && section === "mailboxes" && <MailboxesSection mailboxes={mailboxItems} users={userItems} domains={domainItems} />}
+        {sectionReady && section === "aliases" && <AliasesSection aliases={aliasItems} domains={domainItems} />}
+        {sectionReady && section === "messages" && <AdminMessagesSection mailboxes={mailboxItems} systemAdmin={user?.role === "admin"} />}
+        {sectionReady && section === "sendAudit" && <AdminSendAuditSection mailboxes={mailboxItems} />}
+        {sectionReady && section === "backups" && <BackupsSection />}
+        {sectionReady && section === "settings" && <SystemSettingsSection settings={settings.data} domains={domainItems} mailboxes={mailboxItems} initialTab={params.get("settingsTab")} />}
       </main>
     </ScrollArea>
+  )
+}
+
+function AdminSectionLoading({ overview = false }: { overview?: boolean }) {
+  return (
+    <div className="space-y-3" aria-label="正在加载后台数据" aria-busy="true">
+      {overview && <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">{Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-[88px] w-full" />)}</div>}
+      <Skeleton className={cn("w-full", overview ? "h-[126px]" : "h-[360px]")} />
+      {overview && <Skeleton className="h-[152px] w-full" />}
+      <span className="sr-only">加载中...</span>
+    </div>
   )
 }
 
@@ -215,7 +234,7 @@ function SetupChecklistDialog({ checklist, onSectionChange }: { checklist: Setup
   )
 }
 
-function OverviewSection({ overview, domains, settings, visibleSections, onSectionChange }: { overview?: AdminOverview; domains: Domain[]; settings?: SystemSettings; visibleSections: Section[]; onSectionChange: (section: Section) => void }) {
+function OverviewSection({ overview, domains, domainsAvailable, settings, settingsAvailable, visibleSections, onSectionChange }: { overview?: AdminOverview; domains: Domain[]; domainsAvailable: boolean; settings?: SystemSettings; settingsAvailable: boolean; visibleSections: Section[]; onSectionChange: (section: Section) => void }) {
   const { toast } = useToast()
   const dnsOK = domains.length > 0 && domains.every((domain) => domain.dnsStatus === "ok")
   const dnsWarning = domains.length > 0 && domains.some((domain) => domain.dnsStatus === "ok")
@@ -242,22 +261,22 @@ function OverviewSection({ overview, domains, settings, visibleSections, onSecti
             <DashboardGroupTitle>系统健康</DashboardGroupTitle>
             <div className="grid grid-cols-3 gap-2">
               <DashboardStatusItem label="系统" status={<LightStatus state="success" label="运行中" />} />
-              <DashboardStatusItem label="DNS" status={<LightStatus state={dnsOK ? "success" : dnsWarning ? "warning" : "muted"} label={dnsOK ? "正常" : dnsWarning ? "部分正常" : domains.length ? "未检测" : "未配置"} />} />
-              <DashboardStatusItem label="SMTP" status={<LightStatus state={settings?.smtpHost ? "success" : "warning"} label={settings?.smtpHost ? "已配置" : "未配置"} />} />
+              <DashboardStatusItem label="DNS" status={!domainsAvailable ? <LightStatus state="muted" label="不可查看" /> : <LightStatus state={dnsOK ? "success" : dnsWarning ? "warning" : "muted"} label={dnsOK ? "正常" : dnsWarning ? "部分正常" : domains.length ? "未检测" : "未配置"} />} />
+              <DashboardStatusItem label="SMTP" status={!settingsAvailable ? <LightStatus state="muted" label="不可查看" /> : <LightStatus state={settings?.smtpHost ? "success" : "warning"} label={settings?.smtpHost ? "已配置" : "未配置"} />} />
             </div>
           </div>
           <div className="rounded-md border border-border/80 px-3 py-2">
             <DashboardGroupTitle>服务信息</DashboardGroupTitle>
             <div className="grid grid-cols-2 gap-3">
-              <DashboardInfoItem label="公网地址" value={settings?.publicBaseUrl || "-"} onCopy={settings?.publicBaseUrl ? () => copyOverviewValue(settings.publicBaseUrl, "公网地址", toast) : undefined} />
-              <DashboardInfoItem label="SMTP" value={settings?.smtpHost ? `${settings.smtpHost}:${settings.smtpPort}` : "未配置"} onCopy={settings?.smtpHost ? () => copyOverviewValue(`${settings.smtpHost}:${settings.smtpPort}`, "SMTP 地址", toast) : undefined} />
+              <DashboardInfoItem label="公网地址" value={!settingsAvailable ? "不可查看" : settings?.publicBaseUrl || "-"} onCopy={settings?.publicBaseUrl ? () => copyOverviewValue(settings.publicBaseUrl, "公网地址", toast) : undefined} />
+              <DashboardInfoItem label="SMTP" value={!settingsAvailable ? "不可查看" : settings?.smtpHost ? `${settings.smtpHost}:${settings.smtpPort}` : "未配置"} onCopy={settings?.smtpHost ? () => copyOverviewValue(`${settings.smtpHost}:${settings.smtpPort}`, "SMTP 地址", toast) : undefined} />
             </div>
           </div>
           <div className="rounded-md border border-border/80 px-3 py-2">
             <DashboardGroupTitle>功能状态</DashboardGroupTitle>
             <div className="grid grid-cols-2 gap-3">
-              <DashboardStatusItem label="注册" status={<LightStatus state={settings?.openRegistration ? "success" : "muted"} label={settings?.openRegistration ? "已开放" : "关闭"} />} />
-              <DashboardStatusItem label="自助申请邮箱" status={<LightStatus state={settings?.userMailboxApplyEnabled ? "success" : "muted"} label={settings?.userMailboxApplyEnabled ? "已启用" : "关闭"} />} />
+              <DashboardStatusItem label="注册" status={!settingsAvailable ? <LightStatus state="muted" label="不可查看" /> : <LightStatus state={settings?.openRegistration ? "success" : "muted"} label={settings?.openRegistration ? "已开放" : "关闭"} />} />
+              <DashboardStatusItem label="自助申请邮箱" status={!settingsAvailable ? <LightStatus state="muted" label="不可查看" /> : <LightStatus state={settings?.userMailboxApplyEnabled ? "success" : "muted"} label={settings?.userMailboxApplyEnabled ? "已启用" : "关闭"} />} />
             </div>
           </div>
         </CardContent>
@@ -266,7 +285,7 @@ function OverviewSection({ overview, domains, settings, visibleSections, onSecti
       <Card className="border-border/80">
         <CardHeader className="flex-row items-center justify-between space-y-0 px-4 pb-2 pt-3"><div className="flex items-baseline gap-2"><CardTitle className="text-base">域名状态</CardTitle><span className="text-xs text-muted-foreground">{domains.length} 个域名</span></div>{visibleSections.includes("domains") && <Button type="button" variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => onSectionChange("domains")}>管理域名<ChevronRight className="h-3.5 w-3.5" /></Button>}</CardHeader>
         <CardContent className="px-4 pb-3">
-          {domains.length > 0 ? <div className="overflow-hidden rounded-md border border-border/80">
+          {!domainsAvailable ? <Empty text="没有权限查看域名详情" /> : domains.length > 0 ? <div className="overflow-hidden rounded-md border border-border/80">
             <div className="hidden grid-cols-[minmax(0,1fr)_120px_140px_150px_24px] items-center gap-3 border-b bg-muted/20 px-3 py-1.5 text-[11px] font-medium text-muted-foreground md:grid"><span>邮件域名</span><span>使用状态</span><span>DNS 状态</span><span>最近检测</span><span /></div>
             <div className="divide-y">{domains.slice(0, 5).map((domain) => {
               const dnsDisplay = dnsStatusDisplay(domain.dnsStatus)
@@ -528,6 +547,8 @@ function BackupsSection() {
     ;(groups[transfer.name] ||= []).push(transfer)
     return groups
   }, {})).sort((left, right) => Date.parse(right[0]?.startedAt || "") - Date.parse(left[0]?.startedAt || ""))
+  if (backups.isPending) return <AdminSectionLoading />
+  if (backups.isError) return <QueryFailure error={backups.error} onRetry={() => { void backups.refetch() }} compact />
   return (
     <div className="space-y-3">
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1.35fr)_minmax(300px,.65fr)]">
@@ -1542,23 +1563,23 @@ function SystemSettingsSection({ settings, domains, mailboxes, initialTab }: { s
   const requestedTab = initialTab as SettingsTab | undefined
   const [settingsTab, setSettingsTab] = React.useState<SettingsTab>(() => requestedTab && ["base", "smtp", "storage", "mail", "notifications", "externalImap", "templates", "security"].includes(requestedTab) ? requestedTab : "base")
   const maildirHealth = useQuery({ queryKey: ["admin", "maildir-sync", "health"], queryFn: api.maildirSyncHealth, enabled: canSettingsView && settingsTab === "storage" })
-  const [smtpRequireTls, setSmtpRequireTls] = React.useState(false)
-  const [allowInsecureHttp, setAllowInsecureHttp] = React.useState(true)
-  const [openRegistration, setOpenRegistration] = React.useState(false)
-  const [twoFactorEnabled, setTwoFactorEnabled] = React.useState(false)
-  const [turnstileEnabled, setTurnstileEnabled] = React.useState(false)
-  const [catchAllEnabled, setCatchAllEnabled] = React.useState(false)
-  const [mailAutoRefresh, setMailAutoRefresh] = React.useState(true)
-  const [userMailboxApplyEnabled, setUserMailboxApplyEnabled] = React.useState(false)
-  const [userMailboxDomainIds, setUserMailboxDomainIds] = React.useState<string[]>([])
-  const [externalImapEnabled, setExternalImapEnabled] = React.useState(false)
-  const [externalImapAllowPrivateHosts, setExternalImapAllowPrivateHosts] = React.useState(false)
-  const [telegramMailEnabled, setTelegramMailEnabled] = React.useState(false)
+  const [smtpRequireTls, setSmtpRequireTls] = React.useState(() => settings?.smtpRequireTls ?? false)
+  const [allowInsecureHttp, setAllowInsecureHttp] = React.useState(() => settings?.allowInsecureHttp ?? true)
+  const [openRegistration, setOpenRegistration] = React.useState(() => settings?.openRegistration ?? false)
+  const [twoFactorEnabled, setTwoFactorEnabled] = React.useState(() => settings?.twoFactorEnabled ?? false)
+  const [turnstileEnabled, setTurnstileEnabled] = React.useState(() => settings?.turnstileEnabled ?? false)
+  const [catchAllEnabled, setCatchAllEnabled] = React.useState(() => settings?.catchAllEnabled ?? false)
+  const [mailAutoRefresh, setMailAutoRefresh] = React.useState(() => settings?.mailAutoRefresh ?? true)
+  const [userMailboxApplyEnabled, setUserMailboxApplyEnabled] = React.useState(() => settings?.userMailboxApplyEnabled ?? false)
+  const [userMailboxDomainIds, setUserMailboxDomainIds] = React.useState<string[]>(() => settings?.userMailboxDomainIds || [])
+  const [externalImapEnabled, setExternalImapEnabled] = React.useState(() => settings?.externalImapEnabled ?? false)
+  const [externalImapAllowPrivateHosts, setExternalImapAllowPrivateHosts] = React.useState(() => settings?.externalImapAllowPrivateHosts ?? false)
+  const [telegramMailEnabled, setTelegramMailEnabled] = React.useState(() => settings?.telegramMailEnabled ?? false)
   const [telegramBotToken, setTelegramBotToken] = React.useState("")
-  const [telegramPrivateChatId, setTelegramPrivateChatId] = React.useState("")
-  const [telegramBodyMode, setTelegramBodyMode] = React.useState<"summary" | "full">("summary")
-  const [telegramMailboxIds, setTelegramMailboxIds] = React.useState<string[]>([])
-  const [telegramIncludeUnregistered, setTelegramIncludeUnregistered] = React.useState(false)
+  const [telegramPrivateChatId, setTelegramPrivateChatId] = React.useState(() => settings?.telegramPrivateChatId || "")
+  const [telegramBodyMode, setTelegramBodyMode] = React.useState<"summary" | "full">(() => settings?.telegramBodyMode === "full" ? "full" : "summary")
+  const [telegramMailboxIds, setTelegramMailboxIds] = React.useState<string[]>(() => settings?.telegramMailboxIds || [])
+  const [telegramIncludeUnregistered, setTelegramIncludeUnregistered] = React.useState(() => settings?.telegramIncludeUnregistered ?? false)
   const [telegramPairing, setTelegramPairing] = React.useState<TelegramPairing | null>(null)
   React.useEffect(() => {
     if (!settings) return
