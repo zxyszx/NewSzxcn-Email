@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -352,6 +353,37 @@ func TestTelegramMailboxScopeAndOriginalRecipient(t *testing.T) {
 	}
 	if msg.RecipientAddr != "admin@lanqin.local" {
 		t.Fatalf("wrong original recipient: %q", msg.RecipientAddr)
+	}
+}
+
+func TestParseMaildirMessageDecodesAppleGB2312(t *testing.T) {
+	subject := "验证 Apple 账户电子邮件地址"
+	body := "你的 Apple 验证码是 978534"
+	encodedSubject, err := simplifiedchinese.GBK.NewEncoder().Bytes([]byte(subject))
+	if err != nil {
+		t.Fatal(err)
+	}
+	encodedBody, err := simplifiedchinese.GBK.NewEncoder().Bytes([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte("From: Apple <appleid@id.apple.com>\r\n" +
+		"To: admin@example.com\r\n" +
+		"Subject: =?gb2312?B?" + base64.StdEncoding.EncodeToString(encodedSubject) + "?=\r\n" +
+		"Content-Type: text/plain; charset=gb2312\r\n" +
+		"Content-Transfer-Encoding: base64\r\n\r\n" +
+		base64.StdEncoding.EncodeToString(encodedBody))
+	a := newTestApp(t)
+	stopTestWorkers(a)
+	msg, _, err := a.parseMaildirMessage(raw, "admin@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg.Subject != subject {
+		t.Fatalf("GB2312 subject was not decoded: %q", msg.Subject)
+	}
+	if msg.BodyText != body {
+		t.Fatalf("GB2312 body was not decoded: %q", msg.BodyText)
 	}
 }
 

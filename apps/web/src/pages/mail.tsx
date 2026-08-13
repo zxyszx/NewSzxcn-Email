@@ -653,8 +653,8 @@ export function MailPage() {
 
     const first = newMessages[0]
     const firstSender = senderDisplayName(first)
-    const title = newMessages.length > 1 ? `收到 ${newMessages.length} 封新邮件` : `新邮件：${first.subject || "(无主题)"}`
-    const description = newMessages.length > 1 ? `${firstSender} 等发来新邮件` : `${firstSender}${first.snippet ? ` · ${first.snippet}` : ""}`
+    const title = newMessages.length > 1 ? `收到 ${newMessages.length} 封新邮件` : `新邮件：${messageSubject(first)}`
+    const description = newMessages.length > 1 ? `${firstSender} 等发来新邮件` : firstSender
     const openFirstMessage = () => {
       setMailView("folder")
       setFolder("Inbox")
@@ -869,11 +869,12 @@ export function MailPage() {
   }
   function confirmDeleteMessage(message: MailMessage) {
     const permanent = message.folder === "Trash"
+    const subject = messageSubject(message)
     setPendingConfirm({
       title: permanent ? "永久删除这封邮件？" : "将这封邮件移入已删除？",
       description: permanent
-        ? `邮件“${message.subject || "无主题"}”将被永久删除，且无法恢复。`
-        : `邮件“${message.subject || "无主题"}”将移入已删除。`,
+        ? `邮件“${subject}”将被永久删除，且无法恢复。`
+        : `邮件“${subject}”将移入已删除。`,
       confirmText: permanent ? "永久删除" : "移入已删除",
       onConfirm: () => del.mutate({ id: message.id, permanent }),
     })
@@ -886,11 +887,11 @@ export function MailPage() {
   }
   function openReply(message: MailMessage) {
     if (!canSendMail) return
-    openCompose({ key: `reply-${message.id}-${Date.now()}`, mailboxId: message.mailboxId, to: message.from, subject: withPrefix(message.subject, "Re:"), text: quoteMessage(message) })
+    openCompose({ key: `reply-${message.id}-${Date.now()}`, mailboxId: message.mailboxId, to: message.from, subject: withPrefix(messageSubject(message), "Re:"), text: quoteMessage(message) })
   }
   function openForward(message: MailMessage) {
     if (!canSendMail) return
-    openCompose({ key: `forward-${message.id}-${Date.now()}`, mailboxId: message.mailboxId, subject: withPrefix(message.subject, "Fwd:"), text: quoteMessage(message) })
+    openCompose({ key: `forward-${message.id}-${Date.now()}`, mailboxId: message.mailboxId, subject: withPrefix(messageSubject(message), "Fwd:"), text: quoteMessage(message) })
   }
   async function openDraft(message: MailMessage) {
     if (!canManageDrafts) return
@@ -1942,6 +1943,7 @@ export function MailPage() {
       <CreateFolderDialog
         open={folderDialogOpen}
         pending={createFolder.isPending}
+        scope={isAllMailboxSelected ? "全部邮箱" : selectedMailbox?.address || "当前邮箱"}
         onOpenChange={setFolderDialogOpen}
         onCreate={(payload) => createFolder.mutate(payload)}
       />
@@ -2825,7 +2827,7 @@ function contextMenuPosition(x: number, y: number) {
   return { x: Math.min(Math.max(x, padding), maxX), y: Math.min(Math.max(y, padding), maxY) }
 }
 
-function CreateFolderDialog({ open, pending, onOpenChange, onCreate }: { open: boolean; pending: boolean; onOpenChange: (open: boolean) => void; onCreate: (payload: { name: string; icon: string }) => void }) {
+function CreateFolderDialog({ open, pending, scope, onOpenChange, onCreate }: { open: boolean; pending: boolean; scope: string; onOpenChange: (open: boolean) => void; onCreate: (payload: { name: string; icon: string }) => void }) {
   const [name, setName] = React.useState("")
   const [icon, setIcon] = React.useState("auto")
   const [uploadError, setUploadError] = React.useState("")
@@ -2856,6 +2858,7 @@ function CreateFolderDialog({ open, pending, onOpenChange, onCreate }: { open: b
           <div className="space-y-2">
             <Label htmlFor="new-folder-name">文件夹名称</Label>
             <Input id="new-folder-name" autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：客户、账单、项目归档" />
+            <p className="text-xs text-muted-foreground">创建位置：{scope}</p>
           </div>
           <fieldset className="space-y-2">
             <legend className="text-sm font-medium">图标</legend>
@@ -3190,7 +3193,7 @@ function CompactMessageDetail({
             <div className="w-full px-4 py-4 sm:px-8 sm:py-6">
               <div className="space-y-5 border-b pb-5">
                 <div className="flex items-start gap-3">
-                  <h1 className="min-w-0 flex-1 break-words text-xl font-semibold tracking-tight sm:text-2xl">{selected.subject}</h1>
+                  <h1 className="min-w-0 flex-1 break-words text-xl font-semibold tracking-tight sm:text-2xl">{messageSubject(selected)}</h1>
                   {canOrganize && <Button type="button" variant="ghost" size="icon" aria-label={selected.isStarred ? "取消星标" : "添加星标"} className="text-muted-foreground hover:text-yellow-500" onClick={() => onStar(selected)}>
                     <Star className={cn("h-5 w-5", selected.isStarred && "fill-yellow-400 text-yellow-500")} />
                   </Button>}
@@ -3416,7 +3419,7 @@ function CompactMessageRow({ message, active, checked, scheduled, onCheckedChang
             </div>
           </div>
           <div className="mt-1 flex min-w-0 items-center gap-2 sm:mt-0">
-            <span className="truncate font-medium">{message.subject}</span>
+            <span className="truncate font-medium">{messageSubject(message)}</span>
             <span className="hidden min-w-0 truncate text-muted-foreground sm:block">{message.snippet}</span>
             {scheduled && <Badge variant="secondary" className="h-5 shrink-0 rounded-md px-1.5 text-[11px] font-normal">已定时</Badge>}
             {visibleLabels.map((label) => <MailLabelBadge key={label.id} label={label} />)}
@@ -3494,7 +3497,7 @@ function AccountHeader({ collapsed, name, email, darkMode, language, onToggleThe
       </div>
       <div className="flex shrink-0 items-center gap-1">
         <Button type="button" variant="ghost" size="icon" className="size-7 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={onToggleTheme} title={darkMode ? "切换到浅色模式" : "切换到深色模式"} aria-label={darkMode ? "切换到浅色模式" : "切换到深色模式"}>
-          {darkMode ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+          {darkMode ? <Sun className="h-3.5 w-3.5 text-amber-500" /> : <Moon className="h-3.5 w-3.5" />}
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -3618,6 +3621,10 @@ function senderDisplayName(message: MailMessage) {
   const fromName = decodeMimeHeader(message.fromName?.trim() || "")
   if (fromName) return fromName
   return displayNameFromAddress(message.from)
+}
+
+function messageSubject(message: MailMessage) {
+  return decodeMimeHeader(message.subject?.trim() || "") || "无主题"
 }
 
 function displayNameFromAddress(value: string) {
@@ -3875,7 +3882,7 @@ function MessageRow({
           </div>
         </div>
         <div className="mb-1 flex min-w-0 items-center gap-2">
-          <span className="min-w-0 truncate text-[13px] text-foreground">{message.subject || "无主题"}</span>
+          <span className="min-w-0 truncate text-[13px] text-foreground">{messageSubject(message)}</span>
           {scheduled && <Badge variant="secondary" className="h-5 shrink-0 rounded-md px-1.5 text-[11px] font-normal">已定时</Badge>}
           {visibleLabels.map((label) => <MailLabelBadge key={label.id} label={label} />)}
           {hiddenLabelCount > 0 && <Badge variant="outline" className="h-5 shrink-0 rounded-md px-1.5 text-[11px] font-normal text-muted-foreground">+{hiddenLabelCount}</Badge>}
@@ -5329,7 +5336,7 @@ function withPrefix(subject: string, prefix: string) { return subject.toLowerCas
 function quoteMessage(message: MailMessage) {
   const body = message.bodyText || stripHtml(message.bodyHtml || message.snippet || "")
   const quote = body.split("\n").map((line) => `> ${line}`).join("\n")
-  return `\n\n----- 原始邮件 -----\nFrom: ${senderTitle(message)}\nTo: ${message.to.join(", ")}\nDate: ${formatDateTime(message.receivedAt)}\nSubject: ${message.subject}\n\n${quote}`
+  return `\n\n----- 原始邮件 -----\nFrom: ${senderTitle(message)}\nTo: ${message.to.join(", ")}\nDate: ${formatDateTime(message.receivedAt)}\nSubject: ${messageSubject(message)}\n\n${quote}`
 }
 function stripHtml(html: string) { const div = document.createElement("div"); div.innerHTML = DOMPurify.sanitize(html); return div.textContent || div.innerText || "" }
 function attachmentLimitBytes(limits?: PermissionLimits) {

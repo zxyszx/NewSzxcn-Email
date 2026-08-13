@@ -21,6 +21,7 @@ import (
 
 	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/ianaindex"
+	"golang.org/x/text/encoding/simplifiedchinese"
 )
 
 type maildirMailbox struct {
@@ -821,6 +822,14 @@ func charsetReader(charset string, input io.Reader) (io.Reader, error) {
 	charset = strings.ToLower(strings.TrimSpace(charset))
 	if charset == "utf-8" || charset == "us-ascii" {
 		return input, nil
+	}
+	// GB2312 is commonly used as a label for GBK-compatible mail content.
+	// ianaindex does not consistently resolve these real-world aliases.
+	switch charset {
+	case "gb2312", "gb_2312-80", "x-gbk", "euc-cn", "cp936", "ms936", "windows-936":
+		return simplifiedchinese.GBK.NewDecoder().Reader(input), nil
+	case "gb18030":
+		return simplifiedchinese.GB18030.NewDecoder().Reader(input), nil
 	}
 	enc, err := ianaindex.IANA.Encoding(charset)
 	if err != nil {

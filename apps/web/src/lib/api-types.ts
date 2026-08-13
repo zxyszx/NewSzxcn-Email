@@ -53,7 +53,11 @@ export type PermissionGroup = { id: string; name: string; description: string; p
 export type User = { id: string; loginName?: string; email: string; displayName: string; role: "admin" | "user"; disabled: boolean; protected: boolean; twoFactorEnabled: boolean; mailboxLimitOverride?: number | null; permissions: PermissionKey[]; limits: PermissionLimits; permissionGroupIds: string[]; permissionGroups: PermissionGroupSummary[]; createdAt: string }
 export type APIToken = { id: string; name: string; lastUsedAt?: string; expiresAt?: string; disabled: boolean; scopes: string[]; createdAt: string; updatedAt: string }
 export type AdminUser = User & { mailboxCount: number; mailboxes?: string[]; storageQuotaMb: number }
-export type AdminOverview = { users: number; activeUsers: number; domains: number; mailboxes: number; activeMailboxes: number; aliases: number; messages: number; unreadMessages: number; storageBytes: number }
+export type AdminOverview = {
+  users: number; activeUsers: number; domains: number; mailboxes: number; activeMailboxes: number
+  aliases: number; messages: number; unreadMessages: number; storageBytes: number
+  todaySent: number; todayReceived: number; sendDelivered: number; sendFailed: number; queueMessages: number
+}
 export type Domain = { id: string; name: string; status: string; dkimSelector: string; dkimPublicKey?: string; dnsStatus: string; dnsCheckedAt?: string; createdAt: string }
 export type Mailbox = { id: string; userId: string; userEmail?: string; domainId: string; localPart: string; address: string; displayName: string; quotaMb: number; status: string; primary?: boolean; unreadCount?: number; createdAt: string }
 export type Alias = { id: string; domainId: string; source: string; destination: string; enabled: boolean; createdAt: string }

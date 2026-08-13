@@ -377,7 +377,7 @@ export function ProfilePage() {
         </div>
       </nav>
       <div className="border-t p-2">
-        <Button type="button" variant="ghost" size="sm" className="h-9 w-full justify-start gap-2 px-3 text-destructive hover:text-destructive" onClick={logout}>
+        <Button type="button" variant="outline" size="sm" className="h-9 w-full justify-start gap-2 border-destructive/35 px-3 text-destructive shadow-none hover:border-destructive/55 hover:bg-destructive/10 hover:text-destructive dark:border-destructive/45 dark:hover:bg-destructive/15" onClick={logout}>
           <LogOut className="h-4 w-4" />
           <span>退出登录</span>
         </Button>
@@ -2868,7 +2868,7 @@ function AccountHeader({ name, email, darkMode, onToggleTheme, onBack }: { name:
       </div>
       <div className="flex shrink-0 items-center gap-2">
         <Button type="button" variant="ghost" size="icon" className="size-[28px] rounded-md text-muted-foreground" aria-label={darkMode ? "切换浅色模式" : "切换深色模式"} title={darkMode ? "浅色模式" : "深色模式"} onClick={onToggleTheme}>
-          {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          {darkMode ? <Sun className="h-4 w-4 text-amber-500" /> : <Moon className="h-4 w-4" />}
         </Button>
         <Button type="button" variant="ghost" size="icon" className="size-[28px] rounded-md text-muted-foreground" aria-label="返回邮箱" title="返回邮箱" onClick={onBack}>
           <ArrowLeft className="h-4 w-4" />

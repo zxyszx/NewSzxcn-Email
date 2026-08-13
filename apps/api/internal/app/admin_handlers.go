@@ -24,23 +24,36 @@ func (a *App) handleAdminOverview(w http.ResponseWriter, r *http.Request) {
 		Messages        int64 `json:"messages"`
 		UnreadMessages  int64 `json:"unreadMessages"`
 		StorageBytes    int64 `json:"storageBytes"`
+		TodaySent       int64 `json:"todaySent"`
+		TodayReceived   int64 `json:"todayReceived"`
+		SendDelivered   int64 `json:"sendDelivered"`
+		SendFailed      int64 `json:"sendFailed"`
+		QueueMessages   int64 `json:"queueMessages"`
 	}
+	now := a.now().UTC()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)
 	queries := []struct {
 		q    string
 		dest *int64
+		args []any
 	}{
-		{`SELECT COUNT(*) FROM users`, &out.Users},
-		{`SELECT COUNT(*) FROM users WHERE disabled=0`, &out.ActiveUsers},
-		{`SELECT COUNT(*) FROM domains`, &out.Domains},
-		{`SELECT COUNT(*) FROM mailboxes`, &out.Mailboxes},
-		{`SELECT COUNT(*) FROM mailboxes WHERE status='active'`, &out.ActiveMailboxes},
-		{`SELECT COUNT(*) FROM aliases`, &out.Aliases},
-		{`SELECT COUNT(*) FROM messages`, &out.Messages},
-		{`SELECT COUNT(*) FROM messages WHERE is_read=0`, &out.UnreadMessages},
-		{`SELECT COALESCE(SUM(size_bytes),0) FROM messages`, &out.StorageBytes},
+		{q: `SELECT COUNT(*) FROM users`, dest: &out.Users},
+		{q: `SELECT COUNT(*) FROM users WHERE disabled=0`, dest: &out.ActiveUsers},
+		{q: `SELECT COUNT(*) FROM domains`, dest: &out.Domains},
+		{q: `SELECT COUNT(*) FROM mailboxes`, dest: &out.Mailboxes},
+		{q: `SELECT COUNT(*) FROM mailboxes WHERE status='active'`, dest: &out.ActiveMailboxes},
+		{q: `SELECT COUNT(*) FROM aliases`, dest: &out.Aliases},
+		{q: `SELECT COUNT(*) FROM messages`, dest: &out.Messages},
+		{q: `SELECT COUNT(*) FROM messages WHERE is_read=0`, dest: &out.UnreadMessages},
+		{q: `SELECT COALESCE(SUM(size_bytes),0) FROM messages`, dest: &out.StorageBytes},
+		{q: `SELECT COUNT(m.id) FROM messages m JOIN folders f ON f.id=m.folder_id WHERE f.role='sent' AND m.sent_at>=?`, dest: &out.TodaySent, args: []any{todayStart}},
+		{q: `SELECT COUNT(m.id) FROM messages m JOIN folders f ON f.id=m.folder_id WHERE f.role NOT IN ('sent','drafts') AND m.received_at>=?`, dest: &out.TodayReceived, args: []any{todayStart}},
+		{q: `SELECT COUNT(*) FROM send_queue WHERE status=? AND created_at>=?`, dest: &out.SendDelivered, args: []any{sendQueueStatusDelivered, todayStart}},
+		{q: `SELECT COUNT(*) FROM send_queue WHERE status=? AND created_at>=?`, dest: &out.SendFailed, args: []any{sendQueueStatusFailed, todayStart}},
+		{q: `SELECT COUNT(*) FROM send_queue WHERE status IN (?,?)`, dest: &out.QueueMessages, args: []any{sendQueueStatusQueued, sendQueueStatusSending}},
 	}
 	for _, item := range queries {
-		if err := a.db.QueryRowContext(r.Context(), item.q).Scan(item.dest); err != nil {
+		if err := a.db.QueryRowContext(r.Context(), item.q, item.args...).Scan(item.dest); err != nil {
 			respondError(w, http.StatusInternalServerError, "failed to load overview")
 			return
 		}
