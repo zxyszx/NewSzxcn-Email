@@ -26,13 +26,14 @@ import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/s
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Skeleton } from "@/components/ui/skeleton"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { useToast } from "@/hooks/use-toast"
 
 type Tab = "profile" | "mailboxes" | "contacts" | "cleanup" | "cleanupQueue" | "rules" | "blocked" | "stats" | "apiTokens"
 type AccountSettingsTab = "account" | "mail" | "clients" | "security"
 type PendingConfirm = { title: string; description?: string; confirmText: string; destructive?: boolean; onConfirm: () => void }
-type RetryableQuery = { isError: boolean; error: Error | null; refetch: () => Promise<unknown> }
+type RetryableQuery = { isLoading: boolean; isError: boolean; error: Error | null; refetch: () => Promise<unknown> }
 const tabs: Record<Tab, { label: string; icon: React.ReactNode }> = {
   profile: { label: "账号设置", icon: <Settings className="h-4 w-4" /> },
   mailboxes: { label: "邮箱管理", icon: <Mail className="h-4 w-4" /> },
@@ -434,7 +435,8 @@ export function ProfilePage() {
     </div>
   )
   function renderTab() {
-    const failedQueries = visibleTabQueries().filter((query) => query.isError && query.error)
+    const visibleQueries = visibleTabQueries()
+    const failedQueries = visibleQueries.filter((query) => query.isError && query.error)
     if (failedQueries.length > 0) {
       return (
         <ProfileQueryFailure
@@ -443,6 +445,7 @@ export function ProfilePage() {
         />
       )
     }
+    if (visibleQueries.some((query) => query.isLoading)) return <ProfileSectionLoading />
     if (tab === "profile") return (
       <AccountSettingsSection
         activeTab={accountTab}
@@ -532,6 +535,16 @@ export function ProfilePage() {
     if (tab === "apiTokens") return [apiTokens]
     return []
   }
+}
+
+function ProfileSectionLoading() {
+  return (
+    <div className="space-y-4" aria-label="正在加载页面数据" aria-busy="true">
+      <Skeleton className="h-40 w-full" />
+      <Skeleton className="h-56 w-full" />
+      <span className="sr-only">加载中...</span>
+    </div>
+  )
 }
 
 function contentFrameClass(tab: Tab) {
