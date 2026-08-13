@@ -3393,7 +3393,7 @@ function CompactMessageRow({ message, active, checked, scheduled, onCheckedChang
     <div onClick={onClick} onContextMenu={onContextMenu} className={cn(
       "cursor-pointer border-b border-l-2 px-3 py-2.5 text-[13px] transition-colors sm:grid sm:grid-cols-[28px_24px_minmax(112px,180px)_minmax(0,1fr)_86px_30px] sm:items-center sm:gap-2 sm:px-3 sm:py-2",
       message.isRead ? "border-l-transparent hover:bg-accent/50" : "border-l-primary bg-primary/5 font-semibold hover:bg-primary/10",
-      active && "bg-accent"
+      active && "mail-selected-row"
     )}>
       <div className="flex gap-3 sm:contents">
         <Checkbox aria-label="选择邮件" checked={checked} onCheckedChange={(value) => onCheckedChange(value === true)} onClick={(event) => event.stopPropagation()} className="mt-0.5 shrink-0 sm:mt-0" />
@@ -3830,8 +3830,8 @@ function MessageRow({
   return <div onClick={onClick} onContextMenu={onContextMenu} className={cn(
     "group cursor-pointer border-b border-l-2 px-3 py-2.5 transition-colors",
     message.isRead ? "border-l-transparent hover:bg-accent/60" : "border-l-primary bg-primary/5 font-semibold hover:bg-primary/10",
-    active && "bg-accent",
-    checked && "bg-accent/70"
+    active && "mail-selected-row",
+    checked && "mail-selected-row"
   )}>
     <div className="flex gap-2.5">
       <Checkbox

@@ -35,6 +35,9 @@
     --sidebar-accent-foreground: 0 0% 12%;
     --sidebar-border: 0 0% 89.8%;
     --sidebar-ring: 0 0% 42%;
+    --sidebar-active: 207 100% 92%;
+    --sidebar-active-foreground: 202 100% 30%;
+    --mail-selected: 210 100% 96%;
     --compose-send: 217 89% 43%;
     --compose-send-hover: 216 94% 32%;
   }
@@ -86,6 +89,9 @@
     --sidebar-accent-foreground: 240 4.8% 95.9%;
     --sidebar-border: 240 3.7% 15.9%;
     --sidebar-ring: 217.2 91.2% 59.8%;
+    --sidebar-active: 210 48% 24%;
+    --sidebar-active-foreground: 210 100% 88%;
+    --mail-selected: 210 38% 20%;
     --compose-send: 217 89% 52%;
     --compose-send-hover: 214 94% 60%;
   }
@@ -123,6 +129,11 @@
     width: 384px;
     max-width: 384px;
   }
+
+  .mail-selected-row {
+    background-color: hsl(var(--mail-selected));
+  }
+
 
   @media (max-width: 767px) {
     .mail-content-grid {

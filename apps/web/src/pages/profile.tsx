@@ -356,11 +356,11 @@ export function ProfilePage() {
               type="button"
               className={cn(
                 "flex h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm transition-colors",
-                tab === key ? "bg-muted font-semibold text-foreground" : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
+                tab === key ? "bg-[hsl(var(--sidebar-active))] font-semibold text-[hsl(var(--sidebar-active-foreground))]" : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
               )}
               onClick={() => setTab(key)}
             >
-              <span className={cn("text-muted-foreground [&>svg]:h-4 [&>svg]:w-4 [&>svg]:stroke-[1.8]", tab === key && "text-foreground/70")}>{tabs[key].icon}</span>
+              <span className={cn("text-muted-foreground [&>svg]:h-4 [&>svg]:w-4 [&>svg]:stroke-[1.8]", tab === key && "text-[hsl(var(--sidebar-active-foreground))]")}>{tabs[key].icon}</span>
               <span className="truncate">{tabs[key].label}</span>
             </button>
           ))}
@@ -563,7 +563,7 @@ function SettingsPageHeader({ title, subtitle, action, activeTab, onAccountTabCh
               type="button"
               className={cn(
                 "h-[38px] shrink-0 border-b-2 px-4 text-sm font-medium transition-colors",
-                activeTab === item.key ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground",
+                activeTab === item.key ? "border-[hsl(var(--sidebar-active-foreground))] bg-[hsl(var(--sidebar-active))] text-[hsl(var(--sidebar-active-foreground))]" : "border-transparent text-muted-foreground hover:text-foreground",
               )}
               onClick={() => onAccountTabChange(item.key)}
             >

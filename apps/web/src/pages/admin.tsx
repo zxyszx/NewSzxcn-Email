@@ -2,7 +2,7 @@ import * as React from "react"
 import DOMPurify from "dompurify"
 import { useSearchParams } from "react-router-dom"
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowRight, BookOpen, CheckCircle2, ChevronDown, Circle, ClipboardList, Cloud, Copy, Download, ExternalLink, Eye, EyeOff, Github, Globe2, HardDrive, KeyRound, Loader2, Mail, Mailbox, MoreHorizontal, RefreshCcw, Scale, Search, Send, ShieldCheck, Star, Trash2, Users } from "lucide-react"
+import { BookOpen, CheckCircle2, ChevronDown, Circle, ClipboardList, Cloud, Copy, Download, ExternalLink, Eye, EyeOff, Github, Globe2, HardDrive, KeyRound, Loader2, Mail, Mailbox, MoreHorizontal, RefreshCcw, Scale, Search, Send, ShieldCheck, Star, Trash2, Users } from "lucide-react"
 import { api, AdminUser, Alias, DNSRecord, Domain, Mailbox as MailboxType, MailMessage, MailTemplate, MaildirSyncHealth, PermissionGroup, PermissionInfo, PermissionLimits, SystemSettings } from "@/lib/api"
 import { cn, decodeMimeHeader, formatBytes, formatDate } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -135,18 +135,18 @@ export function AdminPage() {
 
   return (
     <ScrollArea className="h-[calc(100svh-3rem)] md:h-svh">
-      <main className="admin-page mx-auto w-full max-w-[1180px] px-3 pb-10 pt-3 sm:px-4 sm:pt-4">
+      <main className="admin-page mx-auto w-full max-w-[1440px] px-3 pb-8 pt-3 sm:px-4 sm:pt-4">
         <AdminPageHeader section={section} refreshing={refreshing} onRefresh={refreshAdminPage} />
 
         {sectionQuery?.isError && <QueryFailure error={sectionQuery.error} onRetry={() => { void sectionQuery.refetch() }} />}
 
         {section === "overview" && canOverview && (
-          <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <Stat icon={<Users />} label="账号" value={overview.data?.users || 0} />
-            <Stat icon={<Globe2 />} label="邮件域名" value={overview.data?.domains || 0} />
-            <Stat icon={<Mailbox />} label="邮箱" value={overview.data?.mailboxes || 0} />
-            <Stat icon={<ShieldCheck />} label="存储用量" value={formatBytes(overview.data?.storageBytes || 0)} />
-          </div>
+          <section className="mb-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <Stat icon={<Users />} label="账号" value={overview.data?.users || 0} detail={`${overview.data?.activeUsers || 0} 个活跃`} />
+            <Stat icon={<Globe2 />} label="邮件域名" value={overview.data?.domains || 0} detail={`${domainItems.filter((domain) => domain.dnsStatus === "ok").length} 个 DNS 正常`} />
+            <Stat icon={<Mailbox />} label="邮箱" value={overview.data?.mailboxes || 0} detail={`${overview.data?.activeMailboxes || 0} 个活跃`} />
+            <Stat icon={<ShieldCheck />} label="存储用量" value={formatBytes(overview.data?.storageBytes || 0)} detail={`${overview.data?.unreadMessages || 0} 封未读 · ${overview.data?.aliases || 0} 个转发`} />
+          </section>
         )}
 
         {section === "overview" && <OverviewSection overview={overview.data} domains={domainItems} settings={settings.data} visibleSections={visibleSections} onSectionChange={(next) => setParams(next === "overview" ? {} : { section: next })} />}
@@ -191,51 +191,43 @@ function AdminPageHeader({ section, refreshing, onRefresh }: { section: Section;
 function OverviewSection({ overview, domains, settings, visibleSections, onSectionChange }: { overview?: { activeUsers: number; activeMailboxes: number; aliases: number; messages: number; unreadMessages: number }; domains: Domain[]; settings?: SystemSettings; visibleSections: Section[]; onSectionChange: (section: Section) => void }) {
   const checklist = setupChecklist(overview, domains, settings).filter((item) => visibleSections.includes(item.section))
   return (
-    <div className="space-y-6">
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <Card>
-          <CardHeader><CardTitle>系统状态</CardTitle></CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <InfoBox label="活跃账号" value={overview?.activeUsers || 0} />
-            <InfoBox label="活跃邮箱" value={overview?.activeMailboxes || 0} />
-            <InfoBox label="邮件转发" value={overview?.aliases || 0} />
-            <InfoBox label="未读邮件" value={overview?.unreadMessages || 0} />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle>首次配置</CardTitle></CardHeader>
-          <CardContent className="space-y-2">
+    <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(340px,.65fr)]">
+      <Card>
+        <CardHeader className="pb-3"><CardTitle>首次配置</CardTitle></CardHeader>
+        <CardContent className="grid gap-2 sm:grid-cols-2">
             {checklist.map((item) => (
-              <Button key={item.key} type="button" variant="outline" className="h-auto w-full justify-start gap-3 px-3 py-2 text-left font-normal" onClick={() => onSectionChange(item.section)}>
+              <Button key={item.key} type="button" variant="outline" className="h-auto min-h-[64px] w-full justify-start gap-3 px-3 py-2 text-left font-normal last:sm:col-span-2" onClick={() => onSectionChange(item.section)}>
                 {item.done ? <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" /> : <Circle className="h-4 w-4 shrink-0 text-muted-foreground" />}
                 <span className="min-w-0 flex-1">
                   <span className="block font-medium">{item.title}</span>
                   <span className="block truncate text-xs text-muted-foreground">{item.detail}</span>
                 </span>
-                <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
               </Button>
             ))}
-          </CardContent>
-        </Card>
-      </div>
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <Card>
-          <CardHeader><CardTitle>DNS 状态</CardTitle></CardHeader>
-          <CardContent className="space-y-2">
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader className="pb-3"><CardTitle>系统状态</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <section>
+            <h3 className="mb-2 text-xs font-medium text-muted-foreground">DNS 状态</h3>
+            <div className="space-y-2">
             {domains.map((domain) => <DomainBadgeRow key={domain.id} domain={domain} />)}
             {domains.length === 0 && <Empty text="暂无域名" />}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle>运行提示</CardTitle></CardHeader>
-          <CardContent className="space-y-3 text-sm text-muted-foreground">
+            </div>
+          </section>
+          <Separator />
+          <section>
+            <h3 className="mb-2 text-xs font-medium text-muted-foreground">运行信息</h3>
+            <div className="space-y-2 text-sm text-muted-foreground">
             <InfoLine label="公网地址" value={settings?.publicBaseUrl || "-"} />
             <InfoLine label="SMTP" value={settings?.smtpHost ? `${settings.smtpHost}:${settings.smtpPort}` : "-"} />
             <InfoLine label="注册" value={settings?.openRegistration ? "已开放" : "关闭"} />
             <InfoLine label="自助申请邮箱" value={settings?.userMailboxApplyEnabled ? "已启用" : "关闭"} />
-          </CardContent>
-        </Card>
-      </div>
+            </div>
+          </section>
+        </CardContent>
+      </Card>
     </div>
   )
 }
@@ -255,7 +247,7 @@ function setupChecklist(overview: { activeUsers: number; activeMailboxes: number
 }
 
 function InfoLine({ label, value }: { label: string; value: React.ReactNode }) {
-  return <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2"><span>{label}</span><span className="min-w-0 truncate font-medium text-foreground">{value}</span></div>
+  return <div className="grid min-h-10 grid-cols-[auto_minmax(0,1fr)] items-center gap-3 rounded-md border px-3 py-2"><span className="whitespace-nowrap">{label}</span><span className="min-w-0 break-all text-right font-medium text-foreground">{value}</span></div>
 }
 
 function generateBackupPassword(length = 24) {
@@ -2223,8 +2215,8 @@ function sendAuditBadgeVariant(event?: string) {
   return "secondary"
 }
 
-function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; value: React.ReactNode }) {
-  return <Card><CardContent className="flex items-center gap-3 p-4 sm:gap-4 sm:p-5"><div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-muted text-foreground sm:h-10 sm:w-10">{icon}</div><div className="min-w-0"><div className="truncate text-xl font-semibold tracking-tight sm:text-2xl">{value}</div><div className="text-xs text-muted-foreground">{label}</div></div></CardContent></Card>
+function Stat({ icon, label, value, detail }: { icon: React.ReactNode; label: string; value: React.ReactNode; detail: string }) {
+  return <Card><CardContent className="flex min-h-[84px] items-center gap-3 p-4"><div className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-muted text-foreground [&>svg]:h-4 [&>svg]:w-4">{icon}</div><div className="min-w-0"><div className="flex items-baseline gap-2"><div className="truncate text-xl font-semibold leading-7">{value}</div><div className="truncate text-sm text-muted-foreground">{label}</div></div><div className="mt-0.5 truncate text-xs text-muted-foreground">{detail}</div></div></CardContent></Card>
 }
 function InfoBox({ label, value }: { label: string; value: React.ReactNode }) { return <div className="rounded-lg border p-4"><div className="text-xl font-semibold tracking-tight sm:text-2xl">{value}</div><div className="text-xs text-muted-foreground">{label}</div></div> }
 function Empty({ text }: { text: string }) { return <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">{text}</div> }
