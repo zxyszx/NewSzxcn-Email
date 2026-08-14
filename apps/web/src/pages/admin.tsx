@@ -1128,7 +1128,7 @@ function DomainDNSDialog({ domain }: { domain: Domain }) {
       <DialogTrigger asChild>
         <Button variant="outline" size="sm">DNS</Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[86vh] overflow-y-auto sm:max-w-3xl">
+      <DialogContent className="max-h-[calc(100svh-1.5rem)] overflow-y-auto p-4 sm:max-w-[calc(100vw-2rem)] sm:p-5 lg:max-w-5xl">
         <DialogHeader><DialogTitle>{domain.name} DNS</DialogTitle></DialogHeader>
         <DNSPanel domain={domain} embedded />
       </DialogContent>
@@ -2590,27 +2590,77 @@ function DNSPanel({ domain, embedded = false }: { domain?: Domain; embedded?: bo
   const check = useMutation({ mutationFn: () => api.checkDns(domain!.id), onSuccess: (res) => { qc.invalidateQueries({ queryKey: ["admin", "domains"] }); toast({ title: res.status === "ok" ? "DNS 检测通过" : "DNS 检测未通过", description: Object.values(res.checks).map((c) => c.message).join("；") }) }, onError: (error) => toast({ title: "DNS 检测失败", description: error.message }) })
   if (!domain) return <Card><CardContent className="p-6 text-muted-foreground">请选择域名</CardContent></Card>
   const content = <>
-    <p className="mb-3 text-sm text-muted-foreground">以下为需要在域名 DNS 管理中添加的记录：</p>
-    {records.isError ? <QueryFailure error={records.error} onRetry={() => { void records.refetch() }} compact /> : <div className="space-y-3">{records.data?.items.map((r) => <DNSRecordRow key={`${r.type}-${r.name}`} record={r} />)}</div>}
-    {check.data && <>
-      <Separator className="my-4" />
-      <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground"><CheckCircle2 className="h-4 w-4" />检测结果</div>
-      <div className="mt-2 space-y-2">{Object.entries(check.data.checks).map(([k, v]) => <DNSCheckRow key={k} name={k} check={v} />)}</div>
-    </>}</>
-  const checkButton = canCheckDNS ? <Button variant="outline" size="sm" onClick={() => check.mutate()} disabled={check.isPending}><RefreshCcw className="h-4 w-4" />检测</Button> : null
+    <p className="mb-3 text-sm text-muted-foreground">以下内容可直接填写到常见 DNS 控制台，根域名的主机记录使用 @。</p>
+    {check.isPending && <DNSCheckPending />}
+    {check.isError && <DNSCheckFailure error={check.error} />}
+    {check.data && !check.isPending && <DNSCheckSummary checks={check.data.checks} />}
+    {records.isError ? <QueryFailure error={records.error} onRetry={() => { void records.refetch() }} compact /> : <div className="grid gap-3 md:auto-rows-fr md:grid-cols-2">{records.data?.items.map((r) => <DNSRecordRow key={`${r.type}-${r.name}`} record={r} domainName={domain.name} />)}</div>}
+  </>
+  const checkButton = canCheckDNS ? <Button variant="outline" size="sm" onClick={() => check.mutate()} disabled={check.isPending}><RefreshCcw className={cn("h-4 w-4", check.isPending && "animate-spin")} />{check.isPending ? "检测中" : check.data ? "重新检测" : "检测"}</Button> : null
   const header = <div className="flex items-center justify-between"><CardTitle>DNS 记录</CardTitle>{checkButton}</div>
-  if (embedded) return <div className="space-y-4"><div className="flex items-center justify-between"><div className="font-medium">DNS 记录</div>{checkButton}</div>{content}</div>
+  if (embedded) return <div className="space-y-3"><div className="flex items-center justify-between"><div className="font-medium">DNS 记录</div>{checkButton}</div>{content}</div>
   return <Card><CardHeader>{header}</CardHeader><CardContent>{content}</CardContent></Card>
+}
+
+const dnsCheckMeta: Record<string, { label: string; description: string }> = {
+  mx: { label: "MX", description: "收信地址" },
+  spf: { label: "SPF", description: "发信授权" },
+  dkim: { label: "DKIM", description: "邮件签名" },
+  dmarc: { label: "DMARC", description: "防伪策略" },
+}
+
+function DNSCheckPending() {
+  return <div className="mb-4 flex items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 p-4" role="status" aria-live="polite">
+    <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary/10 text-primary"><Loader2 className="h-5 w-5 animate-spin" /></div>
+    <div><div className="font-semibold text-foreground">正在检测 DNS</div><p className="mt-0.5 text-sm text-muted-foreground">正在查询最新解析结果，请稍候...</p></div>
+  </div>
+}
+
+function DNSCheckFailure({ error }: { error: Error }) {
+  return <div className="mb-4 flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4" role="alert">
+    <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-destructive/10 text-destructive"><AlertCircle className="h-5 w-5" /></div>
+    <div className="min-w-0"><div className="font-semibold text-destructive">DNS 检测失败</div><p className="mt-0.5 break-words text-sm text-muted-foreground">{error.message || "暂时无法查询 DNS，请稍后重新检测。"}</p></div>
+  </div>
+}
+
+function DNSCheckSummary({ checks }: { checks: Record<string, { ok: boolean; message: string; found?: string[] }> }) {
+  const entries = Object.entries(checks).sort(([left], [right]) => {
+    const order = ["mx", "spf", "dkim", "dmarc"]
+    return order.indexOf(left) - order.indexOf(right)
+  })
+  const passed = entries.filter(([, item]) => item.ok).length
+  const allPassed = entries.length > 0 && passed === entries.length
+  return <section className={cn("mb-4 overflow-hidden rounded-lg border p-4", allPassed ? "border-emerald-500/40 bg-emerald-500/[0.07]" : "border-destructive/40 bg-destructive/5")} role={allPassed ? "status" : "alert"} aria-live="polite" aria-label="DNS 检测结果">
+    <div className="flex items-start gap-3">
+      <div className={cn("grid h-10 w-10 shrink-0 place-items-center rounded-full", allPassed ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" : "bg-destructive/10 text-destructive")}>
+        {allPassed ? <CheckCircle2 className="h-5 w-5" /> : <AlertCircle className="h-5 w-5" />}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className={cn("text-base font-semibold", allPassed ? "text-emerald-800 dark:text-emerald-300" : "text-destructive")}>{allPassed ? "DNS 配置全部通过" : "DNS 配置需要处理"}</h3>
+          <Badge variant="outline" className={cn("shrink-0 bg-background/70", allPassed ? "border-emerald-500/40 text-emerald-800 dark:text-emerald-300" : "border-destructive/40 text-destructive")}>{passed}/{entries.length} 项通过</Badge>
+        </div>
+        <p className="mt-1 text-sm text-muted-foreground">{allPassed ? "所有邮件相关记录均已正确解析，可以正常使用。" : "请处理下面标红的项目，修改 DNS 后再重新检测。"}</p>
+      </div>
+    </div>
+    <div className="mt-3 grid gap-x-4 sm:grid-cols-2 md:grid-cols-4">
+      {entries.map(([name, item]) => <DNSCheckRow key={name} name={name} check={item} />)}
+    </div>
+  </section>
 }
 
 function DNSCheckRow({ name, check }: { name: string; check: { ok: boolean; message: string; found?: string[] } }) {
   const visibleRecords = check.found?.filter(Boolean) ?? []
-  return <div className="space-y-1 text-sm">
-    <div className="flex items-start gap-2">
-      <CheckCircle2 className={`mt-0.5 h-4 w-4 shrink-0 ${check.ok ? "text-green-600" : "text-destructive"}`} />
-      <div className="min-w-0"><span className="font-medium">{name.toUpperCase()}:</span> {check.message}</div>
+  const meta = dnsCheckMeta[name.toLowerCase()] || { label: name.toUpperCase(), description: "DNS 记录" }
+  return <div className={cn("space-y-1 border-t py-2.5 text-sm", check.ok ? "border-emerald-500/20" : "border-destructive/20")}>
+    <div className="flex items-start gap-2.5">
+      {check.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> : <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />}
+      <div className="min-w-0 flex-1">
+        <div className="shrink-0 font-medium text-foreground">{meta.label}<span className="ml-1 font-normal text-muted-foreground">({meta.description})</span></div>
+        <div className={cn("mt-0.5", check.ok ? "text-muted-foreground" : "font-medium text-destructive")}>{check.message}</div>
+      </div>
     </div>
-    {!check.ok && visibleRecords.length > 0 && <div className="ml-6 rounded-md bg-muted/60 px-3 py-2 font-mono text-xs text-muted-foreground">
+    {!check.ok && visibleRecords.length > 0 && <div className="ml-6 rounded-md bg-background/70 px-3 py-2 font-mono text-xs text-muted-foreground">
       <div className="mb-1 font-sans text-foreground">当前解析</div>
       <div className="space-y-1">{visibleRecords.map((record, index) => <div key={`${name}-${index}`} className="break-all">{record}</div>)}</div>
     </div>}
@@ -2621,36 +2671,61 @@ function dnsDescription(record: DNSRecord): string {
   if (record.type === "TXT" && record.name.startsWith("_dmarc")) return "声明域名的 DMARC 策略（如何处理未通过 SPF/DKIM 验证的邮件）。"
   if (record.type === "TXT" && record.value.includes("DKIM1")) return "DKIM 公钥。收件服务器用此密钥验证邮件是否由你发出。"
   if (record.type === "TXT" && record.value.includes("spf1")) return "声明哪些服务器有权使用你的域名发件，防止伪造。"
-  if (record.type === "MX") return `确保 ${record.name} 的 A 记录已指向你的服务器 IP，邮件才能到达。`
+  if (record.type === "MX") {
+    const mx = mxRecordParts(record.value)
+    return `邮件由 ${mx.target} 接收，请确保它的 A 记录指向服务器 IP。优先级 ${mx.priority}，数值越小越优先。`
+  }
   return ""
 }
 
-function DNSRecordRow({ record }: { record: DNSRecord }) {
+function mxRecordParts(value: string) {
+  const [rawPriority = "10", ...rawTarget] = value.trim().split(/\s+/)
+  const priority = /^\d+$/.test(rawPriority) ? rawPriority : "10"
+  const target = (rawTarget.length > 0 ? rawTarget.join(" ") : value).replace(/\.$/, "")
+  return { priority, target }
+}
+
+function dnsHostForProvider(recordName: string, domainName: string) {
+  const name = recordName.replace(/\.$/, "")
+  const domain = domainName.replace(/\.$/, "")
+  if (name.toLowerCase() === domain.toLowerCase()) return "@"
+  const suffix = `.${domain}`
+  if (name.toLowerCase().endsWith(suffix.toLowerCase())) return name.slice(0, -suffix.length)
+  return name
+}
+
+function DNSRecordRow({ record, domainName }: { record: DNSRecord; domainName: string }) {
   const { toast } = useToast()
   const desc = dnsDescription(record)
+  const longValue = record.value.length > 180
+  const mx = record.type === "MX" ? mxRecordParts(record.value) : null
+  const displayHost = dnsHostForProvider(record.name, domainName)
+  const displayValue = mx?.target || record.value
+  const [valueExpanded, setValueExpanded] = React.useState(false)
   async function copyField(label: string, value: string) {
     await navigator.clipboard.writeText(value)
     toast({ title: `${label}已复制` })
   }
-  return <div className="rounded-lg border bg-card p-3">
-    <div className="mb-2 flex items-center">
+  return <div className="flex h-full flex-col rounded-lg border bg-card p-3">
+    <div className="mb-2 flex min-h-7 items-center justify-between gap-2">
       <Badge variant="outline" className="font-mono">{record.type}</Badge>
+      {longValue && <Button type="button" size="sm" variant="ghost" className="h-7 gap-1 px-2 text-xs text-muted-foreground" aria-expanded={valueExpanded} onClick={() => setValueExpanded((current) => !current)}><ChevronDown className={cn("h-3.5 w-3.5 transition-transform", valueExpanded && "rotate-180")} />{valueExpanded ? "收起完整内容" : "查看完整内容"}</Button>}
     </div>
-    {desc && <p className="mb-2 text-xs text-muted-foreground">{desc}</p>}
-    <div className="space-y-1 font-mono text-xs text-muted-foreground">
+    {desc && <p className="mb-2 line-clamp-2 min-h-9 text-xs leading-[1.125rem] text-muted-foreground">{desc}</p>}
+    <div className="mt-auto space-y-1 font-mono text-xs text-muted-foreground">
       <div className="grid grid-cols-[4.5rem_minmax(0,1fr)_1.75rem] items-start gap-2">
         <span className="pt-1 text-foreground">主机记录</span>
-        <code className="break-all pt-1 font-mono">{record.name}</code>
-        <Button type="button" size="icon" variant="ghost" className="h-7 w-7" aria-label="复制主机记录" title="复制主机记录" onClick={() => copyField("主机记录", record.name)}><Copy className="h-3.5 w-3.5" /></Button>
+        <code className="break-all pt-1 font-mono font-medium text-foreground">{displayHost}</code>
+        <Button type="button" size="icon" variant="ghost" className="h-7 w-7" aria-label="复制主机记录" title="复制主机记录" onClick={() => copyField("主机记录", displayHost)}><Copy className="h-3.5 w-3.5" /></Button>
       </div>
       <div className="grid grid-cols-[4.5rem_minmax(0,1fr)_1.75rem] items-start gap-2">
         <span className="pt-1 text-foreground">记录值</span>
-        <code className="break-all pt-1 font-mono">{record.value}</code>
-        <Button type="button" size="icon" variant="ghost" className="h-7 w-7" aria-label="复制记录值" title="复制记录值" onClick={() => copyField("记录值", record.value)}><Copy className="h-3.5 w-3.5" /></Button>
+        <code className={cn("break-all pt-1 font-mono", longValue && !valueExpanded && "line-clamp-3")}>{displayValue}</code>
+        <Button type="button" size="icon" variant="ghost" className="h-7 w-7" aria-label="复制记录值" title="复制记录值" onClick={() => copyField("记录值", displayValue)}><Copy className="h-3.5 w-3.5" /></Button>
       </div>
-      <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-2">
-        <span className="text-foreground">TTL</span>
-        <code className="font-mono">{record.ttl} 秒</code>
+      <div className="grid grid-cols-2 gap-4">
+        {mx && <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-2"><span className="text-foreground">优先级</span><code className="font-mono font-medium text-foreground">{mx.priority}</code></div>}
+        <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-2"><span className="text-foreground">TTL</span><code className="font-mono">{record.ttl} 秒</code></div>
       </div>
     </div>
   </div>
