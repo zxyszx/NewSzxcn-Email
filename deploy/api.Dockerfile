@@ -15,6 +15,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       -o /out/lanqin-api ./cmd/server
 
 FROM debian:bookworm-slim
+ARG APP_VERSION="dev"
+ENV LANQIN_APP_VERSION=${APP_VERSION}
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean && \

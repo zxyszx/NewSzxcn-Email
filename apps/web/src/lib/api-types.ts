@@ -192,9 +192,6 @@ export type SystemVersion = {
   currentCommit?: string
   buildDate?: string
   latestVersion?: string
-  latestName?: string
-  releaseUrl?: string
-  releaseNotes?: string
   publishedAt?: string
   updateAvailable: boolean
   updateEnabled: boolean

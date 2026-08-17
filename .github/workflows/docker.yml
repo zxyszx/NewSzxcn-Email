@@ -184,7 +184,6 @@ jobs:
             APP_VERSION=${{ needs.release.outputs.tag }}
             APP_COMMIT=${{ github.sha }}
             VITE_APP_VERSION=${{ needs.release.outputs.tag }}
-            VITE_RELEASE_URL=${{ needs.release.outputs.release_url }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 

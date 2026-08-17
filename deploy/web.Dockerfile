@@ -9,7 +9,6 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile --filter newszxcn-email-web...
 COPY apps/web apps/web
 ARG VITE_APP_VERSION=""
-ARG VITE_RELEASE_URL=""
 RUN pnpm --dir apps/web run build
 
 FROM nginx:1.27-alpine

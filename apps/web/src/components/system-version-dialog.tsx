@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useMutation, useQuery } from "@tanstack/react-query"
-import { CheckCircle2, Download, ExternalLink, Loader2, RefreshCcw, TriangleAlert } from "lucide-react"
+import { CheckCircle2, Download, Loader2, RefreshCcw, TriangleAlert } from "lucide-react"
 import { api } from "@/lib/api"
 import { cn, formatDate } from "@/lib/utils"
 import { useMe } from "@/hooks/use-me"
@@ -88,7 +88,7 @@ export function SystemVersionDialog({ mode = "sidebar", className }: { mode?: "s
             {version.data?.latestVersion && <div className="mt-1 text-xs text-muted-foreground">最新版本：{version.data.latestVersion}</div>}
           </div>
 
-          {version.isLoading && <VersionState icon={<Loader2 className="animate-spin" />} title="正在检查更新" description="正在连接 GitHub Release。" />}
+          {version.isLoading && <VersionState icon={<Loader2 className="animate-spin" />} title="正在检查更新" description="正在检查最新版本。" />}
           {version.data?.checkError && <VersionState icon={<TriangleAlert />} title="暂时无法检查更新" description={version.data.checkError} tone="warning" />}
           {version.data && !version.data.checkError && !version.data.updateAvailable && <VersionState icon={<CheckCircle2 />} title="已是最新版本" description="当前无需更新。" tone="success" />}
           {version.data?.updateAvailable && (
@@ -98,15 +98,6 @@ export function SystemVersionDialog({ mode = "sidebar", className }: { mode?: "s
               description={`${version.data.latestVersion} 已发布${version.data.publishedAt ? ` · ${formatDate(version.data.publishedAt)}` : ""}`}
               tone="warning"
             />
-          )}
-
-          {version.data?.releaseNotes && (
-            <div className="space-y-2">
-              <div className="text-sm font-medium">更新日志</div>
-              <div className="h-[clamp(12rem,30svh,18rem)] overflow-y-auto whitespace-pre-wrap rounded-md border bg-muted/20 p-4 text-sm leading-6 text-foreground/80">
-                {version.data.releaseNotes}
-              </div>
-            </div>
           )}
 
           {update.isPending && (
@@ -121,28 +112,19 @@ export function SystemVersionDialog({ mode = "sidebar", className }: { mode?: "s
 
           {version.data?.updateAvailable && !version.data.updateEnabled && (
             <div className="rounded-md border p-3 text-sm text-muted-foreground">
-              当前部署未启用页面更新，请在服务器执行 <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">sudo newszxcn-email update</code>。
+              当前部署需要在服务器后台执行更新。
             </div>
           )}
         </div>
 
-        <DialogFooter className="gap-2 sm:justify-between">
-          <div>
-            {version.data?.releaseUrl && (
-              <Button type="button" variant="ghost" asChild>
-                <a href={version.data.releaseUrl} target="_blank" rel="noreferrer">
-                  更新详情<ExternalLink className="h-4 w-4" />
-                </a>
-              </Button>
-            )}
-          </div>
-          {version.data?.updateAvailable && version.data.updateEnabled && (
-            <Button type="button" disabled={!isSystemAdmin || update.isPending} onClick={() => update.mutate()}>
+        {version.data?.updateAvailable && (
+          <DialogFooter>
+            <Button type="button" disabled={!isSystemAdmin || !version.data.updateEnabled || update.isPending} onClick={() => update.mutate()}>
               {update.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
               {isSystemAdmin ? "立即更新" : "仅超级管理员可更新"}
             </Button>
-          )}
-        </DialogFooter>
+          </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   )

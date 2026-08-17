@@ -13,7 +13,6 @@ services:
       dockerfile: deploy/web.Dockerfile
       args:
         VITE_APP_VERSION: ${LANQIN_BUILD_VERSION:-dev}
-        VITE_RELEASE_URL: ${LANQIN_BUILD_RELEASE_URL:-}
 
   postfix:
     build:

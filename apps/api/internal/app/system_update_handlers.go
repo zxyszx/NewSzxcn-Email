@@ -28,9 +28,6 @@ type systemVersionInfo struct {
 	CurrentCommit   string     `json:"currentCommit,omitempty"`
 	BuildDate       string     `json:"buildDate,omitempty"`
 	LatestVersion   string     `json:"latestVersion,omitempty"`
-	LatestName      string     `json:"latestName,omitempty"`
-	ReleaseURL      string     `json:"releaseUrl,omitempty"`
-	ReleaseNotes    string     `json:"releaseNotes,omitempty"`
 	PublishedAt     *time.Time `json:"publishedAt,omitempty"`
 	UpdateAvailable bool       `json:"updateAvailable"`
 	UpdateEnabled   bool       `json:"updateEnabled"`
@@ -108,9 +105,6 @@ func (a *App) systemVersion(ctx context.Context) (systemVersionInfo, error) {
 		return info, err
 	}
 	info.LatestVersion = strings.TrimSpace(release.TagName)
-	info.LatestName = strings.TrimSpace(release.Name)
-	info.ReleaseURL = strings.TrimSpace(release.HTMLURL)
-	info.ReleaseNotes = strings.TrimSpace(release.Body)
 	if !release.PublishedAt.IsZero() {
 		info.PublishedAt = &release.PublishedAt
 	}

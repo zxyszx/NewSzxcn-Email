@@ -23,10 +23,11 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile --filter newszxcn-email-web...
 COPY apps/web apps/web
 ARG VITE_APP_VERSION=""
-ARG VITE_RELEASE_URL=""
 RUN pnpm --dir apps/web run build
 
 FROM debian:bookworm-slim
+ARG APP_VERSION="dev"
+ENV LANQIN_APP_VERSION=${APP_VERSION}
 ENV DEBIAN_FRONTEND=noninteractive
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
   --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
