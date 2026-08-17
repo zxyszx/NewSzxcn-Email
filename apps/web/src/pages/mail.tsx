@@ -751,11 +751,13 @@ export function MailPage() {
   const mailMenuItems = buildMailMenuItems(folders.data?.items || [], starredCount, canScheduleMail ? scheduledCount : 0, canScheduleMail, canViewSendQueue ? sendQueueCount : 0, canViewSendQueue, canViewUnknownMail)
   const primaryMailMenuItems = mailMenuItems.filter((item) => !isCustomMenuFolder(item))
   const customMailMenuItems = mailMenuItems.filter(isCustomMenuFolder)
+  const customFolderUnreadCount = customMailMenuItems.reduce((total, item) => total + Math.max(0, item.count || 0), 0)
   const canOrganizeCurrentMailbox = canOrganizeMail && !isAllMailboxSelected
   const canManageCurrentMailboxLabels = canManageLabels && !isAllMailboxSelected
   const externalAccountItems = externalImapEnabled ? externalMailAccounts.data?.items || [] : []
   const externalFolderItems = externalImapEnabled ? externalFolders.data?.items || [] : []
   const labelItems = labels.data?.items || []
+  const labelUnreadCount = labelItems.reduce((total, label) => total + Math.max(0, label.unreadCount || 0), 0)
   const selectedLabel = labelItems.find((item) => item.id === selectedLabelId)
   const viewTitle = mailView === "external" ? `${selectedExternalAccount?.name || "外部邮箱"} · ${folderLabels[externalFolder] || externalFolder}` : mailView === "unknown" ? "未知收件" : mailView === "sendQueue" ? "发送队列" : mailView === "scheduled" ? "待发送" : mailView === "starred" ? "星标邮件" : mailView === "label" ? selectedLabel?.name || "标签" : folderLabels[folder] || folder
   const isTransferView = mailView === "folder" || mailView === "starred" || mailView === "label" || mailView === "unknown"
@@ -1389,7 +1391,7 @@ export function MailPage() {
                     >
                       {item.icon}
                       {!sidebarCollapsed && <span className="min-w-0 flex-1 truncate">{item.label}</span>}
-                      {!sidebarCollapsed && <UnreadStatusBadge count={item.count} />}
+                      {!sidebarCollapsed && <UnreadBadge count={item.count} />}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
               ))}
@@ -1466,6 +1468,7 @@ export function MailPage() {
               <Button type="button" variant="ghost" className="h-auto min-w-0 justify-start gap-1 p-0 text-xs font-semibold text-muted-foreground hover:bg-transparent hover:text-foreground" aria-expanded={foldersExpanded} aria-controls="mail-sidebar-folders" onClick={() => setFoldersExpanded((value) => !value)}>
                 <ChevronDown className={cn("h-3 w-3 shrink-0 transition-transform", !foldersExpanded && "-rotate-90")} />
                 <span>文件夹</span>
+                <UnreadSectionStatus hasUnread={customFolderUnreadCount > 0} label="文件夹有未读邮件" />
               </Button>
               {canManageFolders && (
                 <Button type="button" variant="ghost" size="icon" className="h-5 w-5 text-muted-foreground hover:bg-transparent hover:text-foreground" aria-label="新建文件夹" title="新建文件夹" onClick={() => runAfterClosingMobileSidebar(() => setFolderDialogOpen(true))}>
@@ -1502,7 +1505,7 @@ export function MailPage() {
                   >
                     {item.icon}
                     {!sidebarCollapsed && <span className="min-w-0 flex-1 truncate">{item.label}</span>}
-                    {!sidebarCollapsed && <UnreadStatusBadge count={item.count} />}
+                    {!sidebarCollapsed && <UnreadBadge count={item.count} />}
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
@@ -1528,6 +1531,7 @@ export function MailPage() {
               <Button type="button" variant="ghost" className="h-auto min-w-0 justify-start gap-1 p-0 text-xs font-semibold text-muted-foreground hover:bg-transparent hover:text-foreground" aria-expanded={labelsExpanded} aria-controls="mail-sidebar-labels" onClick={() => setLabelsExpanded((value) => !value)}>
                 <ChevronDown className={cn("h-3 w-3 shrink-0 transition-transform", !labelsExpanded && "-rotate-90")} />
                 <span>标签</span>
+                <UnreadSectionStatus hasUnread={labelUnreadCount > 0} label="标签有未读邮件" />
               </Button>
               {canManageCurrentMailboxLabels && (
                 <div className="flex items-center gap-0.5">
@@ -1562,7 +1566,7 @@ export function MailPage() {
                           <span className="truncate">{label.name}</span>
                         </span>
                       )}
-                      {!sidebarCollapsed && !labelEditMode && <UnreadStatusBadge count={label.unreadCount} />}
+                      {!sidebarCollapsed && !labelEditMode && <UnreadBadge count={label.unreadCount} />}
                       {!sidebarCollapsed && labelEditMode && canManageCurrentMailboxLabels && (
                         <button
                           type="button"
@@ -3532,15 +3536,15 @@ function UnreadBadge({ count, tone = "danger" }: { count?: number; tone?: "dange
   )
 }
 
-function UnreadStatusBadge({ count }: { count?: number }) {
-  if (count && count > 0) {
-    return (
-      <span className="ml-auto inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-destructive px-1.5 text-[11px] font-semibold leading-none text-destructive-foreground">
-        {count > 99 ? "99+" : count}
-      </span>
-    )
-  }
-  return <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-emerald-500" aria-label="无未读邮件" />
+function UnreadSectionStatus({ hasUnread, label }: { hasUnread: boolean; label: string }) {
+  if (!hasUnread) return null
+  return (
+    <span
+      className="ml-1 h-2 w-2 shrink-0 rounded-full bg-destructive"
+      aria-label={label}
+      title={label}
+    />
+  )
 }
 
 function MailboxSwitcher({ collapsed, mailboxes, loading, selectedMailboxId, selectedMailbox, unreadCount, hasCopyAction, onSelect }: { collapsed: boolean; mailboxes: Mailbox[]; loading: boolean; selectedMailboxId: string; selectedMailbox?: Mailbox; unreadCount: number; hasCopyAction: boolean; onSelect: (mailboxId: string) => void }) {
