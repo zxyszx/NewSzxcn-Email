@@ -2688,8 +2688,10 @@ func (a *App) attachmentsForMessage(ctx context.Context, messageID string) ([]At
 }
 
 func (a *App) labelsForMailbox(ctx context.Context, mailboxID string) ([]MailLabel, error) {
-	rows, err := a.db.QueryContext(ctx, `SELECT l.id,l.mailbox_id,l.name,l.color,COUNT(ml.message_id)
-		FROM mail_labels l LEFT JOIN message_labels ml ON ml.label_id=l.id
+	rows, err := a.db.QueryContext(ctx, `SELECT l.id,l.mailbox_id,l.name,l.color,COUNT(ml.message_id),COALESCE(SUM(CASE WHEN m.is_read=0 THEN 1 ELSE 0 END),0)
+		FROM mail_labels l
+		LEFT JOIN message_labels ml ON ml.label_id=l.id
+		LEFT JOIN messages m ON m.id=ml.message_id
 		WHERE l.mailbox_id=?
 		GROUP BY l.id,l.mailbox_id,l.name,l.color
 		ORDER BY `+mailLabelOrderSQL("l")+`, lower(l.name)`, mailboxID)
@@ -2700,7 +2702,7 @@ func (a *App) labelsForMailbox(ctx context.Context, mailboxID string) ([]MailLab
 	items := []MailLabel{}
 	for rows.Next() {
 		var item MailLabel
-		if err := rows.Scan(&item.ID, &item.MailboxID, &item.Name, &item.Color, &item.MessageCount); err != nil {
+		if err := rows.Scan(&item.ID, &item.MailboxID, &item.Name, &item.Color, &item.MessageCount, &item.UnreadCount); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -2709,10 +2711,11 @@ func (a *App) labelsForMailbox(ctx context.Context, mailboxID string) ([]MailLab
 }
 
 func (a *App) labelsForUser(ctx context.Context, userID string) ([]MailLabel, error) {
-	rows, err := a.db.QueryContext(ctx, `SELECT MIN(l.id),'',MIN(l.name),MIN(l.color),COUNT(ml.message_id)
+	rows, err := a.db.QueryContext(ctx, `SELECT MIN(l.id),'',MIN(l.name),MIN(l.color),COUNT(ml.message_id),COALESCE(SUM(CASE WHEN m.is_read=0 THEN 1 ELSE 0 END),0)
 		FROM mail_labels l
 		JOIN mailboxes mb ON mb.id=l.mailbox_id
 		LEFT JOIN message_labels ml ON ml.label_id=l.id
+		LEFT JOIN messages m ON m.id=ml.message_id
 		WHERE mb.user_id=? AND mb.status='active'
 		GROUP BY lower(l.name)
 		ORDER BY `+mailLabelNameOrderSQL("MIN(l.name)")+`, lower(MIN(l.name))`, userID)
@@ -2723,7 +2726,7 @@ func (a *App) labelsForUser(ctx context.Context, userID string) ([]MailLabel, er
 	items := []MailLabel{}
 	for rows.Next() {
 		var item MailLabel
-		if err := rows.Scan(&item.ID, &item.MailboxID, &item.Name, &item.Color, &item.MessageCount); err != nil {
+		if err := rows.Scan(&item.ID, &item.MailboxID, &item.Name, &item.Color, &item.MessageCount, &item.UnreadCount); err != nil {
 			return nil, err
 		}
 		items = append(items, item)

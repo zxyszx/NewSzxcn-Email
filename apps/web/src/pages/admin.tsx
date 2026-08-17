@@ -267,7 +267,7 @@ function OverviewSection({ overview, domains, domainsAvailable, settings, settin
           </div>
           <div className="rounded-md border border-border/80 px-3 py-2">
             <DashboardGroupTitle>服务信息</DashboardGroupTitle>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-2">
               <DashboardInfoItem label="公网地址" value={!settingsAvailable ? "不可查看" : settings?.publicBaseUrl || "-"} onCopy={settings?.publicBaseUrl ? () => copyOverviewValue(settings.publicBaseUrl, "公网地址", toast) : undefined} />
               <DashboardInfoItem label="SMTP" value={!settingsAvailable ? "不可查看" : settings?.smtpHost ? `${settings.smtpHost}:${settings.smtpPort}` : "未配置"} onCopy={settings?.smtpHost ? () => copyOverviewValue(`${settings.smtpHost}:${settings.smtpPort}`, "SMTP 地址", toast) : undefined} />
             </div>
@@ -344,7 +344,7 @@ function DashboardStatusItem({ label, status }: { label: string; status: React.R
 }
 
 function DashboardInfoItem({ label, value, onCopy }: { label: string; value: string; onCopy?: () => void }) {
-  return <div className="flex min-w-0 items-end gap-1"><div className="min-w-0 flex-1"><div className="text-[10px] text-muted-foreground">{label}</div><div className="truncate text-xs font-medium" title={value}>{value}</div></div>{onCopy && <Button type="button" variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={onCopy} title={`复制${label}`} aria-label={`复制${label}`}><Copy className="h-3 w-3" /></Button>}</div>
+  return <div className="flex min-w-0 items-start gap-2 rounded-md bg-muted/25 px-2 py-1.5"><div className="min-w-0 flex-1"><div className="text-[10px] text-muted-foreground">{label}</div><div className="break-all text-xs font-medium leading-5" title={value}>{value}</div></div>{onCopy && <Button type="button" variant="ghost" size="icon" className="mt-3 h-6 w-6 shrink-0" onClick={onCopy} title={`复制${label}`} aria-label={`复制${label}`}><Copy className="h-3 w-3" /></Button>}</div>
 }
 
 async function copyOverviewValue(value: string, label: string, toast: ReturnType<typeof useToast>["toast"]) {

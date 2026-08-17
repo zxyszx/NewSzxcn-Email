@@ -63,7 +63,7 @@ export type Mailbox = { id: string; userId: string; userEmail?: string; domainId
 export type Alias = { id: string; domainId: string; source: string; destination: string; enabled: boolean; createdAt: string }
 export type MailFolder = { id: string; name: string; role: string; icon: string; sortOrder: number; unreadCount: number; totalCount: number; uidValidity: number; uidNext: number; highestModseq: number }
 export type Attachment = { id: string; messageId: string; filename: string; contentType: string; sizeBytes: number; createdAt: string }
-export type MailLabel = { id: string; mailboxId?: string; name: string; color: string; messageCount?: number }
+export type MailLabel = { id: string; mailboxId?: string; name: string; color: string; messageCount?: number; unreadCount?: number }
 export type MailMessage = {
   id: string; mailboxId?: string; mailboxAddress?: string; ownerEmail?: string; recipientAddress?: string; folderId: string; folder: string; messageUid: string; imapUid: number; imapModseq: number; messageId: string; subject: string; from: string; fromName?: string; to: string[]; cc: string[]; bcc?: string[]; sentAt: string; receivedAt: string; snippet: string; bodyText?: string; bodyHtml?: string; isRead: boolean; isStarred: boolean; hasAttachments: boolean; sizeBytes: number; attachments?: Attachment[]
   labels?: MailLabel[]

@@ -1389,7 +1389,7 @@ export function MailPage() {
                     >
                       {item.icon}
                       {!sidebarCollapsed && <span className="min-w-0 flex-1 truncate">{item.label}</span>}
-                      {!sidebarCollapsed && <UnreadBadge count={item.count} tone="muted" />}
+                      {!sidebarCollapsed && <UnreadStatusBadge count={item.count} />}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
               ))}
@@ -1502,7 +1502,7 @@ export function MailPage() {
                   >
                     {item.icon}
                     {!sidebarCollapsed && <span className="min-w-0 flex-1 truncate">{item.label}</span>}
-                    {!sidebarCollapsed && <UnreadBadge count={item.count} tone="muted" />}
+                    {!sidebarCollapsed && <UnreadStatusBadge count={item.count} />}
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
@@ -1562,9 +1562,7 @@ export function MailPage() {
                           <span className="truncate">{label.name}</span>
                         </span>
                       )}
-                      {!sidebarCollapsed && !labelEditMode && !!label.messageCount && (
-                        <span className="ml-auto text-[11px] text-muted-foreground">{label.messageCount}</span>
-                      )}
+                      {!sidebarCollapsed && !labelEditMode && <UnreadStatusBadge count={label.unreadCount} />}
                       {!sidebarCollapsed && labelEditMode && canManageCurrentMailboxLabels && (
                         <button
                           type="button"
@@ -3532,6 +3530,17 @@ function UnreadBadge({ count, tone = "danger" }: { count?: number; tone?: "dange
       {count > 99 ? "99+" : count}
     </span>
   )
+}
+
+function UnreadStatusBadge({ count }: { count?: number }) {
+  if (count && count > 0) {
+    return (
+      <span className="ml-auto inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-destructive px-1.5 text-[11px] font-semibold leading-none text-destructive-foreground">
+        {count > 99 ? "99+" : count}
+      </span>
+    )
+  }
+  return <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-emerald-500" aria-label="无未读邮件" />
 }
 
 function MailboxSwitcher({ collapsed, mailboxes, loading, selectedMailboxId, selectedMailbox, unreadCount, hasCopyAction, onSelect }: { collapsed: boolean; mailboxes: Mailbox[]; loading: boolean; selectedMailboxId: string; selectedMailbox?: Mailbox; unreadCount: number; hasCopyAction: boolean; onSelect: (mailboxId: string) => void }) {

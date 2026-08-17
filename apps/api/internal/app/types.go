@@ -105,6 +105,7 @@ type MailLabel struct {
 	Name         string `json:"name"`
 	Color        string `json:"color"`
 	MessageCount int    `json:"messageCount,omitempty"`
+	UnreadCount  int    `json:"unreadCount,omitempty"`
 }
 
 type MailMessage struct {

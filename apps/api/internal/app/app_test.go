@@ -700,7 +700,7 @@ func TestAuthAdminAndLocalDeliveryFlow(t *testing.T) {
 			break
 		}
 	}
-	if importantLabel.ID == "" || importantLabel.MessageCount != 1 {
+	if importantLabel.ID == "" || importantLabel.MessageCount != 1 || importantLabel.UnreadCount != 0 {
 		t.Fatalf("important label missing or count is wrong: %+v", labels.Items)
 	}
 	var labeled struct {
@@ -2397,7 +2397,7 @@ func TestUserCanSelectMultipleMailboxes(t *testing.T) {
 			break
 		}
 	}
-	if allImportant.ID == "" || allImportant.MailboxID != "" || allImportant.MessageCount != 2 {
+	if allImportant.ID == "" || allImportant.MailboxID != "" || allImportant.MessageCount != 2 || allImportant.UnreadCount != 2 {
 		t.Fatalf("aggregated important label=%+v", allImportant)
 	}
 	var importantMessages struct {
