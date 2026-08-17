@@ -2659,6 +2659,22 @@ func TestCustomMailFoldersCreateAndMove(t *testing.T) {
 	if code := admin.do("GET", "/api/mail/messages?folder="+url.QueryEscape("客户归档"), nil, &list); code != http.StatusOK || len(list.Items) != 1 || list.Items[0].ID != sent.ID {
 		t.Fatalf("custom folder messages code=%d items=%+v", code, list.Items)
 	}
+	if code := admin.do("POST", "/api/mail/messages/"+sent.ID+"/mark-read", map[string]bool{"read": false}, &ok); code != http.StatusOK {
+		t.Fatalf("mark custom folder message unread code=%d body=%v", code, ok)
+	}
+	if code := admin.do("GET", "/api/mail/folders", nil, &folders); code != http.StatusOK {
+		t.Fatalf("folder list after unread code=%d items=%+v", code, folders.Items)
+	}
+	customUnread := -1
+	for _, folder := range folders.Items {
+		if folder.Name == "客户归档" {
+			customUnread = folder.UnreadCount
+			break
+		}
+	}
+	if customUnread != 1 {
+		t.Fatalf("custom folder unread count=%d, want 1", customUnread)
+	}
 	if code := admin.do("POST", "/api/mail/messages/"+sent.ID+"/move", map[string]string{"folder": "bad/name"}, &bad); code != http.StatusBadRequest {
 		t.Fatalf("invalid move folder should be rejected code=%d body=%v", code, bad)
 	}

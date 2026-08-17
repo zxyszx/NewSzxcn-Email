@@ -279,7 +279,13 @@ export function MailPage() {
   const hasMailboxes = (mailboxList.data?.items.length || 0) > 0
   const canManageFolders = canOrganizeMail && hasMailboxes
   const showMailboxCopy = !!selectedMailbox && !isAllMailboxSelected
-  const folders = useQuery({ queryKey: ["folders", activeMailboxId], queryFn: () => api.folders(activeMailboxId), enabled: !!activeMailboxId && canReadMail })
+  const folders = useQuery({
+    queryKey: ["folders", activeMailboxId],
+    queryFn: () => api.folders(activeMailboxId),
+    enabled: !!activeMailboxId && canReadMail,
+    refetchInterval: 5000,
+    refetchIntervalInBackground: true,
+  })
   const labels = useQuery({ queryKey: ["labels", activeMailboxId], queryFn: () => api.labels(activeMailboxId), enabled: !!activeMailboxId && (canReadMail || canManageLabels) })
   const mailStats = useQuery({ queryKey: ["mail-stats", activeMailboxId], queryFn: () => api.mailStats(activeMailboxId), enabled: !!activeMailboxId && hasPermission(user, "mail.stats.view") })
   const scheduledSends = useQuery({ queryKey: ["scheduled-sends", activeMailboxId], queryFn: () => api.scheduledSends(activeMailboxId), enabled: !!activeMailboxId && canScheduleMail, refetchInterval: 30000 })
