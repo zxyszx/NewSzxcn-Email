@@ -3445,7 +3445,7 @@ function CompactMessageRow({ message, active, checked, scheduled, onCheckedChang
               {!message.isRead && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-label="未读" />}
             </div>
             <div className="flex shrink-0 items-center gap-1 sm:hidden">
-              <span className="text-xs text-muted-foreground">{formatDate(message.receivedAt)}</span>
+              <span className="min-w-[72px] text-right text-xs text-muted-foreground">{messageDisplayDate(message)}</span>
               {canOrganize && <Button type="button" variant="ghost" size="icon" aria-label={message.isStarred ? "取消星标" : "添加星标"} className="h-6 w-6 text-muted-foreground hover:text-yellow-500" onClick={(event) => { event.stopPropagation(); onStar() }}>
                 <Star className={cn("h-3.5 w-3.5", message.isStarred && "fill-yellow-400 text-yellow-500")} />
               </Button>}
@@ -3462,7 +3462,7 @@ function CompactMessageRow({ message, active, checked, scheduled, onCheckedChang
           <div className={cn("mt-1 line-clamp-2 text-xs sm:hidden", message.isRead ? "text-muted-foreground" : "text-foreground/70")}>{message.snippet}</div>
         </div>
       </div>
-      <div className="hidden shrink-0 text-right text-xs text-muted-foreground sm:block">{formatDate(message.receivedAt)}</div>
+      <div className="hidden min-w-[86px] shrink-0 text-right text-xs text-muted-foreground sm:block">{messageDisplayDate(message)}</div>
       {canOrganize && <Button type="button" variant="ghost" size="icon" aria-label={message.isStarred ? "取消星标" : "添加星标"} className="hidden h-6 w-6 text-muted-foreground hover:text-yellow-500 sm:inline-flex" onClick={(event) => { event.stopPropagation(); onStar() }}>
         <Star className={cn("h-3.5 w-3.5", message.isStarred && "fill-yellow-400 text-yellow-500")} />
       </Button>}
@@ -3669,6 +3669,10 @@ function senderDisplayName(message: MailMessage) {
 
 function messageSubject(message: MailMessage) {
   return decodeMimeHeader(message.subject?.trim() || "") || "无主题"
+}
+
+function messageDisplayDate(message: MailMessage) {
+  return formatDate(message.receivedAt) || formatDate(message.sentAt) || "时间未知"
 }
 
 function displayNameFromAddress(value: string) {
@@ -3922,7 +3926,7 @@ function MessageRow({
             >
               <Star className={cn("h-3.5 w-3.5", message.isStarred && "fill-yellow-400 text-yellow-500")} />
             </Button>}
-            <div className={cn("shrink-0 text-xs text-muted-foreground", canOrganize && (quickActionsVisible ? "hidden" : "group-hover:hidden"))}>{formatDate(message.receivedAt)}</div>
+            <div className="min-w-[86px] shrink-0 text-right text-xs text-muted-foreground">{messageDisplayDate(message)}</div>
           </div>
         </div>
         <div className="mb-1 flex min-w-0 items-center gap-2">
