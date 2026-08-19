@@ -595,7 +595,10 @@ func maildirFlagsFromPath(path, folderName string) (bool, bool) {
 	if hasFlags {
 		return strings.ContainsRune(flags, 'S'), strings.ContainsRune(flags, 'F')
 	}
-	return !strings.EqualFold(folderName, "Inbox"), false
+	if strings.EqualFold(folderName, "Sent") || strings.EqualFold(folderName, "Drafts") {
+		return true, false
+	}
+	return false, false
 }
 
 func (a *App) attachUnregisteredMaildirRawPathToExisting(ctx context.Context, rawPath, messageID, recipient string) {

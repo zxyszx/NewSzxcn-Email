@@ -6253,6 +6253,62 @@ func TestMoveAndDeleteMessageUpdateMaildir(t *testing.T) {
 	}
 }
 
+func TestMoveUnreadMessageToCustomFolderPreservesUnread(t *testing.T) {
+	a := newTestApp(t)
+	ctx := context.Background()
+	a.updateConfig(func(cfg *Config) { cfg.MaildirRoot = t.TempDir() })
+	srv := httptest.NewServer(a.Router())
+	defer srv.Close()
+	client := &testClient{t: t, server: srv}
+	var login map[string]any
+	if code := client.do("POST", "/api/auth/login", map[string]string{"email": "admin@lanqin.local", "password": "ChangeMe123!"}, &login); code != http.StatusOK {
+		t.Fatalf("login code=%d body=%v", code, login)
+	}
+	user, mb := defaultAdminUserAndMailbox(t, a)
+	clearMailboxMessagesForTest(t, a, mb.ID)
+	msg, err := a.sendMailNow(ctx, user, mb, mailComposeInput{
+		MailboxID: mb.ID,
+		To:        []string{"recipient@example.test"},
+		Subject:   "custom unread",
+		Text:      "custom unread body",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := client.do("POST", "/api/mail/messages/"+msg.ID+"/mark-read", map[string]bool{"read": false}, nil); code != http.StatusOK {
+		t.Fatalf("mark unread code=%d", code)
+	}
+	if code := client.do("POST", "/api/mail/messages/"+msg.ID+"/move", map[string]string{"folder": "iQIYI"}, nil); code != http.StatusOK {
+		t.Fatalf("move code=%d", code)
+	}
+	rawPath := maildirRawPathForTest(t, a, msg.ID)
+	if !strings.Contains(filepath.ToSlash(rawPath), "/.iQIYI/new/") {
+		t.Fatalf("raw_path=%q, want unread custom folder path", rawPath)
+	}
+	if _, err := a.syncMaildirOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var read int
+	if err := a.db.QueryRowContext(ctx, `SELECT is_read FROM messages WHERE id=?`, msg.ID).Scan(&read); err != nil {
+		t.Fatal(err)
+	}
+	if read != 0 {
+		t.Fatalf("custom folder message read=%d, want unread", read)
+	}
+	var folders struct {
+		Items []MailFolder `json:"items"`
+	}
+	if code := client.do("GET", "/api/mail/folders", nil, &folders); code != http.StatusOK {
+		t.Fatalf("folders code=%d", code)
+	}
+	for _, folder := range folders.Items {
+		if folder.Name == "iQIYI" && folder.UnreadCount == 1 {
+			return
+		}
+	}
+	t.Fatalf("custom folder unread count missing: %+v", folders.Items)
+}
+
 func TestMessageFlagsUpdateMaildir(t *testing.T) {
 	a := newTestApp(t)
 	ctx := context.Background()

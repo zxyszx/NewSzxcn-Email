@@ -225,6 +225,7 @@ func (a *App) moveMessageMaildir(ctx context.Context, messageID, targetFolderID 
 		subdir = "new"
 	}
 	targetPath := filepath.Join(folderBase, subdir, filepath.Base(state.RawPath))
+	targetPath = maildirPathWithFlags(targetPath, state.IsRead, state.IsStarred)
 	if filepath.Clean(targetPath) != filepath.Clean(state.RawPath) {
 		if err := os.Rename(state.RawPath, targetPath); err != nil {
 			return err

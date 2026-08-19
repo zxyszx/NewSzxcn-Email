@@ -1990,7 +1990,7 @@ function ClientSettingsSection({ mailboxes, selectedMailboxId, hostname, onSelec
   })
   const discoverTelegram = useMutation({
     mutationFn: () => api.discoverUserTelegramChat(telegramBotToken, telegramPairing?.code || ""),
-    onSuccess: (chat) => { setTelegramChatId(chat.chatId); setTelegramPairing(null); toast({ title: "Telegram 私聊已绑定", description: chat.displayName || chat.chatId }) },
+    onSuccess: (chat) => { setTelegramChatId(chat.chatId); setTelegramEnabled(true); setTelegramPairing(null); toast({ title: "Telegram 私聊已绑定", description: "已自动开启新邮件提醒，请保存设置" }) },
     onError: (error) => toast({ title: "绑定失败", description: error.message }),
   })
   const testTelegram = useMutation({
@@ -2010,7 +2010,7 @@ function ClientSettingsSection({ mailboxes, selectedMailboxId, hostname, onSelec
       <SettingsCard
         title="Telegram 邮件提醒"
         subtitle="每个账号使用自己的机器人，只提醒本人选择的邮箱。"
-        action={<Badge variant={telegram.data?.botConfigured ? "default" : "secondary"}>{telegram.data?.botConfigured ? "已配置" : "未配置"}</Badge>}
+        action={<div className="flex flex-wrap justify-end gap-2"><Badge variant={telegram.data?.botConfigured ? "default" : "secondary"}>{telegram.data?.botConfigured ? "机器人已配置" : "机器人未配置"}</Badge><Badge variant={telegramEnabled ? "default" : "destructive"}>{telegramEnabled ? "提醒已开启" : "提醒已关闭"}</Badge></div>}
       >
         {telegram.isLoading ? <Skeleton className="h-32 w-full" /> : (
           <div className="space-y-5">
@@ -2019,7 +2019,7 @@ function ClientSettingsSection({ mailboxes, selectedMailboxId, hostname, onSelec
                 <div className="text-sm font-medium">新邮件提醒</div>
                 <div className="mt-1 truncate text-xs text-muted-foreground">{telegramChatId ? `已绑定私聊 ${telegramChatId}` : "尚未绑定 Telegram 私聊"}</div>
               </div>
-              <Switch checked={telegramEnabled} onCheckedChange={setTelegramEnabled} disabled={!telegram.data?.botConfigured && !telegramBotToken} />
+              <Switch aria-label="开启新邮件提醒" checked={telegramEnabled} onCheckedChange={setTelegramEnabled} disabled={!telegram.data?.botConfigured && !telegramBotToken} />
             </div>
             <div className="space-y-2 border-t pt-4">
               <Label htmlFor="user-telegram-bot-token">Bot Token</Label>
