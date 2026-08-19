@@ -53,6 +53,8 @@ func (a *App) maildirWorker(ctx context.Context) {
 	nextRunAt := a.now().UTC()
 	a.maildirHealth.markWorkerStarted(&nextRunAt)
 	a.log.Info("maildir sync worker started", "root", a.config().MaildirRoot, "interval", interval.String())
+	changes, stopWatcher := watchMaildirChanges(a.config().MaildirRoot, a.log)
+	defer stopWatcher()
 	if counts, err := a.syncMaildirOnceTracked(ctx, interval); err != nil {
 		a.log.Warn("initial maildir sync failed", "error", err)
 	} else if n := counts.total(); n > 0 {
@@ -66,6 +68,19 @@ func (a *App) maildirWorker(ctx context.Context) {
 			a.maildirHealth.markWorkerStopped()
 			a.log.Info("maildir sync worker stopped")
 			return
+		case _, ok := <-changes:
+			if !ok {
+				changes = nil
+				continue
+			}
+			counts, err := a.syncMaildirOnceTracked(ctx, interval)
+			if err != nil {
+				a.log.Warn("maildir event sync failed", "error", err)
+				continue
+			}
+			if n := counts.total(); n > 0 {
+				a.log.Info("maildir event sync processed messages", "count", n)
+			}
 		case <-ticker.C:
 			counts, err := a.syncMaildirOnceTracked(ctx, interval)
 			if err != nil {

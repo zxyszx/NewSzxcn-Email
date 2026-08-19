@@ -166,7 +166,7 @@ export function AdminPage() {
         {sectionReady && section === "messages" && <AdminMessagesSection mailboxes={mailboxItems} systemAdmin={user?.role === "admin"} />}
         {sectionReady && section === "sendAudit" && <AdminSendAuditSection mailboxes={mailboxItems} />}
         {sectionReady && section === "backups" && <BackupsSection />}
-        {sectionReady && section === "settings" && <SystemSettingsSection settings={settings.data} domains={domainItems} mailboxes={mailboxItems} initialTab={params.get("settingsTab")} />}
+        {sectionReady && section === "settings" && <SystemSettingsSection settings={settings.data} domains={domainItems} initialTab={params.get("settingsTab")} />}
       </main>
     </ScrollArea>
   )
@@ -363,6 +363,19 @@ function generateBackupPassword(length = 24) {
   return Array.from(values, (value) => alphabet[value % alphabet.length]).join("")
 }
 
+function formatBackupCountdown(nextBackupAt?: string, now = Date.now()) {
+  if (!nextBackupAt) return "等待启用"
+  const remaining = new Date(nextBackupAt).getTime() - now
+  if (!Number.isFinite(remaining) || remaining <= 0) return "即将执行"
+  const totalMinutes = Math.ceil(remaining / 60_000)
+  const days = Math.floor(totalMinutes / 1440)
+  const hours = Math.floor((totalMinutes % 1440) / 60)
+  const minutes = totalMinutes % 60
+  if (days > 0) return `${days} 天 ${hours} 小时`
+  if (hours > 0) return `${hours} 小时 ${minutes} 分钟`
+  return `${minutes} 分钟`
+}
+
 function BackupsSection() {
   const qc = useQueryClient()
   const { toast } = useToast()
@@ -378,6 +391,7 @@ function BackupsSection() {
   const [sendAfterCreate, setSendAfterCreate] = React.useState(true)
   const [driveAfterCreate, setDriveAfterCreate] = React.useState(false)
   const [deleteName, setDeleteName] = React.useState("")
+  const [backupClock, setBackupClock] = React.useState(() => Date.now())
 
   const [scheduleEnabled, setScheduleEnabled] = React.useState(false)
   const [scheduleDays, setScheduleDays] = React.useState("7")
@@ -386,7 +400,7 @@ function BackupsSection() {
   const [scheduleConfirmPassword, setScheduleConfirmPassword] = React.useState("")
   const [showSchedulePassword, setShowSchedulePassword] = React.useState(false)
   const [backupChatId, setBackupChatId] = React.useState("")
-  const [telegramMode, setTelegramMode] = React.useState<"system" | "custom">("system")
+  const [backupBotToken, setBackupBotToken] = React.useState("")
   const [telegramEnabled, setTelegramEnabled] = React.useState(true)
   const [googleDriveEnabled, setGoogleDriveEnabled] = React.useState(false)
   const [googleClientId, setGoogleClientId] = React.useState("")
@@ -394,9 +408,12 @@ function BackupsSection() {
   const [googleFolderName, setGoogleFolderName] = React.useState("NewSzxcn Backups")
   const [telegramConfigOpen, setTelegramConfigOpen] = React.useState(false)
   const [backupGroupPairing, setBackupGroupPairing] = React.useState<TelegramPairing | null>(null)
-  const [discoveredBackupGroups, setDiscoveredBackupGroups] = React.useState<{ chatId: string; displayName: string }[]>([])
   const [googleConfigOpen, setGoogleConfigOpen] = React.useState(false)
   const [passwordConfigOpen, setPasswordConfigOpen] = React.useState(false)
+  React.useEffect(() => {
+    const timer = window.setInterval(() => setBackupClock(Date.now()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
   React.useEffect(() => {
     if (!backups.data) return
     const days = backups.data.schedule.days || 7
@@ -404,7 +421,6 @@ function BackupsSection() {
     setScheduleDays([3, 5, 7, 30].includes(days) ? String(days) : "custom")
     setCustomDays(String(days))
     setBackupChatId(backups.data.schedule.chatId || "")
-    setTelegramMode(backups.data.schedule.telegramMode === "custom" ? "custom" : "system")
     setTelegramEnabled(backups.data.schedule.telegramEnabled)
     setGoogleDriveEnabled(backups.data.schedule.googleDriveEnabled)
     setGoogleClientId(backups.data.googleDrive.clientId || "")
@@ -428,8 +444,8 @@ function BackupsSection() {
     onError: (error) => toast({ title: "无法创建备份", description: error instanceof Error ? error.message : "请稍后重试" }),
   })
   const saveSchedule = useMutation({
-    mutationFn: () => api.updateBackupSettings({ enabled: scheduleEnabled, days: scheduleDays === "custom" ? Number(customDays) : Number(scheduleDays), password: "", confirmPassword: "", serverIp: "", chatId: backupChatId, telegramMode, telegramEnabled, googleDriveEnabled, googleClientId, googleClientSecret, googleFolderName }),
-    onSuccess: async () => { setGoogleClientSecret(""); await qc.invalidateQueries({ queryKey: ["admin", "backups"] }); toast({ title: "备份设置已保存" }) },
+    mutationFn: () => api.updateBackupSettings({ enabled: scheduleEnabled, days: scheduleDays === "custom" ? Number(customDays) : Number(scheduleDays), password: "", confirmPassword: "", serverIp: "", chatId: backupChatId, telegramMode: "custom", telegramEnabled, telegramBotToken: backupBotToken, googleDriveEnabled, googleClientId, googleClientSecret, googleFolderName }),
+    onSuccess: async () => { setBackupBotToken(""); setGoogleClientSecret(""); await qc.invalidateQueries({ queryKey: ["admin", "backups"] }); toast({ title: "备份设置已保存" }) },
     onError: (error) => toast({ title: "保存失败", description: error instanceof Error ? error.message : "请稍后重试" }),
   })
   const savePassword = useMutation({
@@ -448,23 +464,19 @@ function BackupsSection() {
     onError: (error) => toast({ title: "发送失败", description: error instanceof Error ? error.message : "请稍后重试" }),
   })
   const testBackupTelegram = useMutation({
-    mutationFn: () => api.testBackupTelegram({ mode: telegramMode, chatId: backupChatId }),
+    mutationFn: () => api.testTelegram(backupBotToken, backupChatId),
     onSuccess: () => toast({ title: "Telegram 测试通知已发送" }),
     onError: (error) => toast({ title: "测试失败", description: error instanceof Error ? error.message : "请检查机器人和 Chat ID" }),
   })
   const createBackupGroupPairing = useMutation({
-    mutationFn: () => api.createTelegramPairing(""),
-    onSuccess: (pairing) => { setBackupGroupPairing(pairing); setDiscoveredBackupGroups([]); toast({ title: "群组查询码已生成" }) },
+    mutationFn: () => api.createTelegramPairing(backupBotToken),
+    onSuccess: (pairing) => { setBackupGroupPairing(pairing); toast({ title: "绑定码已生成" }) },
     onError: (error) => toast({ title: "无法生成查询码", description: error instanceof Error ? error.message : "请先绑定 Telegram 机器人" }),
   })
   const discoverBackupGroup = useMutation({
-    mutationFn: () => api.discoverBackupTelegramGroup(backupGroupPairing?.code || ""),
-    onSuccess: ({ items }) => {
-      setDiscoveredBackupGroups(items)
-      if (items.length === 1) setBackupChatId(items[0].chatId)
-      toast({ title: `找到 ${items.length} 个群组`, description: items.length === 1 ? "已自动选中" : "请选择备份群组" })
-    },
-    onError: (error) => toast({ title: "未找到群组", description: error instanceof Error ? error.message : "请在群组发送查询命令后重试" }),
+    mutationFn: () => api.discoverTelegramChat(backupBotToken, backupGroupPairing?.code || ""),
+    onSuccess: (chat) => { setBackupChatId(chat.chatId); setBackupGroupPairing(null); toast({ title: "备份私聊已绑定", description: chat.displayName || chat.chatId }) },
+    onError: (error) => toast({ title: "绑定失败", description: error instanceof Error ? error.message : "请先打开机器人并发送绑定码" }),
   })
   const sendDrive = useMutation({
     mutationFn: api.sendBackupGoogleDrive,
@@ -473,7 +485,7 @@ function BackupsSection() {
   })
   const connectDrive = useMutation({
     mutationFn: async () => {
-      await api.updateBackupSettings({ enabled: scheduleEnabled, days: scheduleDays === "custom" ? Number(customDays) : Number(scheduleDays), password: "", confirmPassword: "", serverIp: "", chatId: backupChatId, telegramMode, telegramEnabled, googleDriveEnabled: false, googleClientId, googleClientSecret, googleFolderName })
+      await api.updateBackupSettings({ enabled: scheduleEnabled, days: scheduleDays === "custom" ? Number(customDays) : Number(scheduleDays), password: "", confirmPassword: "", serverIp: "", chatId: backupChatId, telegramMode: "custom", telegramEnabled, telegramBotToken: backupBotToken, googleDriveEnabled: false, googleClientId, googleClientSecret, googleFolderName })
       return api.connectGoogleDrive()
     },
     onSuccess: ({ url }) => { window.location.href = url },
@@ -611,6 +623,11 @@ function BackupsSection() {
       <Card>
         <CardHeader className="flex-row items-center justify-between space-y-0 pb-3"><div><CardTitle>定时备份</CardTitle><p className="mt-1 text-sm text-muted-foreground">按周期创建加密备份并保存到选定位置。</p></div><Switch checked={scheduleEnabled} onCheckedChange={setScheduleEnabled} /></CardHeader>
         <CardContent className="space-y-3">
+          <div className="grid gap-2 rounded-md border bg-muted/30 p-3 sm:grid-cols-3">
+            <div><div className="text-xs text-muted-foreground">最近备份</div><div className="mt-1 text-sm font-medium">{backups.data?.schedule.lastBackupAt ? formatDate(backups.data.schedule.lastBackupAt) : "尚未备份"}</div></div>
+            <div><div className="text-xs text-muted-foreground">下次备份</div><div className="mt-1 text-sm font-medium">{scheduleEnabled && backups.data?.schedule.nextBackupAt ? formatDate(backups.data.schedule.nextBackupAt) : "未启用"}</div></div>
+            <div><div className="text-xs text-muted-foreground">倒计时</div><div className="mt-1 text-sm font-semibold text-foreground">{scheduleEnabled ? formatBackupCountdown(backups.data?.schedule.nextBackupAt, backupClock) : "未启用"}</div></div>
+          </div>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             <div className="space-y-2"><Label>备份周期</Label><div className={cn("grid gap-2", scheduleDays === "custom" && "grid-cols-[minmax(0,1fr)_5.5rem]")}><Select value={scheduleDays} onValueChange={setScheduleDays}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="3">每 3 天</SelectItem><SelectItem value="5">每 5 天</SelectItem><SelectItem value="7">每 7 天</SelectItem><SelectItem value="30">每 30 天</SelectItem><SelectItem value="custom">自定义</SelectItem></SelectContent></Select>{scheduleDays === "custom" && <Input id="backup-custom-days" aria-label="自定义天数" title="自定义天数" type="number" min={1} max={365} value={customDays} onChange={(event) => setCustomDays(event.target.value)} />}</div></div>
             <div className="space-y-2"><div className="flex h-7 items-center justify-between gap-2"><Label htmlFor="backup-server-ip">服务器 IP</Label><Button type="button" variant="ghost" size="icon" className="h-7 w-7" title="重新检测" aria-label="重新检测服务器 IP" disabled={backups.isFetching} onClick={() => backups.refetch()}><RefreshCcw className={cn("h-4 w-4", backups.isFetching && "animate-spin")} /></Button></div><Input id="backup-server-ip" readOnly value={backups.data?.schedule.serverIp || ""} placeholder={backups.isLoading ? "正在自动检测" : "未检测到，请检查邮局主机名 DNS"} /><p className="text-xs text-muted-foreground">根据当前邮局主机名的公网 DNS 自动识别。</p></div>
@@ -619,7 +636,7 @@ function BackupsSection() {
           <div className="divide-y rounded-md border">
             <div className="flex items-center gap-3 p-3">
               <Send className="h-4 w-4 shrink-0" />
-              <div className="min-w-0 flex-1"><div className="flex items-center gap-2 sm:grid sm:grid-cols-[8.5rem_auto]"><span className="text-sm font-medium">Telegram</span><Badge className="w-fit" variant={backups.data?.telegramSet ? "default" : "secondary"}>{backups.data?.telegramSet ? "已配置" : "未配置"}</Badge></div><p className="truncate text-xs text-muted-foreground">{telegramMode === "custom" ? "使用系统机器人推送到备份群组" : "沿用邮件通知接收方"}</p></div>
+              <div className="min-w-0 flex-1"><div className="flex items-center gap-2 sm:grid sm:grid-cols-[8.5rem_auto]"><span className="text-sm font-medium">Telegram</span><Badge className="w-fit" variant={backups.data?.telegramSet ? "default" : "secondary"}>{backups.data?.telegramSet ? "已配置" : "未配置"}</Badge></div><p className="truncate text-xs text-muted-foreground">备份通知与加密附件</p></div>
               <Button type="button" size="sm" variant="outline" onClick={() => setTelegramConfigOpen(true)}>配置</Button>
               <Switch checked={telegramEnabled} onCheckedChange={setTelegramEnabled} disabled={!backups.data?.telegramSet} />
             </div>
@@ -637,28 +654,11 @@ function BackupsSection() {
         <DialogContent className="w-[calc(100vw-2rem)] max-w-md rounded-lg">
           <DialogHeader><DialogTitle>Telegram 备份</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            <div className="space-y-2"><Label>备份接收位置</Label><Select value={telegramMode} onValueChange={(value) => setTelegramMode(value === "custom" ? "custom" : "system")}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="system">沿用邮件通知接收方</SelectItem><SelectItem value="custom">自定义备份群组</SelectItem></SelectContent></Select></div>
-            {telegramMode === "system" ? <div className="rounded-md bg-muted/60 px-3 py-2 text-sm text-muted-foreground">使用系统已绑定机器人，备份发送到邮件通知的接收方。</div> : <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="backup-chat-id">备份群组</Label>
-                <div className="flex gap-2"><Input id="backup-chat-id" inputMode="numeric" value={backupChatId} onChange={(event) => setBackupChatId(event.target.value)} placeholder="群组 Chat ID" /><Button type="button" variant="outline" className="shrink-0" disabled={createBackupGroupPairing.isPending} onClick={() => createBackupGroupPairing.mutate()}>{createBackupGroupPairing.isPending ? "生成中" : "查询群组"}</Button></div>
-                <p className="text-xs text-muted-foreground">请先将系统机器人加入该群组。邮件继续推送到原接收方，备份通知和附件只推送到此群组。</p>
-                {backupGroupPairing && <div className="space-y-3 rounded-md border px-3 py-3">
-                  <p className="text-sm">在每个候选群组发送下面的命令，然后点击“完成查询”：</p>
-                  <div className="flex items-center gap-2"><code className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1.5 font-mono text-sm">/newszxcn {backupGroupPairing.code}</code><Button type="button" variant="ghost" size="icon" aria-label="复制群组查询命令" title="复制群组查询命令" onClick={() => navigator.clipboard.writeText(`/newszxcn ${backupGroupPairing.code}`)}><Copy className="h-4 w-4" /></Button></div>
-                  <Button type="button" size="sm" disabled={discoverBackupGroup.isPending} onClick={() => discoverBackupGroup.mutate()}>{discoverBackupGroup.isPending ? "查询中" : "完成查询"}</Button>
-                  {discoveredBackupGroups.length > 0 && <div className="divide-y rounded-md border">{discoveredBackupGroups.map((group) => <Button key={group.chatId} type="button" variant="ghost" className={cn("h-auto w-full justify-start rounded-none px-3 py-2 text-left", backupChatId === group.chatId && "bg-muted")} onClick={() => { setBackupChatId(group.chatId); setBackupGroupPairing(null); setDiscoveredBackupGroups([]) }}><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{group.displayName}</span><span className="block font-mono text-xs font-normal text-muted-foreground">{group.chatId}</span></span>{backupChatId === group.chatId && <CheckCircle2 className="h-4 w-4 text-primary" />}</Button>)}</div>}
-                </div>}
-              </div>
-            </div>}
+            <div className="space-y-2"><Label htmlFor="backup-bot-token">Bot Token</Label><Input id="backup-bot-token" type="password" value={backupBotToken} onChange={(event) => setBackupBotToken(event.target.value)} placeholder={backups.data?.telegramBotSet ? "已保存，留空不变" : "123456789:..."} /></div>
+            <div className="space-y-2"><Label htmlFor="backup-chat-id">备份接收私聊</Label><div className="flex gap-2"><Input id="backup-chat-id" readOnly value={backupChatId} placeholder="尚未绑定" /><Button type="button" variant="outline" className="shrink-0" disabled={createBackupGroupPairing.isPending || (!backupBotToken && !backups.data?.telegramBotSet)} onClick={() => createBackupGroupPairing.mutate()}>{createBackupGroupPairing.isPending ? "生成中" : "安全绑定"}</Button></div></div>
+            {backupGroupPairing && <div className="space-y-3 rounded-md border px-3 py-3"><div className="flex items-center gap-2"><code className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1.5 font-mono text-sm">{backupGroupPairing.code}</code><Button type="button" variant="ghost" size="icon" aria-label="复制绑定码" title="复制绑定码" onClick={() => navigator.clipboard.writeText(backupGroupPairing.code)}><Copy className="h-4 w-4" /></Button></div><div className="flex flex-wrap gap-2"><Button asChild type="button" variant="outline" size="sm"><a href={backupGroupPairing.deepLink} target="_blank" rel="noreferrer"><ExternalLink className="h-4 w-4" />打开机器人</a></Button><Button type="button" size="sm" disabled={discoverBackupGroup.isPending} onClick={() => discoverBackupGroup.mutate()}>{discoverBackupGroup.isPending ? "绑定中" : "完成绑定"}</Button></div></div>}
           </div>
-          <DialogFooter className="gap-2 sm:justify-between">
-            <Button asChild type="button" variant="outline"><a href="/admin?section=settings&settingsTab=notifications">管理机器人</a></Button>
-            <div className="flex gap-2">
-              <Button type="button" variant="outline" disabled={testBackupTelegram.isPending || (telegramMode === "custom" && !backupChatId)} onClick={() => testBackupTelegram.mutate()}>{testBackupTelegram.isPending ? "发送中" : "测试发送"}</Button>
-              <Button type="button" onClick={() => setTelegramConfigOpen(false)}>完成</Button>
-            </div>
-          </DialogFooter>
+          <DialogFooter className="gap-2"><Button type="button" variant="outline" disabled={testBackupTelegram.isPending || !backupChatId} onClick={() => testBackupTelegram.mutate()}>{testBackupTelegram.isPending ? "发送中" : "测试发送"}</Button><Button type="button" onClick={() => setTelegramConfigOpen(false)}>完成</Button></DialogFooter>
           <p className="text-xs text-muted-foreground">关闭后请点击页面下方“保存设置”使 Chat ID 生效。</p>
         </DialogContent>
       </Dialog>
@@ -1548,7 +1548,7 @@ function AdminSendAuditSection({ mailboxes }: { mailboxes: MailboxType[] }) {
   )
 }
 
-function SystemSettingsSection({ settings, domains, mailboxes, initialTab }: { settings?: SystemSettings; domains: Domain[]; mailboxes: MailboxType[]; initialTab?: string | null }) {
+function SystemSettingsSection({ settings, domains, initialTab }: { settings?: SystemSettings; domains: Domain[]; initialTab?: string | null }) {
   const me = useMe()
   const user = me.data?.user
   const qc = useQueryClient()
@@ -1561,7 +1561,7 @@ function SystemSettingsSection({ settings, domains, mailboxes, initialTab }: { s
   const canResetTemplates = hasPermission(user, "admin.templates.reset")
   const templates = useQuery({ queryKey: ["admin", "mail-templates"], queryFn: api.mailTemplates, enabled: canViewTemplates })
   const requestedTab = initialTab as SettingsTab | undefined
-  const [settingsTab, setSettingsTab] = React.useState<SettingsTab>(() => requestedTab && ["base", "smtp", "storage", "mail", "notifications", "externalImap", "templates", "security"].includes(requestedTab) ? requestedTab : "base")
+  const [settingsTab, setSettingsTab] = React.useState<SettingsTab>(() => requestedTab && ["base", "smtp", "storage", "mail", "externalImap", "templates", "security"].includes(requestedTab) ? requestedTab : "base")
   const maildirHealth = useQuery({ queryKey: ["admin", "maildir-sync", "health"], queryFn: api.maildirSyncHealth, enabled: canSettingsView && settingsTab === "storage" })
   const [smtpRequireTls, setSmtpRequireTls] = React.useState(() => settings?.smtpRequireTls ?? false)
   const [allowInsecureHttp, setAllowInsecureHttp] = React.useState(() => settings?.allowInsecureHttp ?? true)
@@ -1574,13 +1574,6 @@ function SystemSettingsSection({ settings, domains, mailboxes, initialTab }: { s
   const [userMailboxDomainIds, setUserMailboxDomainIds] = React.useState<string[]>(() => settings?.userMailboxDomainIds || [])
   const [externalImapEnabled, setExternalImapEnabled] = React.useState(() => settings?.externalImapEnabled ?? false)
   const [externalImapAllowPrivateHosts, setExternalImapAllowPrivateHosts] = React.useState(() => settings?.externalImapAllowPrivateHosts ?? false)
-  const [telegramMailEnabled, setTelegramMailEnabled] = React.useState(() => settings?.telegramMailEnabled ?? false)
-  const [telegramBotToken, setTelegramBotToken] = React.useState("")
-  const [telegramPrivateChatId, setTelegramPrivateChatId] = React.useState(() => settings?.telegramPrivateChatId || "")
-  const [telegramBodyMode, setTelegramBodyMode] = React.useState<"summary" | "full">(() => settings?.telegramBodyMode === "full" ? "full" : "summary")
-  const [telegramMailboxIds, setTelegramMailboxIds] = React.useState<string[]>(() => settings?.telegramMailboxIds || [])
-  const [telegramIncludeUnregistered, setTelegramIncludeUnregistered] = React.useState(() => settings?.telegramIncludeUnregistered ?? false)
-  const [telegramPairing, setTelegramPairing] = React.useState<TelegramPairing | null>(null)
   React.useEffect(() => {
     if (!settings) return
     setSmtpRequireTls(settings.smtpRequireTls)
@@ -1594,36 +1587,7 @@ function SystemSettingsSection({ settings, domains, mailboxes, initialTab }: { s
     setUserMailboxDomainIds(settings.userMailboxDomainIds || [])
     setExternalImapEnabled(settings.externalImapEnabled)
     setExternalImapAllowPrivateHosts(settings.externalImapAllowPrivateHosts)
-    setTelegramMailEnabled(settings.telegramMailEnabled)
-    setTelegramBotToken("")
-    setTelegramPrivateChatId(settings.telegramPrivateChatId || "")
-    setTelegramBodyMode(settings.telegramBodyMode === "full" ? "full" : "summary")
-    setTelegramMailboxIds(settings.telegramMailboxIds || [])
-    setTelegramIncludeUnregistered(settings.telegramIncludeUnregistered)
-    setTelegramPairing(null)
   }, [settings])
-  const createTelegramPairing = useMutation({
-    mutationFn: () => api.createTelegramPairing(telegramBotToken),
-    onSuccess: (pairing) => {
-      setTelegramPairing(pairing)
-      toast({ title: "Telegram 绑定码已生成" })
-    },
-    onError: (error) => toast({ title: "生成失败", description: error.message }),
-  })
-  const discoverTelegram = useMutation({
-    mutationFn: () => api.discoverTelegramChat(telegramBotToken, telegramPairing?.code || ""),
-    onSuccess: (chat) => {
-      setTelegramPrivateChatId(chat.chatId)
-      setTelegramPairing(null)
-      toast({ title: "已获取 Telegram 私聊", description: chat.displayName || chat.chatId })
-    },
-    onError: (error) => toast({ title: "获取失败", description: error.message }),
-  })
-  const testTelegram = useMutation({
-    mutationFn: () => api.testTelegram(telegramBotToken, telegramPrivateChatId),
-    onSuccess: () => toast({ title: "Telegram 测试通知已发送" }),
-    onError: (error) => toast({ title: "发送失败", description: error.message }),
-  })
   const save = useMutation({
     mutationFn: (form: FormData) => api.updateSystemSettings({
       publicHostname: fieldValue(form, "publicHostname", settings?.publicHostname || ""),
@@ -1656,12 +1620,12 @@ function SystemSettingsSection({ settings, domains, mailboxes, initialTab }: { s
       externalImapGmailClientSecret: fieldValue(form, "externalImapGmailClientSecret", ""),
       externalImapOutlookClientId: fieldValue(form, "externalImapOutlookClientId", settings?.externalImapOutlookClientId || ""),
       externalImapOutlookClientSecret: fieldValue(form, "externalImapOutlookClientSecret", ""),
-      telegramMailEnabled,
-      telegramBotToken,
-      telegramPrivateChatId,
-      telegramBodyMode,
-      telegramMailboxIds,
-      telegramIncludeUnregistered,
+      telegramMailEnabled: settings?.telegramMailEnabled ?? false,
+      telegramBotToken: "",
+      telegramPrivateChatId: settings?.telegramPrivateChatId || "",
+      telegramBodyMode: "summary",
+      telegramMailboxIds: settings?.telegramMailboxIds || [],
+      telegramIncludeUnregistered: settings?.telegramIncludeUnregistered ?? false,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin", "settings"] })
@@ -1706,7 +1670,6 @@ function SystemSettingsSection({ settings, domains, mailboxes, initialTab }: { s
     settings.telegramMailEnabled,
     settings.telegramBotTokenSet,
     settings.telegramPrivateChatId,
-    settings.telegramBodyMode,
     (settings.telegramMailboxIds || []).join(","),
     settings.telegramIncludeUnregistered,
   ].join("|") : "loading"
@@ -1716,7 +1679,6 @@ function SystemSettingsSection({ settings, domains, mailboxes, initialTab }: { s
       { key: "smtp" as const, label: "SMTP" },
       { key: "storage" as const, label: "存储" },
       { key: "mail" as const, label: "邮件" },
-      { key: "notifications" as const, label: "通知" },
       { key: "externalImap" as const, label: "外部 IMAP" },
     ] : []),
     ...(canViewTemplates ? [{ key: "templates" as const, label: "模板" }] : []),
@@ -1820,85 +1782,6 @@ function SystemSettingsSection({ settings, domains, mailboxes, initialTab }: { s
           {mailAutoRefresh && (
             <div className="border-t pt-5">
               <Field name="mailRefreshSeconds" label="刷新间隔秒数" type="number" min={5} defaultValue={String(settings?.mailRefreshSeconds || 30)} />
-            </div>
-          )}
-        </CardContent>
-      </Card>}
-
-      {settingsTab === "notifications" && <Card>
-        <CardHeader><CardTitle>Telegram 邮件通知</CardTitle></CardHeader>
-        <CardContent className="space-y-5">
-          <SwitchRow label="私聊新邮件通知" checked={telegramMailEnabled} onCheckedChange={setTelegramMailEnabled} />
-          {telegramMailEnabled && (
-            <div className="space-y-5 border-t pt-5">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>Bot Token</Label>
-                  <Input type="password" value={telegramBotToken} onChange={(event) => setTelegramBotToken(event.target.value)} placeholder={settings?.telegramBotTokenSet ? "已保存，留空不变" : "123456789:..."} />
-                </div>
-                <div className="space-y-2">
-                  <Label>私聊 Chat ID</Label>
-                  <div className="flex gap-2">
-                    <Input inputMode="numeric" value={telegramPrivateChatId} onChange={(event) => setTelegramPrivateChatId(event.target.value)} placeholder="123456789" />
-                    <Button type="button" variant="outline" className="shrink-0" disabled={createTelegramPairing.isPending} onClick={() => createTelegramPairing.mutate()}>
-                      <ShieldCheck className="mr-2 h-4 w-4" />{createTelegramPairing.isPending ? "生成中" : "安全绑定"}
-                    </Button>
-                  </div>
-                  {telegramPairing && (
-                    <div className="space-y-3 border-l-2 border-primary/50 py-1 pl-3">
-                      <div className="flex items-center gap-2">
-                        <code className="min-w-0 flex-1 font-mono text-sm font-semibold">{telegramPairing.code}</code>
-                        <Button type="button" variant="ghost" size="icon" aria-label="复制绑定码" title="复制绑定码" onClick={() => navigator.clipboard.writeText(telegramPairing.code)}>
-                          <Copy className="h-4 w-4" />
-                        </Button>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Button asChild type="button" variant="outline" size="sm">
-                          <a href={telegramPairing.deepLink} target="_blank" rel="noreferrer"><ExternalLink className="mr-2 h-4 w-4" />打开机器人</a>
-                        </Button>
-                        <Button type="button" size="sm" disabled={discoverTelegram.isPending} onClick={() => discoverTelegram.mutate()}>
-                          <CheckCircle2 className="mr-2 h-4 w-4" />{discoverTelegram.isPending ? "绑定中" : "完成绑定"}
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="space-y-3 border-t pt-5">
-                <Label>通知邮箱</Label>
-                <div className="grid gap-2 md:grid-cols-2">
-                  {mailboxes.filter((mailbox) => mailbox.status === "active").map((mailbox) => (
-                    <label key={mailbox.id} className="flex min-h-11 items-center gap-3 rounded-md border px-3 py-2">
-                      <Checkbox
-                        checked={telegramMailboxIds.includes(mailbox.id)}
-                        onCheckedChange={(checked) => setTelegramMailboxIds((items) => checked === true ? Array.from(new Set([...items, mailbox.id])) : items.filter((id) => id !== mailbox.id))}
-                      />
-                      <span className="min-w-0 truncate text-sm font-medium">{mailbox.address}</span>
-                    </label>
-                  ))}
-                  <label className="flex min-h-11 items-center gap-3 rounded-md border px-3 py-2">
-                    <Checkbox checked={telegramIncludeUnregistered} onCheckedChange={(checked) => setTelegramIncludeUnregistered(checked === true)} />
-                    <span className="text-sm font-medium">未知收件</span>
-                  </label>
-                </div>
-              </div>
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>邮件正文</Label>
-                  <Select value={telegramBodyMode} onValueChange={(value) => setTelegramBodyMode(value === "full" ? "full" : "summary")}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="summary">正文摘要</SelectItem>
-                      <SelectItem value="full">尽量显示完整正文</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex items-end">
-                  <Button type="button" variant="outline" disabled={testTelegram.isPending || !telegramPrivateChatId} onClick={() => testTelegram.mutate()}>
-                    <Mail className="mr-2 h-4 w-4" />{testTelegram.isPending ? "发送中" : "测试通知"}
-                  </Button>
-                </div>
-              </div>
             </div>
           )}
         </CardContent>

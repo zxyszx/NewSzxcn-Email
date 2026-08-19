@@ -38,6 +38,7 @@ type App struct {
 	telegramPairMu     sync.Mutex
 	telegramPairs      map[string]telegramPairing
 	telegramDeliveryMu sync.Mutex
+	telegramMailWake   chan struct{}
 	backupMu           sync.Mutex
 	backupJob          *backupJob
 	backupTransfers    map[string]*backupTransfer
@@ -84,7 +85,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	}
 	db.SetMaxOpenConns(1)
 
-	a := &App{cfg: cfg, db: db, log: logger, now: time.Now, policy: NewHTMLPolicy(), maildirHealth: newMaildirSyncHealthTracker(), telegramURL: "https://api.telegram.org", telegramPairs: map[string]telegramPairing{}, backupTransfers: map[string]*backupTransfer{}}
+	a := &App{cfg: cfg, db: db, log: logger, now: time.Now, policy: NewHTMLPolicy(), maildirHealth: newMaildirSyncHealthTracker(), telegramURL: "https://api.telegram.org", telegramPairs: map[string]telegramPairing{}, telegramMailWake: make(chan struct{}, 1), backupTransfers: map[string]*backupTransfer{}}
 	a.externalIMAP = a
 	if err := a.configureSQLite(context.Background()); err != nil {
 		db.Close()
@@ -476,6 +477,20 @@ func (a *App) migrate(ctx context.Context) error {
 			telegram_message_id INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_telegram_mail_outbox_due ON telegram_mail_outbox(delivered_at,next_attempt_at,created_at)`,
+		`CREATE TABLE IF NOT EXISTS user_telegram_settings (
+			user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+			enabled INTEGER NOT NULL DEFAULT 0,
+			bot_token_cipher TEXT NOT NULL DEFAULT '',
+			private_chat_id TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS user_telegram_mailboxes (
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			mailbox_id TEXT NOT NULL REFERENCES mailboxes(id) ON DELETE CASCADE,
+			PRIMARY KEY(user_id,mailbox_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_user_telegram_mailboxes_mailbox ON user_telegram_mailboxes(mailbox_id,user_id)`,
 		`CREATE TRIGGER IF NOT EXISTS trg_mailbox_delete_status_webhook_outbox
 			AFTER DELETE ON mailboxes BEGIN
 				DELETE FROM status_webhook_outbox WHERE mailbox_id=OLD.id;
@@ -741,6 +756,9 @@ func (a *App) migrateTelegramNotifications(ctx context.Context) error {
 		return err
 	}
 	if err := a.ensureTableColumn(ctx, "telegram_mail_outbox", "telegram_message_id", `ALTER TABLE telegram_mail_outbox ADD COLUMN telegram_message_id INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return err
+	}
+	if err := a.ensureTableColumn(ctx, "user_telegram_settings", "bot_token_cipher", `ALTER TABLE user_telegram_settings ADD COLUMN bot_token_cipher TEXT NOT NULL DEFAULT ''`); err != nil {
 		return err
 	}
 

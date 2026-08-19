@@ -1,7 +1,7 @@
 import * as React from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { ArrowLeft, BarChart3, Ban, Bell, BellOff, BookOpen, ChevronDown, ChevronUp, Clock3, Code2, Contact, Copy, HardDrive, Image, Info, KeyRound, LogOut, Mail, MailCheck, MailX, Moon, PanelLeftOpen, PencilLine, PlayCircle, Plus, RefreshCcw, Search, SendHorizontal, Settings, ShieldCheck, SlidersHorizontal, Sun, Trash2, Users, X } from "lucide-react"
+import { ArrowLeft, BarChart3, Ban, Bell, BellOff, BookOpen, CheckCircle2, ChevronDown, ChevronUp, Clock3, Code2, Contact, Copy, ExternalLink, HardDrive, Image, Info, KeyRound, LogOut, Mail, MailCheck, MailX, Moon, PanelLeftOpen, PencilLine, PlayCircle, Plus, RefreshCcw, Search, SendHorizontal, Settings, ShieldCheck, SlidersHorizontal, Sun, Trash2, Users, X } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import { api, APIToken, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapStorageMode, ExternalImapSyncRun, ExternalImapTlsMode, ForwardingSettings, ForwardingVerifiedEmail, MailFolder, MailLabel, MailRule, MailRuleAction, MailRuleCondition, Mailbox, MailboxApplyOptions, MailSignature, MailStats, PermissionLimits } from "@/lib/api"
 import { cn, formatBytes } from "@/lib/utils"
@@ -27,6 +27,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSepa
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Switch } from "@/components/ui/switch"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { useToast } from "@/hooks/use-toast"
 
@@ -1963,6 +1964,40 @@ function dateInputToISOString(value: string) {
 }
 
 function ClientSettingsSection({ mailboxes, selectedMailboxId, hostname, onSelectMailbox, onCopy }: { mailboxes: Mailbox[]; selectedMailboxId: string; hostname?: string; onSelectMailbox: (id: string) => void; onCopy: (text: string) => void }) {
+  const qc = useQueryClient()
+  const { toast } = useToast()
+  const telegram = useQuery({ queryKey: ["user-telegram-settings"], queryFn: api.userTelegramSettings })
+  const [telegramEnabled, setTelegramEnabled] = React.useState(false)
+  const [telegramBotToken, setTelegramBotToken] = React.useState("")
+  const [telegramChatId, setTelegramChatId] = React.useState("")
+  const [telegramMailboxIds, setTelegramMailboxIds] = React.useState<string[]>([])
+  const [telegramPairing, setTelegramPairing] = React.useState<import("@/lib/api").TelegramPairing | null>(null)
+  React.useEffect(() => {
+    if (!telegram.data) return
+    setTelegramEnabled(telegram.data.enabled)
+    setTelegramChatId(telegram.data.privateChatId || "")
+    setTelegramMailboxIds(telegram.data.mailboxIds || [])
+  }, [telegram.data])
+  const saveTelegram = useMutation({
+    mutationFn: () => api.updateUserTelegramSettings({ enabled: telegramEnabled, botToken: telegramBotToken, privateChatId: telegramChatId, mailboxIds: telegramMailboxIds }),
+    onSuccess: (data) => { setTelegramBotToken(""); qc.setQueryData(["user-telegram-settings"], data); toast({ title: "Telegram 邮件提醒已保存" }) },
+    onError: (error) => toast({ title: "保存失败", description: error.message }),
+  })
+  const createTelegramPairing = useMutation({
+    mutationFn: () => api.createUserTelegramPairing(telegramBotToken),
+    onSuccess: (pairing) => { setTelegramPairing(pairing); toast({ title: "Telegram 绑定码已生成" }) },
+    onError: (error) => toast({ title: "无法生成绑定码", description: error.message }),
+  })
+  const discoverTelegram = useMutation({
+    mutationFn: () => api.discoverUserTelegramChat(telegramBotToken, telegramPairing?.code || ""),
+    onSuccess: (chat) => { setTelegramChatId(chat.chatId); setTelegramPairing(null); toast({ title: "Telegram 私聊已绑定", description: chat.displayName || chat.chatId }) },
+    onError: (error) => toast({ title: "绑定失败", description: error.message }),
+  })
+  const testTelegram = useMutation({
+    mutationFn: () => api.testUserTelegram(telegramBotToken, telegramChatId),
+    onSuccess: () => toast({ title: "测试通知已发送" }),
+    onError: (error) => toast({ title: "测试失败", description: error.message }),
+  })
   const selected = mailboxes.find((item) => item.id === selectedMailboxId) || mailboxes[0]
   const server = clientServerHost(hostname, selected?.address)
   const rows = [
@@ -1972,6 +2007,60 @@ function ClientSettingsSection({ mailboxes, selectedMailboxId, hostname, onSelec
   ]
   return (
     <div className="space-y-6">
+      <SettingsCard
+        title="Telegram 邮件提醒"
+        subtitle="每个账号使用自己的机器人，只提醒本人选择的邮箱。"
+        action={<Badge variant={telegram.data?.botConfigured ? "default" : "secondary"}>{telegram.data?.botConfigured ? "已配置" : "未配置"}</Badge>}
+      >
+        {telegram.isLoading ? <Skeleton className="h-32 w-full" /> : (
+          <div className="space-y-5">
+            <div className="flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <div className="text-sm font-medium">新邮件提醒</div>
+                <div className="mt-1 truncate text-xs text-muted-foreground">{telegramChatId ? `已绑定私聊 ${telegramChatId}` : "尚未绑定 Telegram 私聊"}</div>
+              </div>
+              <Switch checked={telegramEnabled} onCheckedChange={setTelegramEnabled} disabled={!telegram.data?.botConfigured && !telegramBotToken} />
+            </div>
+            <div className="space-y-2 border-t pt-4">
+              <Label htmlFor="user-telegram-bot-token">Bot Token</Label>
+              <Input id="user-telegram-bot-token" type="password" value={telegramBotToken} onChange={(event) => setTelegramBotToken(event.target.value)} placeholder={telegram.data?.botConfigured ? "已安全保存，留空不变" : "123456789:..."} />
+              <p className="text-xs text-muted-foreground">Token 仅供当前账号发送邮件提醒，与后台备份机器人完全独立。</p>
+            </div>
+            <div className="flex flex-wrap gap-2 border-t pt-4">
+              <Button type="button" variant="outline" size="sm" disabled={(!telegram.data?.botConfigured && !telegramBotToken) || createTelegramPairing.isPending} onClick={() => createTelegramPairing.mutate()}>
+                <ShieldCheck className="h-4 w-4" />{createTelegramPairing.isPending ? "生成中" : telegramChatId ? "重新绑定" : "安全绑定"}
+              </Button>
+              <Button type="button" variant="outline" size="sm" disabled={!telegramChatId || testTelegram.isPending} onClick={() => testTelegram.mutate()}>
+                <MailCheck className="h-4 w-4" />{testTelegram.isPending ? "发送中" : "测试提醒"}
+              </Button>
+            </div>
+            {telegramPairing && (
+              <div className="space-y-3 rounded-md border p-3">
+                <div className="flex items-center gap-2">
+                  <code className="min-w-0 flex-1 truncate font-mono text-sm font-semibold">{telegramPairing.code}</code>
+                  <Button type="button" variant="ghost" size="icon" className="size-8" aria-label="复制绑定码" title="复制绑定码" onClick={() => onCopy(telegramPairing.code)}><Copy className="h-4 w-4" /></Button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button asChild type="button" variant="outline" size="sm"><a href={telegramPairing.deepLink} target="_blank" rel="noreferrer"><ExternalLink className="h-4 w-4" />打开机器人</a></Button>
+                  <Button type="button" size="sm" disabled={discoverTelegram.isPending} onClick={() => discoverTelegram.mutate()}><CheckCircle2 className="h-4 w-4" />{discoverTelegram.isPending ? "绑定中" : "完成绑定"}</Button>
+                </div>
+              </div>
+            )}
+            <div className="space-y-2 border-t pt-4">
+              <Label>提醒邮箱</Label>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {mailboxes.filter((mailbox) => mailbox.status === "active").map((mailbox) => (
+                  <label key={mailbox.id} className="flex min-h-10 items-center gap-3 rounded-md border px-3 py-2">
+                    <Checkbox checked={telegramMailboxIds.includes(mailbox.id)} onCheckedChange={(checked) => setTelegramMailboxIds((items) => checked === true ? Array.from(new Set([...items, mailbox.id])) : items.filter((id) => id !== mailbox.id))} />
+                    <span className="min-w-0 truncate text-sm">{mailbox.address}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="flex justify-end"><Button type="button" size="sm" disabled={saveTelegram.isPending || (!telegram.data?.botConfigured && !telegramBotToken)} onClick={() => saveTelegram.mutate()}>{saveTelegram.isPending ? "保存中" : "保存设置"}</Button></div>
+          </div>
+        )}
+      </SettingsCard>
       <Card>
         <CardHeader>
           <div className="flex items-start justify-between gap-4">

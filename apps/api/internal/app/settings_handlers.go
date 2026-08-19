@@ -241,9 +241,7 @@ func (a *App) handleUpdateSystemSettings(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	previous := a.config()
-	telegramDestinationChanged := previous.TelegramMailEnabled != next.TelegramMailEnabled || previous.TelegramBotToken != next.TelegramBotToken || previous.TelegramPrivateChatID != next.TelegramPrivateChatID || previous.TelegramMailboxIDs != next.TelegramMailboxIDs || previous.TelegramIncludeUnregistered != next.TelegramIncludeUnregistered
-	if err := a.saveSystemSettings(r.Context(), next, telegramDestinationChanged); err != nil {
+	if err := a.saveSystemSettings(r.Context(), next, false); err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to save settings")
 		return
 	}

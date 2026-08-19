@@ -331,6 +331,29 @@ func TestManualBackupReusesSavedPassword(t *testing.T) {
 	}
 }
 
+func TestBackupScheduleCountdownResetsFromSuccessfulBackup(t *testing.T) {
+	a := newTestApp(t)
+	stopTestWorkers(a)
+	fixed := time.Date(2026, 8, 19, 8, 30, 0, 0, time.UTC)
+	a.now = func() time.Time { return fixed }
+	now := fixed.Format(time.RFC3339Nano)
+	for key, value := range map[string]string{"backupScheduleEnabled": "true", "backupScheduleDays": "7"} {
+		if _, err := a.db.Exec(`INSERT INTO system_settings(key,value,updated_at) VALUES(?,?,?)`, key, value, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := a.markBackupScheduleRun(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	schedule, err := a.loadBackupSchedule(context.Background())
+	if err != nil || schedule.LastBackupAt == nil || schedule.NextBackupAt == nil {
+		t.Fatalf("schedule timestamps missing: %+v err=%v", schedule, err)
+	}
+	if !schedule.LastBackupAt.Equal(fixed) || !schedule.NextBackupAt.Equal(fixed.Add(7*24*time.Hour)) {
+		t.Fatalf("schedule did not reset from successful backup: last=%v next=%v", schedule.LastBackupAt, schedule.NextBackupAt)
+	}
+}
+
 func TestPublicServerIPValidation(t *testing.T) {
 	for _, value := range []string{"203.0.113.10", "2001:4860:4860::8888"} {
 		if !isPublicIP(net.ParseIP(value)) {

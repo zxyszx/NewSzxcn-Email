@@ -206,9 +206,9 @@ export type SystemUpdateResult = {
 export type BackupItem = { name: string; size: number; createdAt: string; sha256?: string }
 export type BackupJob = { status: "running" | "success" | "failed"; startedAt: string; error?: string }
 export type BackupTransfer = { provider: "telegram" | "googleDrive"; name: string; status: "queued" | "running" | "success" | "failed"; uploaded: number; total: number; startedAt: string; finishedAt?: string; error?: string }
-export type BackupSchedule = { enabled: boolean; days: number; passwordSet: boolean; passwordHint?: string; serverIp: string; chatId: string; telegramMode: "system" | "custom"; telegramEnabled: boolean; googleDriveEnabled: boolean }
+export type BackupSchedule = { enabled: boolean; days: number; lastBackupAt?: string; nextBackupAt?: string; passwordSet: boolean; passwordHint?: string; serverIp: string; chatId: string; telegramMode: "system" | "custom"; telegramEnabled: boolean; googleDriveEnabled: boolean }
 export type GoogleDriveBackupStatus = { clientId: string; clientSecretSet: boolean; connected: boolean; folderName: string }
-export type BackupList = { enabled: boolean; telegramSet: boolean; telegramLimit: number; job?: BackupJob; items: BackupItem[]; schedule: BackupSchedule; googleDrive: GoogleDriveBackupStatus; transfers: BackupTransfer[] }
+export type BackupList = { enabled: boolean; telegramSet: boolean; telegramBotSet: boolean; telegramLimit: number; job?: BackupJob; items: BackupItem[]; schedule: BackupSchedule; googleDrive: GoogleDriveBackupStatus; transfers: BackupTransfer[] }
 export type SystemSettings = {
   publicHostname: string
   publicBaseUrl: string
@@ -250,6 +250,7 @@ export type SystemSettings = {
 export type SystemSettingsPayload = Omit<SystemSettings, "smtpPasswordSet" | "turnstileSecretSet" | "externalImapSecretSet" | "externalImapGmailClientSecretSet" | "externalImapOutlookClientSecretSet" | "telegramBotTokenSet"> & { smtpPassword: string; turnstileSecretKey: string; externalImapSecretKey: string; externalImapGmailClientSecret: string; externalImapOutlookClientSecret: string; telegramBotToken: string }
 export type TelegramPrivateChat = { chatId: string; displayName: string }
 export type TelegramPairing = { code: string; botUsername: string; deepLink: string; expiresAt: string }
+export type UserTelegramSettings = { enabled: boolean; privateChatId: string; mailboxIds: string[]; botConfigured: boolean }
 export type PublicDomain = { id: string; name: string }
 export type PublicSettings = { openRegistration: boolean; turnstileEnabled: boolean; turnstileSiteKey: string; publicHostname: string; mailAutoRefresh: boolean; mailRefreshMs: number; externalImapEnabled: boolean; mailboxDomains?: PublicDomain[] }
 export type LoginPayload = { loginName?: string; email?: string; password?: string; turnstileToken?: string; challengeToken?: string; twoFactorCode?: string }

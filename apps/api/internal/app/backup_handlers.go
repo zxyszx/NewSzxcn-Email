@@ -57,14 +57,15 @@ type backupTransfer struct {
 }
 
 type backupListResponse struct {
-	Enabled       bool              `json:"enabled"`
-	TelegramSet   bool              `json:"telegramSet"`
-	TelegramLimit int64             `json:"telegramLimit"`
-	Job           *backupJob        `json:"job,omitempty"`
-	Items         []backupItem      `json:"items"`
-	Schedule      backupSchedule    `json:"schedule"`
-	GoogleDrive   googleDriveStatus `json:"googleDrive"`
-	Transfers     []backupTransfer  `json:"transfers"`
+	Enabled        bool              `json:"enabled"`
+	TelegramSet    bool              `json:"telegramSet"`
+	TelegramBotSet bool              `json:"telegramBotSet"`
+	TelegramLimit  int64             `json:"telegramLimit"`
+	Job            *backupJob        `json:"job,omitempty"`
+	Items          []backupItem      `json:"items"`
+	Schedule       backupSchedule    `json:"schedule"`
+	GoogleDrive    googleDriveStatus `json:"googleDrive"`
+	Transfers      []backupTransfer  `json:"transfers"`
 }
 
 type createBackupRequest struct {
@@ -75,15 +76,17 @@ type createBackupRequest struct {
 }
 
 type backupSchedule struct {
-	Enabled            bool   `json:"enabled"`
-	Days               int    `json:"days"`
-	PasswordSet        bool   `json:"passwordSet"`
-	PasswordHint       string `json:"passwordHint,omitempty"`
-	ServerIP           string `json:"serverIp"`
-	ChatID             string `json:"chatId"`
-	TelegramMode       string `json:"telegramMode"`
-	TelegramEnabled    bool   `json:"telegramEnabled"`
-	GoogleDriveEnabled bool   `json:"googleDriveEnabled"`
+	Enabled            bool       `json:"enabled"`
+	Days               int        `json:"days"`
+	LastBackupAt       *time.Time `json:"lastBackupAt,omitempty"`
+	NextBackupAt       *time.Time `json:"nextBackupAt,omitempty"`
+	PasswordSet        bool       `json:"passwordSet"`
+	PasswordHint       string     `json:"passwordHint,omitempty"`
+	ServerIP           string     `json:"serverIp"`
+	ChatID             string     `json:"chatId"`
+	TelegramMode       string     `json:"telegramMode"`
+	TelegramEnabled    bool       `json:"telegramEnabled"`
+	GoogleDriveEnabled bool       `json:"googleDriveEnabled"`
 }
 
 func detectPublicServerIP(ctx context.Context, hostname string) string {
@@ -131,6 +134,7 @@ type updateBackupScheduleRequest struct {
 	ChatID             string `json:"chatId"`
 	TelegramMode       string `json:"telegramMode"`
 	TelegramEnabled    bool   `json:"telegramEnabled"`
+	TelegramBotToken   string `json:"telegramBotToken"`
 	GoogleDriveEnabled bool   `json:"googleDriveEnabled"`
 	GoogleClientID     string `json:"googleClientId"`
 	GoogleClientSecret string `json:"googleClientSecret"`
@@ -200,9 +204,10 @@ func (a *App) handleListBackups(w http.ResponseWriter, r *http.Request) {
 	schedule.ServerIP = detectPublicServerIP(r.Context(), a.config().PublicHostname)
 	telegramToken, telegramDestination, _ := a.backupTelegramCredentials(r.Context(), schedule)
 	respondJSON(w, http.StatusOK, backupListResponse{
-		Enabled:       a.backupAssetsAvailable(),
-		TelegramSet:   strings.TrimSpace(telegramToken) != "" && validTelegramPrivateChatID(telegramDestination),
-		TelegramLimit: backupTelegramLimit, Job: job, Items: items, Schedule: schedule,
+		Enabled:        a.backupAssetsAvailable(),
+		TelegramSet:    strings.TrimSpace(telegramToken) != "" && validTelegramPrivateChatID(telegramDestination),
+		TelegramBotSet: strings.TrimSpace(telegramToken) != "",
+		TelegramLimit:  backupTelegramLimit, Job: job, Items: items, Schedule: schedule,
 		GoogleDrive: a.loadGoogleDriveStatus(r.Context()), Transfers: transfers,
 	})
 }
@@ -270,6 +275,9 @@ func (a *App) handleCreateBackup(w http.ResponseWriter, r *http.Request) {
 		password = ""
 		var deliveryMessages []string
 		if err == nil {
+			if markErr := a.markBackupScheduleRun(ctx); markErr != nil {
+				a.log.Warn("mark manual backup schedule", "error", markErr)
+			}
 			var deliveryErrors []error
 			if uploadGoogleDrive {
 				a.queueBackupTransfer("googleDrive", path)
@@ -359,22 +367,19 @@ func (a *App) handleUpdateBackupSettings(w http.ResponseWriter, r *http.Request)
 		badRequest(w, errors.New("备份 Telegram Chat ID 无效"))
 		return
 	}
-	telegramMode := strings.TrimSpace(req.TelegramMode)
-	if telegramMode != "custom" {
-		telegramMode = "system"
-	}
-	if telegramMode == "custom" && !validTelegramPrivateChatID(chatID) {
+	telegramMode := "custom"
+	if req.Enabled && req.TelegramEnabled && !validTelegramPrivateChatID(chatID) {
 		badRequest(w, errors.New("请选择备份群组并填写有效的 Chat ID"))
 		return
 	}
+	cfg := a.config()
+	telegramToken := strings.TrimSpace(req.TelegramBotToken)
+	if telegramToken == "" {
+		telegramToken = strings.TrimSpace(cfg.TelegramBotToken)
+	}
 	if req.Enabled && req.TelegramEnabled {
-		cfg := a.config()
-		destination := cfg.TelegramPrivateChatID
-		if telegramMode == "custom" {
-			destination = chatID
-		}
-		if cfg.TelegramBotToken == "" || !validTelegramPrivateChatID(destination) {
-			badRequest(w, errors.New("启用定时推送前请先在系统设置绑定 Telegram 机器人并配置接收位置"))
+		if telegramToken == "" || !validTelegramPrivateChatID(chatID) {
+			badRequest(w, errors.New("启用定时推送前请先配置 Telegram 机器人和接收位置"))
 			return
 		}
 	}
@@ -404,6 +409,9 @@ func (a *App) handleUpdateBackupSettings(w http.ResponseWriter, r *http.Request)
 		"backupGoogleDriveEnabled": fmt.Sprint(req.GoogleDriveEnabled), "backupGoogleClientId": strings.TrimSpace(req.GoogleClientID),
 		"backupGoogleClientSecretCipher": secretCipher, "backupGoogleFolderName": folderName,
 	}
+	if strings.TrimSpace(req.TelegramBotToken) != "" {
+		values["telegramBotToken"] = telegramToken
+	}
 	now := a.now().UTC().Format(time.RFC3339Nano)
 	tx, err := a.db.BeginTx(r.Context(), nil)
 	if err != nil {
@@ -420,6 +428,9 @@ func (a *App) handleUpdateBackupSettings(w http.ResponseWriter, r *http.Request)
 	if err = tx.Commit(); err != nil {
 		respondError(w, 500, "保存失败")
 		return
+	}
+	if strings.TrimSpace(req.TelegramBotToken) != "" {
+		a.updateConfig(func(current *Config) { current.TelegramBotToken = telegramToken })
 	}
 	passwordHint := ""
 	if password, err := a.decryptBackupPassword(ciphertext); err == nil {
@@ -1416,7 +1427,7 @@ func minimumInt(left, right int) int {
 
 func (a *App) loadBackupSchedule(ctx context.Context) (backupSchedule, error) {
 	result := backupSchedule{Days: 7, TelegramMode: "system", TelegramEnabled: true}
-	rows, err := a.db.QueryContext(ctx, `SELECT key,value FROM system_settings WHERE key IN ('backupScheduleEnabled','backupScheduleDays','backupServerIp','backupTelegramChatId','backupTelegramMode','backupPasswordCipher','backupTelegramEnabled','backupGoogleDriveEnabled')`)
+	rows, err := a.db.QueryContext(ctx, `SELECT key,value FROM system_settings WHERE key IN ('backupScheduleEnabled','backupScheduleDays','backupScheduleLastRun','backupServerIp','backupTelegramChatId','backupTelegramMode','backupPasswordCipher','backupTelegramEnabled','backupGoogleDriveEnabled')`)
 	if err != nil {
 		return result, err
 	}
@@ -1432,6 +1443,11 @@ func (a *App) loadBackupSchedule(ctx context.Context) (backupSchedule, error) {
 		case "backupScheduleDays":
 			if _, err := fmt.Sscan(value, &result.Days); err != nil || result.Days < 1 {
 				result.Days = 7
+			}
+		case "backupScheduleLastRun":
+			if parsed, err := time.Parse(time.RFC3339Nano, value); err == nil {
+				parsed = parsed.UTC()
+				result.LastBackupAt = &parsed
 			}
 		case "backupServerIp":
 			result.ServerIP = value
@@ -1454,7 +1470,42 @@ func (a *App) loadBackupSchedule(ctx context.Context) (backupSchedule, error) {
 			result.GoogleDriveEnabled = value == "true"
 		}
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return result, err
+	}
+	if result.LastBackupAt == nil {
+		if latest, ok := a.latestBackupTime(); ok {
+			result.LastBackupAt = &latest
+		}
+	}
+	if result.Enabled {
+		next := a.now().UTC()
+		if result.LastBackupAt != nil {
+			next = result.LastBackupAt.Add(time.Duration(result.Days) * 24 * time.Hour)
+		}
+		result.NextBackupAt = &next
+	}
+	return result, nil
+}
+
+func (a *App) latestBackupTime() (time.Time, bool) {
+	items, err := a.listBackups()
+	if err != nil || len(items) == 0 {
+		return time.Time{}, false
+	}
+	latest := items[0].CreatedAt.UTC()
+	for _, item := range items[1:] {
+		if item.CreatedAt.After(latest) {
+			latest = item.CreatedAt.UTC()
+		}
+	}
+	return latest, true
+}
+
+func (a *App) markBackupScheduleRun(ctx context.Context) error {
+	now := a.now().UTC().Format(time.RFC3339Nano)
+	_, err := a.db.ExecContext(ctx, `INSERT INTO system_settings(key,value,updated_at) VALUES('backupScheduleLastRun',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`, now, now)
+	return err
 }
 
 func (a *App) backupScheduleWorker(ctx context.Context) {
@@ -1476,9 +1527,7 @@ func (a *App) runScheduledBackup(ctx context.Context) {
 	if err != nil || !schedule.Enabled {
 		return
 	}
-	var last string
-	_ = a.db.QueryRowContext(ctx, `SELECT value FROM system_settings WHERE key='backupScheduleLastRun'`).Scan(&last)
-	if parsed, err := time.Parse(time.RFC3339Nano, last); err == nil && a.now().UTC().Before(parsed.Add(time.Duration(schedule.Days)*24*time.Hour)) {
+	if schedule.NextBackupAt != nil && a.now().UTC().Before(*schedule.NextBackupAt) {
 		return
 	}
 	var ciphertext string
@@ -1502,8 +1551,9 @@ func (a *App) runScheduledBackup(ctx context.Context) {
 	localBackupSucceeded := runErr == nil
 	var deliveryMessages []string
 	if localBackupSucceeded {
-		now := a.now().UTC().Format(time.RFC3339Nano)
-		_, _ = a.db.ExecContext(ctx, `INSERT INTO system_settings(key,value,updated_at) VALUES('backupScheduleLastRun',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`, now, now)
+		if markErr := a.markBackupScheduleRun(ctx); markErr != nil {
+			a.log.Warn("mark scheduled backup", "error", markErr)
+		}
 		var deliveryErrors []error
 		if schedule.GoogleDriveEnabled {
 			a.queueBackupTransfer("googleDrive", path)

@@ -10,7 +10,7 @@ import ImageExtension from "@tiptap/extension-image"
 import TextAlign from "@tiptap/extension-text-align"
 import Placeholder from "@tiptap/extension-placeholder"
 import { BackgroundColor, Color, FontFamily, FontSize, TextStyle } from "@tiptap/extension-text-style"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import { AlignCenter, AlignLeft, AlignRight, Archive, ArrowLeft, Ban, Bell, Bold, Bot, Briefcase, Calendar, Check, ChevronDown, Clock3, Code2, Copy, Download, Ellipsis, Eraser, Eye, FileText, Folder, Forward, GraduationCap, Heart, Highlighter, History, Image, Inbox, IndentDecrease, IndentIncrease, Italic, Link, List, ListOrdered, Mail, Mailbox as MailboxIcon, MailCheck, MailQuestion, Moon, PanelLeftOpen, Paperclip, PencilLine, Plane, Plus, Quote, Receipt, Redo2, RefreshCcw, Reply, RotateCcw, Search, Send, Settings, ShieldCheck, ShoppingBag, Signature, SlidersHorizontal, Smile, Sparkles, Star, Strikethrough, Sun, Tag, Trash2, Type, Underline, Undo2, Upload, Users, X } from "lucide-react"
 import { api, ExternalImapAccount, ListResponse, Mailbox, MailFolder, MailLabel, MailMessage, MailSearchParams, SendPayload, DraftPayload, ScheduledSend, SendQueueItem, SendQueueAuditEvent, SendQueueStatus, PermissionLimits } from "@/lib/api"
 import { cn, decodeMimeHeader, formatBytes, formatDate, formatDateTime, generateLabelColor } from "@/lib/utils"
@@ -186,6 +186,7 @@ export function MailPage() {
   const qc = useQueryClient()
   const { toast } = useToast()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const me = useMe()
   const [folder, setFolder] = React.useState("Inbox")
   const [mailView, setMailView] = React.useState<MailView>("folder")
@@ -238,6 +239,7 @@ export function MailPage() {
   const themeMountedRef = React.useRef(false)
   const mailNotifyStateRef = React.useRef<Record<string, MailNotificationState>>({})
   const mailAudioContextRef = React.useRef<AudioContext | null>(null)
+  const linkedMessageRef = React.useRef("")
   const mailImportInputRef = React.useRef<HTMLInputElement | null>(null)
   const user = me.data?.user
   const canAccessMail = hasPermission(user, "mail.access")
@@ -359,6 +361,21 @@ export function MailPage() {
     queryFn: () => mailView === "external" ? api.externalMessage(selectedExternalAccountId, selectedId!) : mailView === "unknown" ? api.adminMessage(selectedId!) : api.message(selectedId!, { markRead: false }),
     enabled: !!selectedId && canReadMail && (mailView !== "external" || (!!selectedExternalAccountId && externalImapEnabled)) && (mailView !== "unknown" || canViewUnknownMail),
   })
+  const linkedMessageId = (searchParams.get("message") || "").trim().slice(0, 200)
+  React.useEffect(() => {
+    if (!linkedMessageId || !canReadMail) return
+    linkedMessageRef.current = linkedMessageId
+    setMailView("folder")
+    setSelectedLabelId("")
+    setSelectedExternalAccountId("")
+    setSelectedId(linkedMessageId)
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current)
+      next.delete("message")
+      return next
+    }, { replace: true })
+  }, [canReadMail, linkedMessageId, setSearchParams])
+
   function updateCachedMessage(id: string, patch: Partial<MailMessage>) {
     qc.setQueryData(["message", id], (current: MailMessage | undefined) => current ? { ...current, ...patch } : current)
     qc.setQueriesData({ queryKey: ["messages"] }, (current: InfiniteData<MailListResponse> | undefined) => {
@@ -405,6 +422,14 @@ export function MailPage() {
     },
     onError: (error) => toast({ title: "操作失败", description: error.message }),
   })
+  React.useEffect(() => {
+    const message = detail.data
+    if (!message || message.id !== linkedMessageRef.current) return
+    linkedMessageRef.current = ""
+    setFolder(message.folder || "Inbox")
+    if (message.mailboxId) setSelectedMailboxId(message.mailboxId)
+    if (!message.isRead && canOrganizeMail) markRead.mutate({ id: message.id, read: true })
+  }, [canOrganizeMail, detail.data, markRead])
   const markExternalRead = useMutation({
     mutationFn: ({ id, remoteId, read }: { id: string; remoteId: string; read: boolean }) => api.markExternalRead(id, remoteId, read),
     onMutate: ({ remoteId, read }) => updateCachedMessage(remoteId, { isRead: read }),
@@ -1814,7 +1839,7 @@ export function MailPage() {
               <BulkActionToolbar pending={bulkPending} currentFolder={mailView === "folder" ? folder : undefined} folders={folders.data?.items || []} readAction={bulkReadAction} onAction={runBulkAction} onMoveToFolder={runBulkMoveToFolder} />
             </div>
           )}
-          <ScrollArea className="min-h-0 flex-1">
+          <ScrollArea className="min-h-0 flex-1 overflow-x-hidden">
             {mailMessagesLoading && <MessageSkeleton />}
             {visibleMessages.map((m) => <MessageRow key={m.id} message={m} active={selectedId === m.id} checked={compactSelectedIds.includes(m.id)} scheduled={scheduledDraftIds.has(m.id)} onCheckedChange={(checked) => toggleCompactSelect(m.id, checked)} onClick={() => openMessage(m.id)} onContextMenu={(event) => openMessageContextMenu(event, m)} onStar={() => star.mutate({ id: m.id, starred: !m.isStarred })} onArchive={() => move.mutate({ id: m.id, folder: m.folder === "Archive" ? "Inbox" : "Archive" })} onTrash={() => m.folder === "Trash" ? confirmDeleteMessage(m) : move.mutate({ id: m.id, folder: "Trash" })} onToggleRead={() => markRead.mutate({ id: m.id, read: !m.isRead })} canOrganize={canOrganizeMail && mailView !== "unknown"} />)}
             {!mailMessagesLoading && visibleMessages.length === 0 && <div className="grid min-h-[170px] place-items-center px-8 py-12 text-center text-base text-muted-foreground">{emptyMessage}</div>}
@@ -3854,12 +3879,12 @@ function MessageRow({
   const quickButtonClass = "h-6 w-6 text-muted-foreground hover:bg-accent hover:text-foreground"
   const archiveLabel = message.folder === "Archive" ? "移回收件箱" : "归档"
   return <div onClick={onClick} onContextMenu={onContextMenu} className={cn(
-    "group cursor-pointer border-b border-l-2 px-3 py-2.5 transition-colors",
+    "group w-full max-w-full cursor-pointer overflow-hidden border-b border-l-2 px-3 py-2.5 transition-colors",
     message.isRead ? "border-l-transparent hover:bg-accent/60" : "border-l-primary bg-primary/5 font-semibold hover:bg-primary/10",
     active && "mail-selected-row",
     checked && "mail-selected-row"
   )}>
-    <div className="flex gap-2.5">
+    <div className="flex min-w-0 gap-2.5">
       <Checkbox
         aria-label="选择邮件"
         checked={checked}
@@ -3868,12 +3893,12 @@ function MessageRow({
         className="mt-0.5 shrink-0"
       />
       <div className="min-w-0 flex-1">
-        <div className="mb-1 flex items-center justify-between gap-2">
+        <div className="mb-1 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
           <div className="flex min-w-0 items-center gap-1.5">
             <div className="min-w-0 truncate text-[13px] font-medium" title={senderTitle(message)}>{senderName}</div>
             {!message.isRead && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-label="未读" />}
           </div>
-          <div className="flex shrink-0 items-center gap-0.5">
+          <div className="flex shrink-0 items-center gap-0.5 whitespace-nowrap">
             {canOrganize && (
               <div className={cn("hidden shrink-0 items-center gap-0.5", quickActionsVisible ? "flex" : "group-hover:flex")}>
                 <Button type="button" variant="ghost" size="icon" aria-label={archiveLabel} title={archiveLabel} className={quickButtonClass} onClick={(event) => { event.stopPropagation(); onArchive() }}>
@@ -3897,7 +3922,7 @@ function MessageRow({
             >
               <Star className={cn("h-3.5 w-3.5", message.isStarred && "fill-yellow-400 text-yellow-500")} />
             </Button>}
-            <div className={cn("text-xs text-muted-foreground", canOrganize && (quickActionsVisible ? "hidden" : "group-hover:hidden"))}>{formatDate(message.receivedAt)}</div>
+            <div className={cn("shrink-0 text-xs text-muted-foreground", canOrganize && (quickActionsVisible ? "hidden" : "group-hover:hidden"))}>{formatDate(message.receivedAt)}</div>
           </div>
         </div>
         <div className="mb-1 flex min-w-0 items-center gap-2">

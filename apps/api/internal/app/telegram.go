@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -36,6 +37,8 @@ type telegramPairing struct {
 }
 
 type telegramMailPayload struct {
+	UserID          string   `json:"userId,omitempty"`
+	ChatID          string   `json:"chatId,omitempty"`
 	From            string   `json:"from"`
 	FromName        string   `json:"fromName,omitempty"`
 	Recipient       string   `json:"recipient"`
@@ -46,6 +49,7 @@ type telegramMailPayload struct {
 	OTP             string   `json:"otp,omitempty"`
 	AttachmentNames []string `json:"attachmentNames,omitempty"`
 	AttachmentCount int      `json:"attachmentCount,omitempty"`
+	ViewURL         string   `json:"viewUrl,omitempty"`
 }
 
 type telegramCredentialsRequest struct {
@@ -101,7 +105,7 @@ type telegramSentMessage struct {
 type telegramFormattedMessage struct {
 	HTML      string
 	PlainText string
-	OTP       string
+	ViewURL   string
 }
 
 func normalizeTelegramBodyMode(value string) string {
@@ -122,9 +126,10 @@ func (a *App) handleCreateTelegramPairing(w http.ResponseWriter, r *http.Request
 		badRequest(w, err)
 		return
 	}
-	token := strings.TrimSpace(req.BotToken)
-	if token == "" {
-		token = strings.TrimSpace(a.config().TelegramBotToken)
+	token, err := a.telegramRequestToken(r, req.BotToken)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		respondError(w, http.StatusInternalServerError, "无法读取 Telegram 机器人设置")
+		return
 	}
 	if token == "" {
 		badRequest(w, errors.New("请先填写 Telegram Bot Token"))
@@ -169,9 +174,10 @@ func (a *App) handleDiscoverTelegramChat(w http.ResponseWriter, r *http.Request)
 		badRequest(w, err)
 		return
 	}
-	token := strings.TrimSpace(req.BotToken)
-	if token == "" {
-		token = strings.TrimSpace(a.config().TelegramBotToken)
+	token, err := a.telegramRequestToken(r, req.BotToken)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		respondError(w, http.StatusInternalServerError, "无法读取 Telegram 机器人设置")
+		return
 	}
 	code := strings.ToUpper(strings.TrimSpace(req.PairingCode))
 	if token == "" || code == "" {
@@ -202,7 +208,15 @@ func (a *App) handleTestTelegram(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, err)
 		return
 	}
-	token, chatID := a.telegramCredentials(req)
+	token, err := a.telegramRequestToken(r, req.BotToken)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		respondError(w, http.StatusInternalServerError, "无法读取 Telegram 机器人设置")
+		return
+	}
+	chatID := strings.TrimSpace(req.ChatID)
+	if chatID == "" && !strings.HasPrefix(r.URL.Path, "/api/me/telegram") {
+		chatID = strings.TrimSpace(a.config().TelegramPrivateChatID)
+	}
 	if token == "" {
 		badRequest(w, errors.New("请先填写 Telegram Bot Token"))
 		return
@@ -220,17 +234,14 @@ func (a *App) handleTestTelegram(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-func (a *App) telegramCredentials(req telegramCredentialsRequest) (string, string) {
-	cfg := a.config()
-	token := strings.TrimSpace(req.BotToken)
-	if token == "" {
-		token = strings.TrimSpace(cfg.TelegramBotToken)
+func (a *App) telegramRequestToken(r *http.Request, provided string) (string, error) {
+	if token := strings.TrimSpace(provided); token != "" {
+		return token, nil
 	}
-	chatID := strings.TrimSpace(req.ChatID)
-	if chatID == "" {
-		chatID = strings.TrimSpace(cfg.TelegramPrivateChatID)
+	if strings.HasPrefix(r.URL.Path, "/api/me/telegram") {
+		return a.userTelegramBotToken(r.Context(), currentUser(r).ID)
 	}
-	return token, chatID
+	return strings.TrimSpace(a.config().TelegramBotToken), nil
 }
 
 func (a *App) discoverTelegramPrivateChat(ctx context.Context, token, pairingCode string) (string, string, error) {
@@ -344,56 +355,65 @@ func (a *App) activeTelegramMailboxIDs(ctx context.Context, values []string) []s
 
 func (a *App) enqueueTelegramMailNotification(ctx context.Context, messageID string, msg storedMessage, attachments []AttachmentInput) {
 	cfg := a.config()
-	if !cfg.TelegramMailEnabled || strings.TrimSpace(cfg.TelegramBotToken) == "" || !validTelegramPrivateChatID(cfg.TelegramPrivateChatID) || !telegramMailboxAllowed(cfg, msg.MailboxID) {
+	if strings.TrimSpace(msg.MailboxID) == "" {
+		return
+	}
+	var userID, chatID, tokenCipher string
+	if err := a.db.QueryRowContext(ctx, `SELECT s.user_id,s.private_chat_id,s.bot_token_cipher FROM user_telegram_settings s JOIN user_telegram_mailboxes tm ON tm.user_id=s.user_id WHERE tm.mailbox_id=? AND s.enabled=1`, msg.MailboxID).Scan(&userID, &chatID, &tokenCipher); err != nil || !validTelegramPrivateChatID(chatID) || strings.TrimSpace(tokenCipher) == "" {
 		return
 	}
 	recipient := normalizeEmail(msg.RecipientAddr)
 	if recipient == "" && len(msg.To) > 0 {
 		recipient = normalizeEmail(msg.To[0])
 	}
-	body := telegramMessageBody(msg)
-	otp := detectTelegramOTP(msg.Subject, body)
-	mode := normalizeTelegramBodyMode(cfg.TelegramBodyMode)
-	limit := 800
-	if mode == "full" {
-		limit = 2600
-	}
-	body, truncated := truncateRunes(body, limit)
-	if truncated {
-		body += "..."
-	}
-	if body == "" {
-		body = normalizeTelegramText(msg.Snippet)
-	}
 	from, _ := truncateRunes(strings.TrimSpace(msg.From), 254)
 	fromName, _ := truncateRunes(strings.TrimSpace(msg.FromName), 160)
 	subject, _ := truncateRunes(strings.TrimSpace(msg.Subject), 240)
-	names := make([]string, 0, min(len(attachments), 5))
-	for _, attachment := range attachments {
-		name := sanitizeTelegramAttachmentName(attachment.Filename)
-		if name != "" {
-			names = append(names, name)
-		}
-		if len(names) >= 5 {
-			break
-		}
+	receivedAt := msg.ReceivedAt
+	if receivedAt.IsZero() {
+		receivedAt = a.now().UTC()
 	}
 	payload := telegramMailPayload{
-		From:            from,
-		FromName:        fromName,
-		Recipient:       recipient,
-		Subject:         subject,
-		ReceivedAt:      a.now().UTC().Format(time.RFC3339Nano),
-		Body:            body,
-		BodyMode:        mode,
-		OTP:             otp,
-		AttachmentNames: names,
-		AttachmentCount: len(attachments),
+		UserID:     userID,
+		ChatID:     chatID,
+		From:       from,
+		FromName:   fromName,
+		Recipient:  recipient,
+		Subject:    subject,
+		ReceivedAt: receivedAt.UTC().Format(time.RFC3339Nano),
+		ViewURL:    telegramMailViewURL(cfg.PublicBaseURL, messageID),
 	}
 	now := a.now().UTC().Format(time.RFC3339Nano)
 	if _, err := a.db.ExecContext(ctx, `INSERT OR IGNORE INTO telegram_mail_outbox(id,message_id,payload_json,next_attempt_at,created_at,updated_at) VALUES(?,?,?,?,?,?)`, newID("tgm"), messageID, jsonEncode(payload), now, now, now); err != nil {
 		a.log.Warn("failed to enqueue Telegram mail notification", "messageId", messageID, "error", err)
+		return
 	}
+	a.wakeTelegramMailWorker()
+}
+
+func (a *App) wakeTelegramMailWorker() {
+	if a.telegramMailWake == nil {
+		return
+	}
+	select {
+	case a.telegramMailWake <- struct{}{}:
+	default:
+	}
+}
+
+func telegramMailViewURL(baseURL, messageID string) string {
+	baseURL = strings.TrimSpace(baseURL)
+	messageID = strings.TrimSpace(messageID)
+	parsed, err := url.Parse(baseURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" || messageID == "" {
+		return ""
+	}
+	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/"
+	query := parsed.Query()
+	query.Set("message", messageID)
+	parsed.RawQuery = query.Encode()
+	parsed.Fragment = ""
+	return parsed.String()
 }
 
 func telegramMessageBody(msg storedMessage) string {
@@ -663,6 +683,7 @@ func (a *App) telegramMailWorker(ctx context.Context) {
 		case <-ctx.Done():
 			a.log.Info("Telegram mail notification worker stopped")
 			return
+		case <-a.telegramMailWake:
 		case <-ticker.C:
 		}
 	}
@@ -672,10 +693,6 @@ func (a *App) processDueTelegramMailNotifications(ctx context.Context) error {
 	a.telegramDeliveryMu.Lock()
 	defer a.telegramDeliveryMu.Unlock()
 	_, _ = a.db.ExecContext(ctx, `DELETE FROM telegram_mail_outbox WHERE updated_at<? AND (delivered_at IS NOT NULL OR attempt_count>=?)`, a.now().UTC().Add(-30*24*time.Hour).Format(time.RFC3339Nano), telegramMailMaxAttempts)
-	cfg := a.config()
-	if !cfg.TelegramMailEnabled || strings.TrimSpace(cfg.TelegramBotToken) == "" || !validTelegramPrivateChatID(cfg.TelegramPrivateChatID) {
-		return nil
-	}
 	nowText := a.now().UTC().Format(time.RFC3339Nano)
 	rows, err := a.db.QueryContext(ctx, `SELECT id,payload_json,attempt_count FROM telegram_mail_outbox WHERE delivered_at IS NULL AND attempt_count<? AND next_attempt_at<=? AND (lease_until='' OR lease_until<=?) ORDER BY next_attempt_at,created_at LIMIT 20`, telegramMailMaxAttempts, nowText, nowText)
 	if err != nil {
@@ -721,7 +738,22 @@ func (a *App) processDueTelegramMailNotifications(ctx context.Context) error {
 			continue
 		}
 		formatted := formatTelegramMailMessage(item.payload)
-		telegramMessageID, err := a.deliverTelegramMailMessage(ctx, cfg.TelegramBotToken, cfg.TelegramPrivateChatID, formatted)
+		if !validTelegramPrivateChatID(item.payload.ChatID) || strings.TrimSpace(item.payload.UserID) == "" {
+			now := a.now().UTC().Format(time.RFC3339Nano)
+			if _, err := a.db.ExecContext(ctx, `UPDATE telegram_mail_outbox SET attempt_count=?,last_error='通知接收方无效',updated_at=?,lease_until='',payload_json='{}' WHERE id=?`, telegramMailMaxAttempts, now, item.id); err != nil {
+				return err
+			}
+			continue
+		}
+		botToken, tokenErr := a.userTelegramBotToken(ctx, item.payload.UserID)
+		if tokenErr != nil {
+			now := a.now().UTC().Format(time.RFC3339Nano)
+			if _, updateErr := a.db.ExecContext(ctx, `UPDATE telegram_mail_outbox SET attempt_count=?,last_error='用户机器人不可用',updated_at=?,lease_until='',payload_json='{}' WHERE id=?`, telegramMailMaxAttempts, now, item.id); updateErr != nil {
+				return updateErr
+			}
+			continue
+		}
+		telegramMessageID, err := a.deliverTelegramMailMessage(ctx, botToken, item.payload.ChatID, formatted)
 		now = a.now().UTC()
 		if err != nil {
 			attempts := item.attempt + 1
@@ -775,37 +807,12 @@ func formatTelegramMailMessage(payload telegramMailPayload) telegramFormattedMes
 		"",
 		"<b>主题：</b>" + escapeTelegramWithinBudget(subject, 420),
 		"<b>发件人：</b>" + escapeTelegramWithinBudget(from, 500),
-		"<b>收件邮箱：</b><code>" + escapeTelegramWithinBudget(recipient, 320) + "</code>",
+		"<b>收件邮箱：</b>" + escapeTelegramWithinBudget(recipient, 320),
 		"<b>收件时间：</b>" + html.EscapeString(timeText),
-	}
-	if payload.OTP != "" {
-		lines = append(lines, "", "🔐 <b>验证码</b>", "<code>"+html.EscapeString(payload.OTP)+"</code>")
-	}
-	if len(payload.AttachmentNames) > 0 {
-		names := make([]string, 0, len(payload.AttachmentNames))
-		for _, name := range payload.AttachmentNames {
-			names = append(names, escapeTelegramWithinBudget(name, 180))
-		}
-		attachmentText := strings.Join(names, "、")
-		if payload.AttachmentCount > len(payload.AttachmentNames) {
-			attachmentText += fmt.Sprintf("，其余 %d 个未显示", payload.AttachmentCount-len(payload.AttachmentNames))
-		}
-		lines = append(lines, "", fmt.Sprintf("📎 <b>附件：%d 个</b>", max(payload.AttachmentCount, len(payload.AttachmentNames))), attachmentText)
-	}
-	body := strings.TrimSpace(payload.Body)
-	if body != "" {
-		label := "正文摘要"
-		if normalizeTelegramBodyMode(payload.BodyMode) == "full" {
-			label = "邮件正文"
-		}
-		prefix := strings.Join(lines, "\n") + "\n\n<b>" + label + "</b>\n<blockquote>"
-		suffix := "</blockquote>"
-		body = formatTelegramBodyHTML(body, telegramMessageBudget-utf8.RuneCountInString(prefix)-utf8.RuneCountInString(suffix))
-		lines = []string{prefix + body + suffix}
 	}
 	htmlText := strings.Join(lines, "\n")
 	plain := formatTelegramMailPlainText(payload)
-	return telegramFormattedMessage{HTML: htmlText, PlainText: plain, OTP: payload.OTP}
+	return telegramFormattedMessage{HTML: htmlText, PlainText: plain, ViewURL: validTelegramViewURL(payload.ViewURL)}
 }
 
 func formatTelegramBodyHTML(value string, budget int) string {
@@ -892,7 +899,7 @@ func (a *App) deliverTelegramMailMessage(ctx context.Context, token, chatID stri
 		"parse_mode":               "HTML",
 		"disable_web_page_preview": true,
 	}
-	if markup := telegramCopyMarkup(message.OTP); markup != nil {
+	if markup := telegramViewMarkup(message.ViewURL); markup != nil {
 		payload["reply_markup"] = markup
 	}
 	result, err := a.sendTelegramPayload(ctx, token, payload)
@@ -908,7 +915,7 @@ func (a *App) deliverTelegramMailMessage(ctx context.Context, token, chatID stri
 		"text":                     message.PlainText,
 		"disable_web_page_preview": true,
 	}
-	if markup := telegramCopyMarkup(message.OTP); markup != nil {
+	if markup := telegramViewMarkup(message.ViewURL); markup != nil {
 		fallback["reply_markup"] = markup
 	}
 	result, err = a.sendTelegramPayload(ctx, token, fallback)
@@ -924,14 +931,23 @@ func (a *App) sendTelegramPayload(ctx context.Context, token string, payload map
 	return result, err
 }
 
-func telegramCopyMarkup(otp string) map[string]any {
-	otp = strings.TrimSpace(otp)
-	if otp == "" || utf8.RuneCountInString(otp) > 256 {
+func validTelegramViewURL(value string) string {
+	value = strings.TrimSpace(value)
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "https" && parsed.Scheme != "http") {
+		return ""
+	}
+	return value
+}
+
+func telegramViewMarkup(viewURL string) map[string]any {
+	viewURL = validTelegramViewURL(viewURL)
+	if viewURL == "" {
 		return nil
 	}
 	return map[string]any{"inline_keyboard": [][]map[string]any{{{
-		"text":      "复制验证码",
-		"copy_text": map[string]string{"text": otp},
+		"text": "查看邮件内容",
+		"url":  viewURL,
 	}}}}
 }
 
@@ -972,16 +988,7 @@ func formatTelegramMailPlainText(payload telegramMailPayload) string {
 	if !receivedAt.IsZero() {
 		timeText = receivedAt.Local().Format("2006-01-02 15:04:05 MST")
 	}
-	parts := []string{"新邮件通知", "", "主题：" + subject, "发件人：" + from, "收件邮箱：" + payload.Recipient, "收件时间：" + timeText}
-	if payload.OTP != "" {
-		parts = append(parts, "", "验证码", payload.OTP)
-	}
-	if payload.AttachmentCount > 0 {
-		parts = append(parts, "", fmt.Sprintf("附件：%d 个", payload.AttachmentCount))
-	}
-	if body := strings.TrimSpace(payload.Body); body != "" {
-		parts = append(parts, "", "正文摘要", body)
-	}
+	parts := []string{"📩 新邮件通知", "", "主题：" + subject, "发件人：" + from, "收件邮箱：" + payload.Recipient, "收件时间：" + timeText}
 	text := normalizeTelegramText(strings.Join(parts, "\n"))
 	text, truncated := truncateRunes(text, telegramMessageBudget-3)
 	if truncated {

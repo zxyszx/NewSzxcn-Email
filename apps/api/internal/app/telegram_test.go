@@ -41,6 +41,13 @@ func TestTelegramSettingsDiscoveryTestAndMailQueue(t *testing.T) {
 			}
 			sent = append(sent, message)
 			_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":8}}`))
+		case "/botpersonal-token/sendMessage":
+			var message sentMessage
+			if err := json.NewDecoder(r.Body).Decode(&message); err != nil {
+				t.Fatalf("decode personal Telegram message: %v", err)
+			}
+			sent = append(sent, message)
+			_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":9}}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -49,6 +56,7 @@ func TestTelegramSettingsDiscoveryTestAndMailQueue(t *testing.T) {
 
 	a := newTestApp(t)
 	stopTestWorkers(a)
+	a.updateConfig(func(cfg *Config) { cfg.UpdateServiceToken = "telegram-user-test-secret" })
 	a.telegramURL = telegramServer.URL
 	server := httptest.NewServer(a.Router())
 	defer server.Close()
@@ -69,6 +77,21 @@ func TestTelegramSettingsDiscoveryTestAndMailQueue(t *testing.T) {
 	payload["telegramBodyMode"] = "full"
 	var adminMailboxID string
 	if err := a.db.QueryRow(`SELECT id FROM mailboxes WHERE address='admin@lanqin.local'`).Scan(&adminMailboxID); err != nil {
+		t.Fatal(err)
+	}
+	var adminUserID string
+	if err := a.db.QueryRow(`SELECT user_id FROM mailboxes WHERE id=?`, adminMailboxID).Scan(&adminUserID); err != nil {
+		t.Fatal(err)
+	}
+	now := a.now().UTC().Format(time.RFC3339Nano)
+	userTokenCipher, err := a.encryptBackupPassword("personal-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.db.Exec(`INSERT INTO user_telegram_settings(user_id,enabled,bot_token_cipher,private_chat_id,created_at,updated_at) VALUES(?,1,?,'123456789',?,?)`, adminUserID, userTokenCipher, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.db.Exec(`INSERT INTO user_telegram_mailboxes(user_id,mailbox_id) VALUES(?,?)`, adminUserID, adminMailboxID); err != nil {
 		t.Fatal(err)
 	}
 	payload["telegramMailboxIds"] = []string{adminMailboxID}
@@ -123,20 +146,26 @@ func TestTelegramSettingsDiscoveryTestAndMailQueue(t *testing.T) {
 		t.Fatalf("expected one queued Telegram message, got %d", len(sent))
 	}
 	text := sent[0].Text
-	for _, expected := range []string{"新邮件通知", "Billing &amp; Support", "账单 &lt;已生成&gt;", "admin@example.com", "邮件正文", "账单-2026.pdf", "846981", "&lt;VIP&gt; &amp; 续费信息"} {
+	for _, expected := range []string{"新邮件通知", "Billing &amp; Support", "账单 &lt;已生成&gt;", "admin@example.com", "收件时间"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("Telegram mail message missing %q: %s", expected, text)
 		}
 	}
-	if sent[0].ReplyMarkup == nil {
-		t.Fatal("Telegram OTP copy button was not included")
+	for _, forbidden := range []string{"邮件正文", "账单-2026.pdf", "846981", "VIP", "点击查看"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("Telegram mail message unexpectedly included %q: %s", forbidden, text)
+		}
+	}
+	markupJSON, _ := json.Marshal(sent[0].ReplyMarkup)
+	if !strings.Contains(string(markupJSON), "查看邮件内容") || !strings.Contains(string(markupJSON), "message=mail_test_telegram") {
+		t.Fatalf("Telegram view button was not included: %s", markupJSON)
 	}
 	var delivered, storedPayload string
 	var telegramMessageID int64
 	if err := a.db.QueryRow(`SELECT COALESCE(delivered_at,''),payload_json,telegram_message_id FROM telegram_mail_outbox WHERE message_id=?`, "mail_test_telegram").Scan(&delivered, &storedPayload, &telegramMessageID); err != nil || delivered == "" {
 		t.Fatalf("Telegram queue was not marked delivered: delivered=%q err=%v", delivered, err)
 	}
-	if storedPayload != "{}" || telegramMessageID != 8 {
+	if storedPayload != "{}" || telegramMessageID != 9 {
 		t.Fatalf("delivered payload was not cleared safely: payload=%q telegramMessageId=%d", storedPayload, telegramMessageID)
 	}
 
@@ -147,13 +176,14 @@ func TestTelegramSettingsDiscoveryTestAndMailQueue(t *testing.T) {
 		t.Fatalf("disable Telegram settings code=%d", code)
 	}
 	var pending int
-	if err := a.db.QueryRow(`SELECT COUNT(1) FROM telegram_mail_outbox WHERE delivered_at IS NULL`).Scan(&pending); err != nil || pending != 0 {
-		t.Fatalf("pending Telegram queue was not cleared: count=%d err=%v", pending, err)
+	if err := a.db.QueryRow(`SELECT COUNT(1) FROM telegram_mail_outbox WHERE delivered_at IS NULL`).Scan(&pending); err != nil || pending != 1 {
+		t.Fatalf("admin backup bot settings changed a personal queue: count=%d err=%v", pending, err)
 	}
 }
 
 func TestTelegramSettingsRejectEnabledWithoutCredentials(t *testing.T) {
 	a := newTestApp(t)
+	a.updateConfig(func(cfg *Config) { cfg.UpdateServiceToken = "telegram-user-test-secret" })
 	server := httptest.NewServer(a.Router())
 	defer server.Close()
 	admin := &testClient{t: t, server: server}
@@ -173,6 +203,33 @@ func TestTelegramSettingsRejectEnabledWithoutCredentials(t *testing.T) {
 	}
 }
 
+func TestUserTelegramSettingsAreScopedToOwnedMailboxes(t *testing.T) {
+	a := newTestApp(t)
+	a.updateConfig(func(cfg *Config) { cfg.UpdateServiceToken = "telegram-user-test-secret" })
+	server := httptest.NewServer(a.Router())
+	defer server.Close()
+	client := &testClient{t: t, server: server}
+	var login map[string]any
+	if code := client.do("POST", "/api/auth/login", map[string]string{"email": "admin@lanqin.local", "password": "ChangeMe123!"}, &login); code != http.StatusOK {
+		t.Fatalf("login code=%d", code)
+	}
+	var mailboxID string
+	if err := a.db.QueryRow(`SELECT id FROM mailboxes WHERE address='admin@lanqin.local'`).Scan(&mailboxID); err != nil {
+		t.Fatal(err)
+	}
+	var settings userTelegramSettings
+	if code := client.do("POST", "/api/me/telegram", userTelegramSettingsRequest{Enabled: true, BotToken: "personal-test-token", PrivateChatID: "123456", MailboxIDs: []string{mailboxID}}, &settings); code != http.StatusOK {
+		t.Fatalf("save personal Telegram settings code=%d response=%+v", code, settings)
+	}
+	if !settings.Enabled || settings.PrivateChatID != "123456" || len(settings.MailboxIDs) != 1 || settings.MailboxIDs[0] != mailboxID || !settings.BotConfigured {
+		t.Fatalf("unexpected personal Telegram settings: %+v", settings)
+	}
+	var body map[string]any
+	if code := client.do("POST", "/api/me/telegram", userTelegramSettingsRequest{Enabled: true, PrivateChatID: "123456", MailboxIDs: []string{"foreign-mailbox"}}, &body); code != http.StatusBadRequest {
+		t.Fatalf("foreign mailbox should be rejected, code=%d body=%v", code, body)
+	}
+}
+
 func TestTelegramNetworkErrorDoesNotExposeToken(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	serverURL := server.URL
@@ -180,6 +237,7 @@ func TestTelegramNetworkErrorDoesNotExposeToken(t *testing.T) {
 
 	a := newTestApp(t)
 	stopTestWorkers(a)
+	a.updateConfig(func(cfg *Config) { cfg.UpdateServiceToken = "telegram-user-test-secret" })
 	a.telegramURL = serverURL
 	const token = "123456:secret-token-value"
 	err := a.sendTelegramMessage(context.Background(), token, "123456789", "test")
@@ -191,85 +249,48 @@ func TestTelegramNetworkErrorDoesNotExposeToken(t *testing.T) {
 	}
 }
 
-func TestTelegramOTPDetectionAndMessageBudget(t *testing.T) {
-	body := "本次登录验证码为 846981，请在十分钟内完成验证。\n\nOn yesterday wrote:\n旧验证码是 112233"
-	cleaned := stripTelegramQuotedContent(body)
-	if otp := detectTelegramOTP("登录验证", cleaned); otp != "846981" {
-		t.Fatalf("unexpected OTP %q", otp)
-	}
-	if otp := detectTelegramOTP("验证码", "验证码可能是 123456 或 654321，请联系客服确认"); otp != "" {
-		t.Fatalf("ambiguous OTP should not be selected: %q", otp)
-	}
+func TestTelegramNotificationMessageBudget(t *testing.T) {
 	message := formatTelegramMailMessage(telegramMailPayload{
 		From:       strings.Repeat("R&D <team@example.com> ", 30),
 		Recipient:  "admin@example.com",
 		Subject:    strings.Repeat("超长主题 & <test> ", 50),
 		ReceivedAt: time.Now().UTC().Format(time.RFC3339Nano),
-		Body:       strings.Repeat("正文内容 & <重要> ", 1000),
-		BodyMode:   "full",
+		Body:       "正文验证码 846981 不应出现在通知中",
 		OTP:        "846981",
-		AttachmentNames: []string{
-			strings.Repeat("附件&", 80), strings.Repeat("报价<", 80), strings.Repeat("说明", 80),
-		},
-		AttachmentCount: 12,
+		ViewURL:    "https://mail.example.com/?message=mail-1",
 	})
 	if got := utf8.RuneCountInString(message.HTML); got > telegramMessageBudget {
 		t.Fatalf("Telegram HTML exceeds budget: %d", got)
 	}
-	if !strings.Contains(message.HTML, "&amp;") || !strings.Contains(message.HTML, "&lt;") || !strings.Contains(message.HTML, "<code>846981</code>") {
-		t.Fatalf("message escaping or OTP formatting missing: %s", message.HTML)
+	if !strings.Contains(message.HTML, "&amp;") || !strings.Contains(message.HTML, "&lt;") {
+		t.Fatalf("message escaping missing: %s", message.HTML)
 	}
-	if markup := telegramCopyMarkup(message.OTP); markup == nil {
-		t.Fatal("copy_text markup missing")
+	if strings.Contains(message.HTML, "846981") || strings.Contains(message.PlainText, "846981") {
+		t.Fatalf("notification exposed body or OTP: %+v", message)
+	}
+	if markup := telegramViewMarkup(message.ViewURL); markup == nil {
+		t.Fatal("view button markup missing")
 	}
 }
 
-func TestTelegramIQiyiOTPDetection(t *testing.T) {
+func TestTelegramIQiyiNotificationOmitsOTPAndBody(t *testing.T) {
 	subject := "825534 是您的动态安全验证码"
 	body := "哈喽 iqiyi02@newszxcn.com 您正在进行爱奇艺账号的安全验证，以下是您的动态验证码：825534 如果这不是您的邮件，请忽略此邮件，请勿回复 手机·电视 其他 APP 在 LG, Samsung 等应用商店搜索 iQiyi 即可获得 Copyright © 2021 iQiyi All Rights Reserved"
-	otp := detectTelegramOTP(subject, body)
-	if otp != "825534" {
-		t.Fatalf("iQiyi OTP not detected: %q", otp)
-	}
-	message := formatTelegramMailMessage(telegramMailPayload{Subject: subject, From: "no_reply_intl@iq.com", Recipient: "iqiyi02@newszxcn.com", ReceivedAt: time.Now().UTC().Format(time.RFC3339Nano), Body: body, OTP: otp})
-	if !strings.Contains(message.HTML, "<code>825534</code>") || telegramCopyMarkup(message.OTP) == nil {
-		t.Fatalf("iQiyi OTP section or copy button missing: %+v", message)
+	message := formatTelegramMailMessage(telegramMailPayload{Subject: subject, From: "no_reply_intl@iq.com", Recipient: "iqiyi02@newszxcn.com", ReceivedAt: time.Now().UTC().Format(time.RFC3339Nano), Body: body, OTP: "825534", ViewURL: "https://mail.example.com/?message=iqiyi"})
+	if strings.Contains(message.HTML, body) || strings.Contains(message.HTML, "<code>") {
+		t.Fatalf("iQiyi body or extracted OTP was included: %+v", message)
 	}
 }
 
-func TestTelegramForwardedGateOTPAndLinks(t *testing.T) {
-	body := `---------- Forwarded message ---------
-Date: 2026年8月6日周四 17:59
-Subject: 登录验证码 (https://www.gate.com)
-
-Gate 检测到您的账号正试图从此 IP 获得登录验证码：
-IP: 87.83.105.229
-如为您本人登录，请输入如下验证码完成操作：
-311665
-如非本人操作，请点击此处禁用账户 <https://data.gate.com/track/click?token=abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789>`
-	if otp := detectTelegramOTP("Fwd: 登录验证码 (https://www.gate.com)", body); otp != "311665" {
-		t.Fatalf("forwarded Gate OTP not detected: %q", otp)
-	}
-	if otp := detectTelegramOTP("登录验证码", "日期 2026-08-06，验证码将在稍后发送"); otp != "" {
-		t.Fatalf("year was incorrectly detected as OTP: %q", otp)
-	}
-	message := formatTelegramMailMessage(telegramMailPayload{
-		From: "no-reply@alert.gate.com", Recipient: "admin@example.com", Subject: "登录验证码",
-		ReceivedAt: time.Now().UTC().Format(time.RFC3339Nano), Body: body, BodyMode: "full", OTP: "311665",
-	})
-	if !strings.Contains(message.HTML, `<a href="https://www.gate.com">https://www.gate.com</a>`) {
-		t.Fatalf("normal URL was not linkified: %s", message.HTML)
-	}
-	if !strings.Contains(message.HTML, `>🔗 data.gate.com 链接</a>`) {
-		t.Fatalf("long tracking URL was not shortened: %s", message.HTML)
-	}
-	if strings.Contains(message.HTML, "&lt;a href=") || utf8.RuneCountInString(message.HTML) > telegramMessageBudget {
-		t.Fatalf("generated Telegram HTML is invalid or too long: %s", message.HTML)
-	}
-	markup := telegramCopyMarkup(message.OTP)
+func TestTelegramViewButton(t *testing.T) {
+	const viewURL = "https://mail.example.com/?message=mail-123"
+	markup := telegramViewMarkup(viewURL)
 	buttons, ok := markup["inline_keyboard"].([][]map[string]any)
-	if !ok || len(buttons) != 1 || len(buttons[0]) != 1 || buttons[0][0]["text"] != "复制验证码" {
-		t.Fatalf("copy OTP button missing: %#v", markup)
+	if !ok || len(buttons) != 1 || len(buttons[0]) != 1 || buttons[0][0]["text"] != "查看邮件内容" || buttons[0][0]["url"] != viewURL {
+		t.Fatalf("view button is invalid: %#v", markup)
+	}
+	if telegramViewMarkup("javascript:alert(1)") != nil {
+		t.Fatal("unsafe view URL was accepted")
 	}
 }
 
@@ -329,16 +350,26 @@ func TestTelegramRetryAfterAndPermanentErrors(t *testing.T) {
 func TestTelegramMailboxScopeAndOriginalRecipient(t *testing.T) {
 	a := newTestApp(t)
 	stopTestWorkers(a)
+	a.updateConfig(func(cfg *Config) { cfg.UpdateServiceToken = "telegram-user-test-secret" })
 	var mailboxID string
 	if err := a.db.QueryRow(`SELECT id FROM mailboxes WHERE address='admin@lanqin.local'`).Scan(&mailboxID); err != nil {
 		t.Fatal(err)
 	}
-	a.updateConfig(func(cfg *Config) {
-		cfg.TelegramMailEnabled = true
-		cfg.TelegramBotToken = "test-token"
-		cfg.TelegramPrivateChatID = "123456"
-		cfg.TelegramMailboxIDs = mailboxID
-	})
+	var userID string
+	if err := a.db.QueryRow(`SELECT user_id FROM mailboxes WHERE id=?`, mailboxID).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	now := a.now().UTC().Format(time.RFC3339Nano)
+	tokenCipher, err := a.encryptBackupPassword("test-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.db.Exec(`INSERT INTO user_telegram_settings(user_id,enabled,bot_token_cipher,private_chat_id,created_at,updated_at) VALUES(?,1,?,'123456',?,?)`, userID, tokenCipher, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.db.Exec(`INSERT INTO user_telegram_mailboxes(user_id,mailbox_id) VALUES(?,?)`, userID, mailboxID); err != nil {
+		t.Fatal(err)
+	}
 	a.enqueueTelegramMailNotification(context.Background(), "scope-denied", storedMessage{MailboxID: "another-mailbox", RecipientAddr: "other@example.com", Subject: "denied"}, nil)
 	a.enqueueTelegramMailNotification(context.Background(), "scope-allowed", storedMessage{MailboxID: mailboxID, RecipientAddr: "admin@lanqin.local", Subject: "allowed"}, nil)
 	var count int
@@ -408,8 +439,9 @@ func TestTelegramBadRequestFallsBackToPlainText(t *testing.T) {
 	defer server.Close()
 	a := newTestApp(t)
 	stopTestWorkers(a)
+	a.updateConfig(func(cfg *Config) { cfg.UpdateServiceToken = "telegram-user-test-secret" })
 	a.telegramURL = server.URL
-	messageID, err := a.deliverTelegramMailMessage(context.Background(), "test-token", "123456", telegramFormattedMessage{HTML: "<b>broken", PlainText: "safe fallback", OTP: "123456"})
+	messageID, err := a.deliverTelegramMailMessage(context.Background(), "test-token", "123456", telegramFormattedMessage{HTML: "<b>broken", PlainText: "safe fallback", ViewURL: "https://mail.example.com/?message=mail-1"})
 	if err != nil || messageID != 99 || calls.Load() != 2 {
 		t.Fatalf("fallback failed: messageId=%d calls=%d err=%v", messageID, calls.Load(), err)
 	}
@@ -425,14 +457,21 @@ func TestTelegramMalformedQueueItemDoesNotBlockLaterMail(t *testing.T) {
 	defer server.Close()
 	a := newTestApp(t)
 	stopTestWorkers(a)
+	a.updateConfig(func(cfg *Config) { cfg.UpdateServiceToken = "telegram-user-test-secret" })
 	a.telegramURL = server.URL
-	a.updateConfig(func(cfg *Config) {
-		cfg.TelegramMailEnabled = true
-		cfg.TelegramBotToken = "test-token"
-		cfg.TelegramPrivateChatID = "123456"
-	})
+	var userID string
+	if err := a.db.QueryRow(`SELECT id FROM users ORDER BY created_at LIMIT 1`).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	tokenCipher, err := a.encryptBackupPassword("test-token")
+	if err != nil {
+		t.Fatal(err)
+	}
 	now := a.now().UTC().Format(time.RFC3339Nano)
-	if _, err := a.db.Exec(`INSERT INTO telegram_mail_outbox(id,message_id,payload_json,next_attempt_at,created_at,updated_at) VALUES('bad','bad','{',?,?,?),('good','good',?, ?, ?, ?)`, now, now, now, jsonEncode(telegramMailPayload{Subject: "good", From: "sender@example.com", Recipient: "admin@example.com", ReceivedAt: now, Body: "body"}), now, now, now); err != nil {
+	if _, err := a.db.Exec(`INSERT INTO user_telegram_settings(user_id,enabled,bot_token_cipher,private_chat_id,created_at,updated_at) VALUES(?,1,?,'123456',?,?)`, userID, tokenCipher, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.db.Exec(`INSERT INTO telegram_mail_outbox(id,message_id,payload_json,next_attempt_at,created_at,updated_at) VALUES('bad','bad','{',?,?,?),('good','good',?, ?, ?, ?)`, now, now, now, jsonEncode(telegramMailPayload{UserID: userID, ChatID: "123456", Subject: "good", From: "sender@example.com", Recipient: "admin@example.com", ReceivedAt: now, Body: "body"}), now, now, now); err != nil {
 		t.Fatal(err)
 	}
 	if err := a.processDueTelegramMailNotifications(context.Background()); err != nil {
