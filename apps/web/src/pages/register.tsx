@@ -65,7 +65,7 @@ export function RegisterPage() {
     <main className="flex min-h-screen items-center justify-center bg-muted/20 px-4 py-10">
       <div className="w-full max-w-[420px]">
         <div className="mb-7 flex items-center justify-center gap-3 text-center">
-          <BrandMark className="size-11 [&>svg]:size-7" />
+          <BrandMark className="size-11" />
           <h1 className="text-3xl font-semibold tracking-tight">NewSzxcn 邮箱</h1>
         </div>
         <div className="rounded-lg border bg-background p-6 shadow-sm sm:p-7">

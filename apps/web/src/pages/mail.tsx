@@ -241,6 +241,7 @@ export function MailPage() {
   const mailAudioContextRef = React.useRef<AudioContext | null>(null)
   const linkedMessageRef = React.useRef("")
   const mailImportInputRef = React.useRef<HTMLInputElement | null>(null)
+  const mobileReaderHistoryRef = React.useRef(false)
   const user = me.data?.user
   const canAccessMail = hasPermission(user, "mail.access")
   const canReadMail = hasPermission(user, "mail.messages.read")
@@ -375,6 +376,34 @@ export function MailPage() {
       return next
     }, { replace: true })
   }, [canReadMail, linkedMessageId, setSearchParams])
+
+  React.useEffect(() => {
+    const handlePopState = () => {
+      if (!mobileReaderHistoryRef.current) return
+      mobileReaderHistoryRef.current = false
+      setSelectedId(null)
+    }
+    window.addEventListener("popstate", handlePopState)
+    return () => window.removeEventListener("popstate", handlePopState)
+  }, [])
+
+  React.useEffect(() => {
+    const currentState = window.history.state as Record<string, unknown> | null
+    const isReaderEntry = currentState?.newszxcnMailReader === true
+
+    if (isTwoPaneMailViewport && selectedId) {
+      if (!mobileReaderHistoryRef.current) {
+        window.history.pushState({ ...currentState, newszxcnMailReader: true }, "")
+        mobileReaderHistoryRef.current = true
+      }
+      return
+    }
+
+    if (mobileReaderHistoryRef.current) {
+      mobileReaderHistoryRef.current = false
+      if (isReaderEntry) window.history.back()
+    }
+  }, [isTwoPaneMailViewport, selectedId])
 
   function updateCachedMessage(id: string, patch: Partial<MailMessage>) {
     qc.setQueryData(["message", id], (current: MailMessage | undefined) => current ? { ...current, ...patch } : current)
@@ -1226,6 +1255,9 @@ export function MailPage() {
       else markRead.mutate({ id: message.id, read: true })
     }
   }
+  function closeMessageReader() {
+    setSelectedId(null)
+  }
   async function refreshMail() {
     if (refreshing || autoRefreshing) return
     setRefreshing(true)
@@ -1754,7 +1786,7 @@ export function MailPage() {
       onSelectAll={toggleCompactSelectAll}
       onToggleSelected={toggleCompactSelect}
       scheduledDraftIds={scheduledDraftIds}
-      onCloseReader={() => setSelectedId(null)}
+      onCloseReader={closeMessageReader}
       onStar={(message) => { if (mailView !== "external") star.mutate({ id: message.id, starred: !message.isStarred }) }}
       onReply={openReply}
       onForward={openForward}
@@ -1873,7 +1905,7 @@ export function MailPage() {
           {!detail.isError && selected && <div className="flex h-full min-h-0 flex-col">
             <div className="border-b p-5">
               {isTwoPaneMailViewport && (
-                <Button variant="ghost" size="sm" className="-ml-2 mb-3 h-8 px-2 text-[13px] font-normal" onClick={() => setSelectedId(null)}>
+                <Button variant="ghost" size="sm" className="-ml-2 mb-3 h-8 px-2 text-[13px] font-normal" onClick={closeMessageReader}>
                   <ArrowLeft className="h-4 w-4" />
                   返回列表
                 </Button>
@@ -3413,15 +3445,17 @@ function MailHtmlFrame({ message }: { message: MailMessage }) {
   }, [resize, srcDoc])
 
   return (
-    <iframe
-      ref={iframeRef}
-      title="邮件正文"
-      className="block w-full border-0 bg-white"
-      sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-      referrerPolicy="no-referrer"
-      srcDoc={srcDoc}
-      style={{ height }}
-    />
+    <div className="mail-message-paper mx-auto w-full max-w-[1120px] overflow-hidden rounded-lg border">
+      <iframe
+        ref={iframeRef}
+        title="邮件正文"
+        className="block w-full border-0 bg-white"
+        sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+        referrerPolicy="no-referrer"
+        srcDoc={srcDoc}
+        style={{ height }}
+      />
+    </div>
   )
 }
 
@@ -4267,12 +4301,13 @@ function ComposeDialog({ mailboxes, mailbox, open, draft, limits, canSend, canMa
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (nextOpen) onOpenChange(true); else void closeCompose() }}>
       <DialogContent
-        className="flex h-svh w-screen max-w-none overflow-hidden p-0 sm:h-[min(88vh,48rem)] sm:w-[min(92vw,56rem)]"
+        className="compose-dialog flex h-svh w-screen max-w-none gap-0 overflow-hidden p-0 sm:h-[min(88vh,48rem)] sm:w-[min(92vw,56rem)]"
+        overlayClassName="compose-dialog-overlay"
         onInteractOutside={(event) => event.preventDefault()}
         onPointerDownOutside={(event) => event.preventDefault()}
       >
         <form key={draft?.key || "new"} className="flex min-h-0 min-w-0 flex-1 flex-col" onSubmit={submit}>
-          <DialogHeader className="border-b bg-muted/20 px-4 py-3 text-left sm:px-5">
+          <DialogHeader className="compose-dialog-header border-b px-4 py-3 text-left sm:px-5">
             <DialogTitle className="flex min-w-0 flex-col gap-1 pr-8 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:pr-6">
               <span>{draftId ? "编辑草稿" : "写信"}</span>
               <span className={cn("text-xs font-normal", draftStatus === "error" ? "text-destructive" : "text-muted-foreground")}>
@@ -4280,7 +4315,7 @@ function ComposeDialog({ mailboxes, mailbox, open, draft, limits, canSend, canMa
               </span>
             </DialogTitle>
           </DialogHeader>
-          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          <div className="compose-fields flex min-h-0 flex-1 flex-col overflow-y-auto">
             <ComposeField label="发件邮箱">
               {mailboxes.length > 1 ? (
                 <Select value={senderMailbox?.id || ""} onValueChange={setSenderMailboxId}>
@@ -4292,13 +4327,16 @@ function ComposeDialog({ mailboxes, mailbox, open, draft, limits, canSend, canMa
                   </SelectContent>
                 </Select>
               ) : (
-                <Input value={senderMailbox?.address || "未选择"} readOnly className="h-10 flex-1 rounded-none border-0 px-0 shadow-none focus-visible:ring-0" />
+                <div className="flex h-10 min-w-0 flex-1 select-none items-center gap-2 text-sm font-medium" aria-label={`发件邮箱：${senderMailbox?.address || "未选择"}`}>
+                  <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="truncate">{senderMailbox?.address || "未选择"}</span>
+                </div>
               )}
             </ComposeField>
             <ComposeField
               label="收件人"
               action={
-                <div className="flex shrink-0 flex-wrap items-center justify-start gap-1 text-sm sm:justify-end sm:gap-2">
+                <div className="compose-recipient-actions flex shrink-0 flex-wrap items-center justify-start gap-1 text-sm sm:justify-end sm:gap-2">
                   <Button type="button" variant="ghost" size="sm" className="h-8 px-2 font-normal" onClick={() => setShowCc((value) => !value)}>抄送</Button>
                   <Button type="button" variant="ghost" size="sm" className="h-8 px-2 font-normal" onClick={() => setShowBcc((value) => !value)}>密送</Button>
                   <div className="flex items-center gap-2 rounded-md px-2 py-1">
@@ -4342,7 +4380,7 @@ function ComposeDialog({ mailboxes, mailbox, open, draft, limits, canSend, canMa
               onRemoveFile={(index) => { setAttachmentsTouched(true); setFiles((current) => current.filter((_, itemIndex) => itemIndex !== index)) }}
             />
           </div>
-          <DialogFooter className="flex flex-row items-center justify-between gap-3 border-t bg-muted/15 px-4 py-3 sm:px-5">
+          <DialogFooter className="compose-dialog-footer flex flex-row items-center justify-between gap-3 border-t px-4 py-3 sm:px-5">
             {canSend && (
               <div className="flex min-w-0 items-center">
                 <Button className={cn("compose-send-button min-h-10 px-4", canSchedule && "rounded-r-none")} disabled={send.isPending || !senderMailbox}><Send className="h-4 w-4" />{send.isPending ? "发送中..." : "发送"}</Button>
@@ -4380,7 +4418,7 @@ function ComposeDialog({ mailboxes, mailbox, open, draft, limits, canSend, canMa
 
 function ComposeField({ label, children, action }: { label: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
-    <div className="flex min-h-12 flex-col gap-1 border-b px-4 py-1.5 transition-colors focus-within:bg-muted/20 sm:flex-row sm:items-center sm:gap-2 sm:px-5">
+    <div className="compose-field flex min-h-12 flex-col gap-1 border-b px-4 py-1.5 transition-colors sm:flex-row sm:items-center sm:gap-2 sm:px-5">
       <Label className="shrink-0 text-sm font-normal text-muted-foreground sm:w-16">{label}</Label>
       <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
         {children}
@@ -4764,9 +4802,9 @@ function MailBodyComposer({ defaultValue, defaultHtml, files, signatureText, max
   }
 
   return (
-    <div className="flex min-h-[300px] min-w-0 flex-1 flex-col bg-background sm:min-h-[360px]">
+    <div className="compose-composer flex min-h-[300px] min-w-0 flex-1 flex-col sm:min-h-[360px]">
       <Input ref={fileInputRef} type="file" multiple className="hidden" onChange={handlePickedFiles} />
-      <div className="flex min-h-11 flex-wrap items-center gap-1 overflow-visible border-b px-3 py-2 sm:px-5">
+      <div className="compose-primary-toolbar flex min-h-11 flex-wrap items-center gap-1 overflow-visible border-b px-3 py-2 sm:px-5">
         <ToolbarButton label="撤销" disabled={!editor?.can().undo()} onClick={() => editor?.chain().focus().undo().run()}><Undo2 className="h-4 w-4" /></ToolbarButton>
         <ToolbarButton label="重做" disabled={!editor?.can().redo()} onClick={() => editor?.chain().focus().redo().run()}><Redo2 className="h-4 w-4" /></ToolbarButton>
         <Separator orientation="vertical" className="mx-2 h-6" />
@@ -4808,7 +4846,7 @@ function MailBodyComposer({ defaultValue, defaultHtml, files, signatureText, max
         </div>
       </div>
       {formatOpen && (
-        <div className="flex min-h-14 flex-wrap items-center gap-1 overflow-visible border-b bg-muted/40 px-3 py-2 sm:px-5">
+        <div className="compose-format-toolbar flex min-h-14 flex-wrap items-center gap-1 overflow-visible border-b px-3 py-2 sm:px-5">
           <ToolbarButton label="清除格式" disabled={!editor} onClick={() => editor?.chain().focus().unsetAllMarks().clearNodes().run()}><Eraser className="h-4 w-4" /></ToolbarButton>
           <Separator orientation="vertical" className="mx-1 h-6" />
           <DropdownMenu>
@@ -4914,16 +4952,16 @@ function MailBodyComposer({ defaultValue, defaultHtml, files, signatureText, max
         </div>
       )}
       <div className={cn(
-        "composer-editor relative flex min-h-[220px] min-w-0 flex-1 overflow-hidden border-b focus-within:bg-card/40 sm:min-h-[260px]",
+        "compose-editor relative m-2 flex min-h-[220px] min-w-0 flex-1 overflow-hidden rounded-lg border sm:m-3 sm:mt-2 sm:min-h-[260px]",
         "[&_.ProseMirror]:min-h-[220px] [&_.ProseMirror]:min-w-0 [&_.ProseMirror]:w-full [&_.ProseMirror]:max-w-full [&_.ProseMirror]:flex-1 [&_.ProseMirror]:overflow-x-hidden [&_.ProseMirror]:overflow-y-auto [&_.ProseMirror]:px-4 [&_.ProseMirror]:py-4 [&_.ProseMirror]:text-base [&_.ProseMirror]:leading-7 [&_.ProseMirror]:outline-none [&_.ProseMirror]:[overflow-wrap:anywhere] sm:[&_.ProseMirror]:min-h-[260px] sm:[&_.ProseMirror]:px-5",
         "[&_.ProseMirror_p.is-editor-empty:first-child::before]:pointer-events-none [&_.ProseMirror_p.is-editor-empty:first-child::before]:float-left [&_.ProseMirror_p.is-editor-empty:first-child::before]:h-0 [&_.ProseMirror_p.is-editor-empty:first-child::before]:text-muted-foreground [&_.ProseMirror_p.is-editor-empty:first-child::before]:content-[attr(data-placeholder)]",
         "[&_.ProseMirror_a]:break-all [&_.ProseMirror_p]:max-w-full [&_.ProseMirror_ul]:list-disc [&_.ProseMirror_ol]:list-decimal [&_.ProseMirror_ul]:pl-6 [&_.ProseMirror_ol]:pl-6 [&_.ProseMirror_blockquote]:border-l-4 [&_.ProseMirror_blockquote]:border-border [&_.ProseMirror_blockquote]:pl-4 [&_.ProseMirror_blockquote]:text-muted-foreground [&_.ProseMirror_pre]:max-w-full [&_.ProseMirror_pre]:whitespace-pre-wrap [&_.ProseMirror_pre]:break-words [&_.ProseMirror_pre]:rounded-md [&_.ProseMirror_pre]:bg-muted [&_.ProseMirror_pre]:p-3",
-        empty && "bg-background"
+        empty && "compose-editor-empty"
       )}>
         <EditorContent editor={editor} className="flex min-h-0 min-w-0 flex-1 overflow-hidden" />
       </div>
       {files.length > 0 && (
-        <div className="border-t px-4 py-3 sm:px-5">
+        <div className="compose-attachments border-t px-4 py-3 sm:px-5">
           <div className="flex flex-wrap gap-2">
             {files.map((file, index) => (
               <Badge key={`${file.name}-${file.size}-${index}`} variant="outline" className="h-8 gap-2 rounded-md px-2 font-normal">

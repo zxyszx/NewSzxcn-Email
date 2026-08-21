@@ -113,7 +113,7 @@ export function LoginPage() {
       <div className="relative z-10 flex min-h-svh flex-col px-5 py-5 sm:px-9 sm:py-7 lg:px-14 xl:px-20">
         <header className="flex items-center justify-between gap-4">
           <div className="flex min-w-0 items-center gap-3">
-            <BrandMark className="space-brand-mark size-10 bg-white [&>img]:size-[70%]" />
+            <BrandMark className="space-brand-mark size-10" />
             <span className="space-serif truncate text-xl font-medium text-white">NewSzxcn 邮箱</span>
           </div>
           <div className="flex shrink-0 items-center gap-2">

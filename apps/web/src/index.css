@@ -814,6 +814,178 @@
 }
 
 /* ===== 邮件 HTML 内容渲染 ===== */
+.mail-message-paper {
+  background: #fff;
+  border-color: hsl(212 45% 66% / 0.58);
+  box-shadow: 0 18px 44px hsl(214 48% 24% / 0.14), inset 0 1px 0 hsl(0 0% 100% / 0.9);
+}
+
+.dark .mail-message-paper {
+  border-color: hsl(235 68% 68% / 0.42);
+  box-shadow: 0 22px 58px hsl(240 75% 2% / 0.5), 0 0 0 1px hsl(230 100% 88% / 0.05);
+}
+
+.mail-message-paper iframe {
+  color-scheme: light;
+}
+
+/* ===== 写信工作区 ===== */
+.compose-dialog-overlay {
+  background: hsl(216 36% 14% / 0.34) !important;
+  backdrop-filter: blur(7px) saturate(0.92);
+  -webkit-backdrop-filter: blur(7px) saturate(0.92);
+}
+
+.dark .compose-dialog-overlay {
+  background: hsl(238 58% 2% / 0.6) !important;
+}
+
+.compose-dialog {
+  --compose-line: hsl(214 46% 66% / 0.38);
+  --compose-band: hsl(208 68% 97% / 0.6);
+  border-color: hsl(214 58% 70% / 0.7) !important;
+  background: linear-gradient(145deg, hsl(204 72% 99% / 0.94), hsl(212 58% 95% / 0.9)) !important;
+  box-shadow: 0 28px 80px hsl(216 55% 18% / 0.28), inset 0 1px 0 hsl(0 0% 100% / 0.9) !important;
+  backdrop-filter: blur(20px) saturate(1.08);
+  -webkit-backdrop-filter: blur(20px) saturate(1.08);
+}
+
+.dark .compose-dialog {
+  --compose-line: hsl(232 58% 62% / 0.3);
+  --compose-band: hsl(230 44% 13% / 0.68);
+  border-color: hsl(235 70% 67% / 0.42) !important;
+  background: linear-gradient(145deg, hsl(228 48% 9% / 0.95), hsl(238 52% 7% / 0.93)) !important;
+  box-shadow: 0 30px 90px hsl(240 80% 1% / 0.72), inset 0 1px 0 hsl(230 100% 90% / 0.08) !important;
+}
+
+.compose-dialog-header,
+.compose-dialog-footer {
+  border-color: var(--compose-line) !important;
+  background: var(--compose-band);
+}
+
+.compose-dialog-header {
+  box-shadow: inset 0 -1px 0 hsl(0 0% 100% / 0.22);
+}
+
+.compose-dialog-footer {
+  box-shadow: 0 -10px 28px hsl(214 44% 30% / 0.06);
+}
+
+.compose-fields,
+.compose-composer {
+  background: transparent;
+}
+
+.compose-field {
+  border-color: var(--compose-line) !important;
+  background: hsl(210 62% 98% / 0.34);
+  box-shadow: inset 3px 0 0 transparent;
+}
+
+.compose-field:focus-within {
+  background: hsl(211 78% 98% / 0.7);
+  box-shadow: inset 3px 0 0 hsl(225 90% 62% / 0.72);
+}
+
+.dark .compose-field {
+  background: hsl(230 42% 13% / 0.24);
+}
+
+.dark .compose-field:focus-within {
+  background: hsl(231 44% 16% / 0.7);
+  box-shadow: inset 3px 0 0 hsl(251 92% 72% / 0.82);
+}
+
+.compose-field input,
+.compose-field [data-slot="select-trigger"] {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.compose-recipient-actions {
+  border-left: 1px solid var(--compose-line);
+  padding-left: 0.35rem;
+}
+
+.compose-primary-toolbar,
+.compose-format-toolbar,
+.compose-attachments {
+  border-color: var(--compose-line) !important;
+  background: hsl(210 64% 98% / 0.42);
+}
+
+.compose-format-toolbar {
+  background: hsl(212 56% 94% / 0.62);
+}
+
+.dark .compose-primary-toolbar,
+.dark .compose-format-toolbar,
+.dark .compose-attachments {
+  background: hsl(230 42% 11% / 0.56);
+}
+
+.dark .compose-format-toolbar {
+  background: hsl(231 44% 15% / 0.7);
+}
+
+.compose-editor {
+  border-color: hsl(214 46% 66% / 0.46) !important;
+  background: hsl(210 60% 99% / 0.82);
+  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.92), 0 10px 28px hsl(215 42% 35% / 0.08);
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+.compose-editor:focus-within {
+  border-color: hsl(226 84% 62% / 0.64) !important;
+  background: hsl(210 64% 99% / 0.96);
+  box-shadow: 0 0 0 3px hsl(226 92% 62% / 0.1), 0 14px 34px hsl(215 48% 28% / 0.12);
+}
+
+.dark .compose-editor {
+  border-color: hsl(234 55% 57% / 0.4) !important;
+  background: hsl(229 42% 10% / 0.8);
+  box-shadow: inset 0 1px 0 hsl(230 100% 90% / 0.06), 0 14px 36px hsl(240 76% 2% / 0.34);
+}
+
+.dark .compose-editor:focus-within {
+  border-color: hsl(250 88% 72% / 0.7) !important;
+  background: hsl(229 42% 11% / 0.94);
+  box-shadow: 0 0 0 3px hsl(251 90% 68% / 0.12), 0 18px 42px hsl(240 78% 2% / 0.48);
+}
+
+.compose-dialog button,
+.compose-dialog [role="button"] {
+  transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.compose-dialog button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.compose-dialog button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+@media (max-width: 639px) {
+  .compose-dialog {
+    border-radius: 0 !important;
+  }
+
+  .compose-recipient-actions {
+    width: 100%;
+    border-left: 0;
+    border-top: 1px solid var(--compose-line);
+    padding-top: 0.35rem;
+    padding-left: 0;
+  }
+
+  .compose-editor {
+    margin: 0.5rem;
+  }
+}
+
 .mail-html {
   line-height: 1.75;
   color: hsl(var(--foreground));
