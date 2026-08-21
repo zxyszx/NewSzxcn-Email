@@ -1,6 +1,6 @@
 import * as React from "react"
 import { Outlet, Link, useLocation } from "react-router-dom"
-import { ArchiveRestore, ClipboardList, Forward, Globe2, Inbox, LayoutDashboard, LogOut, Mailbox, Settings, ShieldCheck, UserCog } from "lucide-react"
+import { ArchiveRestore, ClipboardList, Forward, Globe2, Inbox, LayoutDashboard, LogOut, Mailbox, Moon, Settings, ShieldCheck, Sun, UserCog } from "lucide-react"
 import { useMe } from "@/hooks/use-me"
 import { useLogout } from "@/hooks/use-logout"
 import { AuthGuard } from "@/components/auth-guard"
@@ -10,6 +10,7 @@ import { SystemVersionDialog } from "@/components/system-version-dialog"
 import { BrandMark } from "@/components/brand-mark"
 import { hasAnyPermission } from "@/lib/permissions"
 import type { PermissionKey } from "@/lib/api-types"
+import { applyTheme, getInitialTheme } from "@/lib/theme"
 import {
   Sidebar,
   SidebarContent,
@@ -52,11 +53,23 @@ function ProtectedContent() {
   const me = useMe()
   const location = useLocation()
   const logout = useLogout()
-
+  const [darkMode, setDarkMode] = React.useState(getInitialTheme)
+  const themeMountedRef = React.useRef(false)
   const user = me.data!.user
   const isMailRoute = location.pathname === "/" || location.pathname.startsWith("/mail")
   const isProfileRoute = location.pathname.startsWith("/profile")
   const isAdminRoute = location.pathname.startsWith("/admin")
+
+  React.useEffect(() => {
+    applyTheme(darkMode, themeMountedRef.current)
+    themeMountedRef.current = true
+  }, [darkMode])
+  React.useEffect(() => {
+    if (!isAdminRoute) return
+    document.documentElement.classList.add("workspace-ui")
+    return () => document.documentElement.classList.remove("workspace-ui")
+  }, [isAdminRoute])
+
   const adminSection = new URLSearchParams(location.search).get("section") || "overview"
   const visibleAdminSections = adminSections.filter((item) => hasAnyPermission(user, item.permissions) && (item.key !== "backups" || user.role === "admin"))
 
@@ -65,11 +78,11 @@ function ProtectedContent() {
   }
 
   return (
-    <SidebarProvider>
+    <SidebarProvider className="admin-workspace-theme">
       <Sidebar collapsible="icon">
         <SidebarHeader className="border-b">
-          <div className="space-y-1 group-data-[collapsible=icon]:space-y-0">
-            <SidebarMenu>
+          <div className="flex items-start gap-1">
+            <SidebarMenu className="min-w-0 flex-1">
               <SidebarMenuItem>
                 <SidebarMenuButton size="lg" asChild>
                   <Link to="/">
@@ -81,8 +94,19 @@ function ProtectedContent() {
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
-            {isAdminRoute && <SystemVersionDialog className="ml-10" />}
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="workspace-theme-toggle mt-1 size-8 shrink-0 rounded-full group-data-[collapsible=icon]:hidden"
+              onClick={() => setDarkMode((value) => !value)}
+              aria-label={darkMode ? "切换日间模式" : "切换夜间模式"}
+              title={darkMode ? "日间模式" : "夜间模式"}
+            >
+              {darkMode ? <Sun className="h-4 w-4 text-amber-300" /> : <Moon className="h-4 w-4" />}
+            </Button>
           </div>
+          {isAdminRoute && <SystemVersionDialog className="ml-10" />}
         </SidebarHeader>
         <SidebarContent>
           {isAdminRoute && visibleAdminSections.length > 0 && (
@@ -122,7 +146,7 @@ function ProtectedContent() {
         <SidebarRail />
       </Sidebar>
       <SidebarInset>
-        <div className="flex min-h-svh flex-col bg-muted/20">
+        <div className="admin-workspace-surface flex min-h-svh flex-col bg-muted/20">
           <div className="flex h-12 items-center gap-3 border-b bg-background px-3 md:hidden">
             <SidebarTrigger aria-label="打开导航" />
             <div className="min-w-0 flex-1 truncate text-sm font-semibold">

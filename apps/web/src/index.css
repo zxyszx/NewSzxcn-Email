@@ -98,6 +98,592 @@
 }
 
 @layer components {
+  /* Signed-in workspaces share the city artwork while keeping operational
+     surfaces substantially opaque. Theme changes swap both art and tokens. */
+  .mail-workspace-theme,
+  .admin-workspace-theme,
+  .profile-workspace-theme {
+    --background: 204 58% 96%;
+    --foreground: 220 43% 16%;
+    --card: 204 64% 98%;
+    --card-foreground: 220 43% 16%;
+    --popover: 204 64% 98%;
+    --popover-foreground: 220 43% 16%;
+    --primary: 218 88% 57%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 207 45% 91%;
+    --secondary-foreground: 220 43% 18%;
+    --muted: 207 40% 91%;
+    --muted-foreground: 218 18% 43%;
+    --accent: 211 65% 88%;
+    --accent-foreground: 220 43% 17%;
+    --destructive: 0 72% 54%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 211 38% 75%;
+    --input: 211 38% 69%;
+    --ring: 218 91% 61%;
+    --sidebar-background: 204 64% 97%;
+    --sidebar-foreground: 220 38% 22%;
+    --sidebar-primary: 218 88% 57%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 211 65% 88%;
+    --sidebar-accent-foreground: 220 43% 17%;
+    --sidebar-border: 211 38% 74%;
+    --sidebar-ring: 218 91% 61%;
+    --sidebar-active: 213 81% 88%;
+    --sidebar-active-foreground: 218 74% 31%;
+    --mail-selected: 211 79% 90%;
+    --compose-send: 218 88% 57%;
+    --compose-send-hover: 229 86% 62%;
+    color: hsl(var(--foreground));
+    color-scheme: light;
+  }
+
+  .dark .mail-workspace-theme,
+  .dark .admin-workspace-theme,
+  .dark .profile-workspace-theme {
+    --background: 228 52% 6%;
+    --foreground: 220 33% 96%;
+    --card: 225 43% 10%;
+    --card-foreground: 220 33% 96%;
+    --popover: 225 43% 9%;
+    --popover-foreground: 220 33% 96%;
+    --primary: 244 83% 63%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 226 35% 16%;
+    --secondary-foreground: 220 33% 96%;
+    --muted: 226 31% 15%;
+    --muted-foreground: 221 19% 70%;
+    --accent: 239 58% 21%;
+    --accent-foreground: 220 33% 98%;
+    --destructive: 0 76% 62%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 224 36% 25%;
+    --input: 224 36% 30%;
+    --ring: 231 100% 76%;
+    --sidebar-background: 229 48% 7%;
+    --sidebar-foreground: 221 26% 90%;
+    --sidebar-primary: 244 83% 63%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 239 58% 23%;
+    --sidebar-accent-foreground: 220 33% 98%;
+    --sidebar-border: 224 36% 20%;
+    --sidebar-ring: 231 100% 76%;
+    --sidebar-active: 239 58% 24%;
+    --sidebar-active-foreground: 220 33% 98%;
+    --mail-selected: 239 58% 20%;
+    --compose-send: 244 83% 63%;
+    --compose-send-hover: 252 86% 69%;
+    color-scheme: dark;
+  }
+
+  .mail-workspace-theme,
+  .admin-workspace-theme,
+  .profile-workspace-theme {
+    position: relative;
+    isolation: isolate;
+    background-color: #dff3ff;
+    transition: background-color 800ms ease, color 500ms ease;
+  }
+
+  .dark .mail-workspace-theme,
+  .dark .admin-workspace-theme,
+  .dark .profile-workspace-theme {
+    background-color: #030719;
+  }
+
+  .mail-workspace-theme::before,
+  .mail-workspace-theme::after,
+  .admin-workspace-theme::before,
+  .admin-workspace-theme::after,
+  .profile-workspace-theme::before,
+  .profile-workspace-theme::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: cover;
+    transition: opacity 800ms cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: opacity;
+  }
+
+  .mail-workspace-theme::before,
+  .admin-workspace-theme::before,
+  .profile-workspace-theme::before {
+    background-image:
+      linear-gradient(110deg, rgba(238, 249, 255, 0.12), rgba(218, 240, 255, 0.04) 50%, rgba(203, 231, 255, 0.1)),
+      url("/workspace-city-day.jpg");
+    opacity: 1;
+  }
+
+  .mail-workspace-theme::after,
+  .admin-workspace-theme::after,
+  .profile-workspace-theme::after {
+    background-image:
+      linear-gradient(110deg, rgba(2, 6, 24, 0.2), rgba(5, 10, 36, 0.06) 48%, rgba(10, 5, 38, 0.18)),
+      url("/workspace-city-night.jpg");
+    opacity: 0;
+  }
+
+  .dark .mail-workspace-theme::before,
+  .dark .admin-workspace-theme::before,
+  .dark .profile-workspace-theme::before {
+    opacity: 0;
+  }
+
+  .dark .mail-workspace-theme::after,
+  .dark .admin-workspace-theme::after,
+  .dark .profile-workspace-theme::after {
+    opacity: 1;
+  }
+
+  .mail-workspace-theme > *,
+  .admin-workspace-theme > *,
+  .profile-workspace-theme > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .mail-workspace-provider {
+    background: transparent !important;
+  }
+
+  .admin-workspace-theme > main,
+  .admin-workspace-theme .admin-workspace-surface {
+    background: transparent !important;
+  }
+
+  .mail-workspace-theme .mail-content-grid,
+  .mail-workspace-theme .mail-list-pane > div,
+  .mail-workspace-theme .mail-detail-pane > div {
+    background-color: hsl(204 64% 98% / 0.84) !important;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    transition: background-color 320ms ease, border-color 240ms ease, color 220ms ease;
+  }
+
+  .mail-workspace-theme .bg-background {
+    background-color: hsl(204 64% 98% / 0.62) !important;
+  }
+
+  .admin-workspace-theme .bg-background,
+  .profile-workspace-theme .bg-background {
+    background-color: hsl(204 64% 98% / 0.28) !important;
+  }
+
+  .dark .mail-workspace-theme .mail-content-grid,
+  .dark .mail-workspace-theme .mail-list-pane > div,
+  .dark .mail-workspace-theme .mail-detail-pane > div {
+    background-color: hsl(228 52% 6% / 0.82) !important;
+  }
+
+  .dark .mail-workspace-theme .bg-background {
+    background-color: hsl(228 52% 6% / 0.62) !important;
+  }
+
+  .dark .admin-workspace-theme .bg-background,
+  .dark .profile-workspace-theme .bg-background {
+    background-color: hsl(228 52% 6% / 0.26) !important;
+  }
+
+  .mail-workspace-theme [data-sidebar="sidebar"],
+  .admin-workspace-theme [data-sidebar="sidebar"],
+  .profile-workspace-theme > div > div:first-child,
+  .profile-workspace-theme .bg-card {
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+
+  .mail-workspace-theme [data-slot="card"],
+  .admin-workspace-theme [data-slot="card"],
+  .profile-workspace-theme [data-slot="card"] {
+    border-color: hsl(var(--border) / 0.72);
+    background: linear-gradient(145deg, hsl(204 70% 99% / 0.78), hsl(205 64% 96% / 0.7));
+    box-shadow: 0 16px 38px hsl(214 52% 30% / 0.12);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  .dark .mail-workspace-theme [data-slot="card"],
+  .dark .admin-workspace-theme [data-slot="card"],
+  .dark .profile-workspace-theme [data-slot="card"] {
+    background: linear-gradient(145deg, hsl(225 43% 12% / 0.8), hsl(229 45% 8% / 0.74));
+    box-shadow: 0 16px 40px hsl(240 55% 3% / 0.28);
+  }
+
+  .mail-workspace-theme button[data-slot="button"],
+  .admin-workspace-theme button[data-slot="button"],
+  .profile-workspace-theme button[data-slot="button"] {
+    transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+  }
+
+  .mail-workspace-theme button[data-slot="button"][data-variant="default"],
+  .admin-workspace-theme button[data-slot="button"][data-variant="default"],
+  .profile-workspace-theme button[data-slot="button"][data-variant="default"] {
+    border: 1px solid hsl(218 100% 92% / 0.58);
+    background: linear-gradient(105deg, hsl(217 88% 54% / 0.88), hsl(253 83% 61% / 0.84));
+    box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.28), 0 9px 24px hsl(224 77% 43% / 0.2);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+
+  .mail-workspace-theme button[data-slot="button"][data-variant="default"]:hover,
+  .admin-workspace-theme button[data-slot="button"][data-variant="default"]:hover,
+  .profile-workspace-theme button[data-slot="button"][data-variant="default"]:hover {
+    background: linear-gradient(105deg, hsl(217 92% 59% / 0.94), hsl(261 86% 65% / 0.92));
+    box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.34), 0 11px 28px hsl(231 78% 46% / 0.28);
+    transform: translateY(-1px);
+  }
+
+  .mail-workspace-theme button[data-slot="button"][data-variant="outline"],
+  .admin-workspace-theme button[data-slot="button"][data-variant="outline"],
+  .profile-workspace-theme button[data-slot="button"][data-variant="outline"] {
+    border-color: hsl(212 52% 62% / 0.58);
+    background: hsl(204 75% 99% / 0.58);
+    box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.42);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+
+  .mail-workspace-theme button[data-slot="button"][data-variant="outline"]:hover,
+  .admin-workspace-theme button[data-slot="button"][data-variant="outline"]:hover,
+  .profile-workspace-theme button[data-slot="button"][data-variant="outline"]:hover {
+    border-color: hsl(218 82% 58% / 0.72);
+    background: hsl(206 85% 96% / 0.76);
+    color: hsl(var(--foreground));
+  }
+
+  .dark .mail-workspace-theme button[data-slot="button"][data-variant="outline"],
+  .dark .admin-workspace-theme button[data-slot="button"][data-variant="outline"],
+  .dark .profile-workspace-theme button[data-slot="button"][data-variant="outline"] {
+    border-color: hsl(231 62% 55% / 0.62);
+    background: hsl(226 41% 12% / 0.58);
+  }
+
+  .mail-workspace-theme button[data-slot="button"][data-variant="ghost"]:hover,
+  .admin-workspace-theme button[data-slot="button"][data-variant="ghost"]:hover,
+  .profile-workspace-theme button[data-slot="button"][data-variant="ghost"]:hover {
+    background: hsl(211 74% 90% / 0.68);
+    color: hsl(var(--foreground));
+  }
+
+  .dark .mail-workspace-theme button[data-slot="button"][data-variant="ghost"]:hover,
+  .dark .admin-workspace-theme button[data-slot="button"][data-variant="ghost"]:hover,
+  .dark .profile-workspace-theme button[data-slot="button"][data-variant="ghost"]:hover {
+    background: hsl(239 58% 23% / 0.62);
+  }
+
+  .mail-workspace-theme input,
+  .mail-workspace-theme textarea,
+  .mail-workspace-theme [data-slot="select-trigger"],
+  .admin-workspace-theme input,
+  .admin-workspace-theme textarea,
+  .admin-workspace-theme [data-slot="select-trigger"],
+  .profile-workspace-theme input,
+  .profile-workspace-theme textarea,
+  .profile-workspace-theme [data-slot="select-trigger"] {
+    border-color: hsl(var(--input));
+    background: hsl(204 75% 99% / 0.76);
+    color: hsl(var(--foreground));
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  .dark .mail-workspace-theme input,
+  .dark .mail-workspace-theme textarea,
+  .dark .mail-workspace-theme [data-slot="select-trigger"],
+  .dark .admin-workspace-theme input,
+  .dark .admin-workspace-theme textarea,
+  .dark .admin-workspace-theme [data-slot="select-trigger"],
+  .dark .profile-workspace-theme input,
+  .dark .profile-workspace-theme textarea,
+  .dark .profile-workspace-theme [data-slot="select-trigger"] {
+    background: hsl(226 41% 11% / 0.82);
+  }
+
+  .mail-workspace-theme input::placeholder,
+  .mail-workspace-theme textarea::placeholder,
+  .admin-workspace-theme input::placeholder,
+  .admin-workspace-theme textarea::placeholder,
+  .profile-workspace-theme input::placeholder,
+  .profile-workspace-theme textarea::placeholder {
+    color: hsl(var(--muted-foreground) / 0.72);
+  }
+
+  .mail-workspace-theme .mail-selected-row {
+    background: linear-gradient(90deg, hsl(211 83% 88% / 0.92), hsl(204 70% 96% / 0.74));
+    box-shadow: inset 3px 0 0 hsl(218 88% 57%);
+  }
+
+  .dark .mail-workspace-theme .mail-selected-row {
+    background: linear-gradient(90deg, hsl(239 58% 25% / 0.94), hsl(239 58% 18% / 0.86));
+    box-shadow: inset 3px 0 0 hsl(244 83% 70%);
+  }
+
+  .admin-workspace-surface {
+    background: transparent;
+  }
+
+  .admin-workspace-content {
+    background: transparent;
+  }
+
+  .mail-workspace-theme .border-b,
+  .mail-workspace-theme .border-r,
+  .mail-workspace-theme .border-t,
+  .admin-workspace-theme .border-b,
+  .admin-workspace-theme .border-r,
+  .admin-workspace-theme .border-t,
+  .profile-workspace-theme .border-b,
+  .profile-workspace-theme .border-r,
+  .profile-workspace-theme .border-t {
+    border-color: hsl(var(--border) / 0.86);
+  }
+
+  .mail-workspace-theme [data-sidebar="sidebar"],
+  .admin-workspace-theme [data-sidebar="sidebar"] {
+    background: linear-gradient(180deg, hsl(204 70% 99% / 0.78), hsl(205 60% 95% / 0.72));
+    border-color: hsl(var(--sidebar-border));
+    transition: background-color 320ms ease, border-color 240ms ease, color 220ms ease;
+  }
+
+  .admin-workspace-theme .bg-card,
+  .profile-workspace-theme .bg-card {
+    background: linear-gradient(180deg, hsl(204 70% 99% / 0.8), hsl(205 60% 95% / 0.74));
+    transition: background-color 320ms ease, border-color 240ms ease, color 220ms ease, box-shadow 240ms ease;
+  }
+
+  .dark .mail-workspace-theme [data-sidebar="sidebar"],
+  .dark .admin-workspace-theme [data-sidebar="sidebar"],
+  .dark .admin-workspace-theme .bg-card,
+  .dark .profile-workspace-theme .bg-card {
+    background: linear-gradient(180deg, hsl(229 48% 8% / 0.88), hsl(237 44% 7% / 0.84));
+  }
+
+  .mail-workspace-theme [data-sidebar="menu-button"][data-active="true"],
+  .admin-workspace-theme [data-sidebar="menu-button"][data-active="true"] {
+    background: linear-gradient(90deg, hsl(211 87% 84% / 0.92), hsl(226 85% 89% / 0.8));
+    color: hsl(var(--sidebar-active-foreground));
+    box-shadow: inset 2px 0 0 hsl(218 88% 57%), 0 5px 16px hsl(214 62% 42% / 0.12);
+  }
+
+  .dark .mail-workspace-theme [data-sidebar="menu-button"][data-active="true"],
+  .dark .admin-workspace-theme [data-sidebar="menu-button"][data-active="true"] {
+    background: linear-gradient(90deg, hsl(239 70% 42% / 0.9), hsl(274 72% 40% / 0.76));
+    box-shadow: inset 2px 0 0 hsl(231 100% 78%), 0 5px 16px hsl(253 73% 42% / 0.2);
+  }
+
+  .mail-workspace-theme [data-sidebar="menu-button"]:hover,
+  .admin-workspace-theme [data-sidebar="menu-button"]:hover {
+    background: hsl(211 74% 90% / 0.72);
+    color: hsl(var(--foreground));
+  }
+
+  .dark .mail-workspace-theme [data-sidebar="menu-button"]:hover,
+  .dark .admin-workspace-theme [data-sidebar="menu-button"]:hover {
+    background: hsl(239 58% 22% / 0.68);
+  }
+
+  .profile-settings-tabs {
+    width: fit-content;
+    max-width: 100%;
+    gap: 0.25rem;
+    border: 1px solid hsl(var(--border) / 0.64) !important;
+    border-radius: 0.75rem;
+    background: hsl(204 70% 99% / 0.46);
+    padding: 0.25rem;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+
+  .dark .profile-settings-tabs {
+    background: hsl(228 46% 10% / 0.54);
+  }
+
+  .profile-settings-tab {
+    border: 0 !important;
+    border-radius: 0.5rem;
+  }
+
+  .profile-settings-tab[data-active="true"] {
+    background: linear-gradient(100deg, hsl(217 88% 54% / 0.18), hsl(253 83% 61% / 0.2)) !important;
+    box-shadow: inset 0 0 0 1px hsl(218 82% 58% / 0.3), 0 5px 16px hsl(224 70% 42% / 0.1);
+  }
+
+  .profile-continuous-panel {
+    overflow: hidden;
+    border: 1px solid hsl(var(--border) / 0.72);
+    border-radius: 0.875rem;
+    background: linear-gradient(145deg, hsl(204 70% 99% / 0.78), hsl(205 58% 96% / 0.66));
+    box-shadow: 0 18px 50px hsl(215 42% 28% / 0.12), inset 0 1px 0 hsl(0 0% 100% / 0.52);
+    backdrop-filter: blur(14px) saturate(1.06);
+    -webkit-backdrop-filter: blur(14px) saturate(1.06);
+    transition: background-color 320ms ease, border-color 240ms ease, color 220ms ease, box-shadow 240ms ease;
+  }
+
+  .profile-settings-section {
+    border-bottom: 1px solid hsl(var(--border) / 0.64);
+    background: transparent;
+  }
+
+  .profile-settings-section:last-child {
+    border-bottom: 0;
+  }
+
+  .profile-settings-section > :first-child {
+    padding-top: 1.4rem;
+  }
+
+  .profile-settings-section > :last-child {
+    padding-bottom: 1.5rem;
+  }
+
+  .dark .profile-continuous-panel {
+    border-color: hsl(232 50% 58% / 0.34);
+    background: linear-gradient(145deg, hsl(229 48% 8% / 0.9), hsl(237 44% 7% / 0.82));
+    box-shadow: 0 20px 58px hsl(235 80% 3% / 0.38), inset 0 1px 0 hsl(230 100% 86% / 0.08);
+  }
+
+  .dark .profile-settings-section {
+    border-bottom-color: hsl(230 42% 48% / 0.24);
+  }
+
+  .profile-account-workspace > .space-y-6 {
+    overflow: hidden;
+    border: 1px solid hsl(var(--border) / 0.72);
+    border-radius: 0.875rem;
+    background: linear-gradient(145deg, hsl(204 70% 99% / 0.78), hsl(205 58% 96% / 0.66));
+    box-shadow: 0 18px 50px hsl(215 42% 28% / 0.12), inset 0 1px 0 hsl(0 0% 100% / 0.52);
+    backdrop-filter: blur(14px) saturate(1.06);
+    -webkit-backdrop-filter: blur(14px) saturate(1.06);
+    transition: background-color 320ms ease, border-color 240ms ease, color 220ms ease, box-shadow 240ms ease;
+  }
+
+  .profile-account-workspace > .space-y-6 > section,
+  .profile-account-workspace > .space-y-6 > [data-slot="card"] {
+    margin: 0;
+    border: 0;
+    border-bottom: 1px solid hsl(var(--border) / 0.64);
+    border-radius: 0;
+    background: transparent !important;
+    box-shadow: none;
+  }
+
+  .profile-account-workspace > .space-y-6 > section:last-of-type,
+  .profile-account-workspace > .space-y-6 > [data-slot="card"]:last-of-type {
+    border-bottom: 0;
+  }
+
+  .dark .profile-account-workspace > .space-y-6 {
+    border-color: hsl(232 50% 58% / 0.34);
+    background: linear-gradient(145deg, hsl(229 48% 8% / 0.9), hsl(237 44% 7% / 0.82));
+    box-shadow: 0 20px 58px hsl(235 80% 3% / 0.38), inset 0 1px 0 hsl(230 100% 86% / 0.08);
+  }
+
+  .mail-workspace-theme .bg-popover {
+    border-color: hsl(212 52% 62% / 0.58);
+    background: hsl(204 70% 99% / 0.9);
+    box-shadow: 0 18px 48px hsl(218 47% 18% / 0.2), inset 0 1px 0 hsl(0 0% 100% / 0.42);
+    backdrop-filter: blur(14px) saturate(1.06);
+    -webkit-backdrop-filter: blur(14px) saturate(1.06);
+  }
+
+  .dark .mail-workspace-theme .bg-popover {
+    border-color: hsl(231 62% 55% / 0.54);
+    background: hsl(228 48% 9% / 0.92);
+    box-shadow: 0 18px 48px hsl(240 62% 2% / 0.42), inset 0 1px 0 hsl(231 100% 82% / 0.1);
+  }
+
+  html.workspace-ui [data-slot="dialog-overlay"],
+  html.workspace-ui [data-slot="sheet-overlay"] {
+    background: hsl(222 47% 8% / 0.34);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+  }
+
+  html.workspace-ui [data-slot="dialog-content"],
+  html.workspace-ui [data-slot="dropdown-content"],
+  html.workspace-ui [data-slot="select-content"],
+  html.workspace-ui [data-slot="sheet-content"],
+  html.workspace-ui [data-slot="toast"] {
+    border-color: hsl(212 52% 62% / 0.58);
+    background: hsl(204 70% 99% / 0.82);
+    box-shadow: 0 20px 60px hsl(218 47% 18% / 0.2), inset 0 1px 0 hsl(0 0% 100% / 0.42);
+    backdrop-filter: blur(16px) saturate(1.08);
+    -webkit-backdrop-filter: blur(16px) saturate(1.08);
+  }
+
+  html.dark.workspace-ui [data-slot="dialog-content"],
+  html.dark.workspace-ui [data-slot="dropdown-content"],
+  html.dark.workspace-ui [data-slot="select-content"],
+  html.dark.workspace-ui [data-slot="sheet-content"],
+  html.dark.workspace-ui [data-slot="toast"] {
+    border-color: hsl(231 62% 55% / 0.54);
+    background: hsl(228 48% 9% / 0.86);
+    box-shadow: 0 20px 60px hsl(240 62% 2% / 0.42), inset 0 1px 0 hsl(231 100% 82% / 0.12);
+  }
+
+  html.workspace-ui [data-slot="button"][data-variant="destructive"] {
+    border: 1px solid hsl(0 72% 54% / 0.52);
+    background: hsl(0 56% 45% / 0.08);
+    color: hsl(0 72% 48%);
+    box-shadow: none;
+  }
+
+  html.dark.workspace-ui [data-slot="button"][data-variant="destructive"] {
+    background: hsl(0 58% 34% / 0.14);
+    color: hsl(0 88% 74%);
+  }
+
+  html.workspace-ui [data-slot="button"][data-variant="destructive"]:hover {
+    background: hsl(0 70% 48% / 0.14);
+    box-shadow: 0 0 24px hsl(0 76% 52% / 0.18);
+    transform: translateY(-1px);
+  }
+
+  html.workspace-ui [data-slot="dialog-content"] input,
+  html.workspace-ui [data-slot="dialog-content"] textarea,
+  html.workspace-ui [data-slot="sheet-content"] input,
+  html.workspace-ui [data-slot="sheet-content"] textarea {
+    border-color: hsl(212 52% 62% / 0.54);
+    background: hsl(204 70% 99% / 0.66);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  html.dark.workspace-ui [data-slot="dialog-content"] input,
+  html.dark.workspace-ui [data-slot="dialog-content"] textarea,
+  html.dark.workspace-ui [data-slot="sheet-content"] input,
+  html.dark.workspace-ui [data-slot="sheet-content"] textarea {
+    border-color: hsl(231 52% 48% / 0.52);
+    background: hsl(228 42% 12% / 0.7);
+  }
+
+  .workspace-compose-button.workspace-compose-button {
+    border-color: hsl(218 100% 93% / 0.6);
+    background: linear-gradient(105deg, hsl(217 88% 54% / 0.84), hsl(253 83% 61% / 0.8));
+    box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.28), 0 9px 24px hsl(224 77% 43% / 0.2);
+  }
+
+  .workspace-theme-toggle.workspace-theme-toggle {
+    background: hsl(204 75% 99% / 0.5);
+  }
+
+  .dark .workspace-theme-toggle.workspace-theme-toggle {
+    background: hsl(226 41% 12% / 0.48);
+  }
+
+  @media (max-width: 767px) {
+    .mail-workspace-theme,
+    .admin-workspace-theme,
+    .profile-workspace-theme {
+      background-position: 58% center;
+    }
+  }
+
   .compose-send-button.compose-send-button {
     background: hsl(var(--compose-send));
     color: white;
@@ -216,33 +802,14 @@
   }
 }
 
-html.theme-transition body {
-  transition: background-color 180ms ease, color 180ms ease;
-}
-
-html.theme-transition::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: 2147483647;
-  pointer-events: none;
-  background: var(--theme-fade-bg, hsl(var(--background)));
-  animation: theme-fade-out 180ms ease-out both;
-  will-change: opacity;
-}
-
-@keyframes theme-fade-out {
-  from { opacity: 0.28; }
-  to { opacity: 0; }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  html.theme-transition body {
+  .mail-workspace-theme::before,
+  .mail-workspace-theme::after,
+  .admin-workspace-theme::before,
+  .admin-workspace-theme::after,
+  .profile-workspace-theme::before,
+  .profile-workspace-theme::after {
     transition-duration: 0ms !important;
-  }
-
-  html.theme-transition::before {
-    animation-duration: 0ms !important;
   }
 }
 

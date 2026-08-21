@@ -320,6 +320,10 @@ export function ProfilePage() {
   }, [mailboxId, mailboxes.isSuccess, mailboxes.data?.items])
   React.useEffect(() => { if (mailboxId) localStorage.setItem("lanqin:selected-mailbox", mailboxId); else localStorage.removeItem("lanqin:selected-mailbox") }, [mailboxId])
   React.useEffect(() => { applyTheme(darkMode, themeMountedRef.current); themeMountedRef.current = true }, [darkMode])
+  React.useEffect(() => {
+    document.documentElement.classList.add("workspace-ui")
+    return () => document.documentElement.classList.remove("workspace-ui")
+  }, [])
 
   const logout = useLogout()
   async function copy(text: string) { await navigator.clipboard.writeText(text); toast({ title: "已复制" }) }
@@ -399,7 +403,7 @@ export function ProfilePage() {
       : undefined
 
   return (
-    <div className="h-svh overflow-hidden bg-background">
+    <div className="profile-workspace-theme h-svh overflow-hidden bg-background">
       {isMobile ? (
         <div className="flex h-full min-h-0 flex-col">
           <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3">
@@ -570,15 +574,16 @@ function SettingsPageHeader({ title, subtitle, action, activeTab, onAccountTabCh
         {action && <div className="shrink-0">{action}</div>}
       </div>
       {activeTab && (
-        <div className="mt-3 flex overflow-x-auto border-b">
+        <div className="profile-settings-tabs mt-3 flex overflow-x-auto">
           {accountSettingTabs.map((item) => (
             <button
               key={item.key}
               type="button"
               className={cn(
-                "h-[38px] shrink-0 border-b-2 px-4 text-sm font-medium transition-colors",
+                "profile-settings-tab h-[38px] shrink-0 px-4 text-sm font-medium transition-colors",
                 activeTab === item.key ? "border-[hsl(var(--sidebar-active-foreground))] bg-[hsl(var(--sidebar-active))] text-[hsl(var(--sidebar-active-foreground))]" : "border-transparent text-muted-foreground hover:text-foreground",
               )}
+              data-active={activeTab === item.key}
               onClick={() => onAccountTabChange(item.key)}
             >
               {item.label}
@@ -649,8 +654,9 @@ type AccountSettingsSectionProps = {
 }
 
 function AccountSettingsSection(props: AccountSettingsSectionProps) {
+  let content: React.ReactNode
   if (props.activeTab === "mail") {
-    return (
+    content = (
       <MailPreferencesSection
         labels={props.labels}
         labelsLoading={props.labelsLoading}
@@ -668,12 +674,10 @@ function AccountSettingsSection(props: AccountSettingsSectionProps) {
         onDeleteSignature={props.onDeleteSignature}
       />
     )
-  }
-  if (props.activeTab === "clients") {
-    return <ClientSettingsSection mailboxes={props.mailboxes} selectedMailboxId={props.selectedMailboxId} hostname={props.clientHostname} onSelectMailbox={props.onSelectMailbox} onCopy={props.onCopy} />
-  }
-  if (props.activeTab === "security") {
-    return (
+  } else if (props.activeTab === "clients") {
+    content = <ClientSettingsSection mailboxes={props.mailboxes} selectedMailboxId={props.selectedMailboxId} hostname={props.clientHostname} onSelectMailbox={props.onSelectMailbox} onCopy={props.onCopy} />
+  } else if (props.activeTab === "security") {
+    content = (
       <SecuritySettingsSection
         user={props.user}
         password={props.password}
@@ -686,25 +690,34 @@ function AccountSettingsSection(props: AccountSettingsSectionProps) {
         onCopy={props.onCopy}
       />
     )
+  } else {
+    content = (
+      <AccountTabSection
+        user={props.user}
+        profile={props.profile}
+        stats={props.stats}
+        showStats={props.showStats}
+        displayMode={props.displayMode}
+        onDisplayModeChange={props.onDisplayModeChange}
+        selectedMailbox={props.selectedMailbox}
+        mailboxes={props.mailboxes}
+        onOpenCleanup={props.onOpenCleanup}
+      />
+    )
   }
-  return (
-    <AccountTabSection
-      user={props.user}
-      profile={props.profile}
-      stats={props.stats}
-      showStats={props.showStats}
-      displayMode={props.displayMode}
-      onDisplayModeChange={props.onDisplayModeChange}
-      selectedMailbox={props.selectedMailbox}
-      mailboxes={props.mailboxes}
-      onOpenCleanup={props.onOpenCleanup}
-    />
-  )
+  return <div className="profile-account-workspace">{content}</div>
 }
 
-function SettingsCard({ title, subtitle, action, children, className, contentClassName }: { title: string; subtitle?: string; action?: React.ReactNode; children: React.ReactNode; className?: string; contentClassName?: string }) {
+function SettingsCard({ title, subtitle, action, children, className, contentClassName, surface = "card" }: { title: string; subtitle?: string; action?: React.ReactNode; children: React.ReactNode; className?: string; contentClassName?: string; surface?: "card" | "section" }) {
   return (
-    <section className={cn("rounded-lg border bg-card shadow-[0_1px_2px_rgba(15,23,42,0.04)]", className)}>
+    <section
+      className={cn(
+        surface === "section"
+          ? "profile-settings-section"
+          : "rounded-lg border bg-card shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
+        className,
+      )}
+    >
       <div className="flex flex-col gap-3 px-6 py-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h2 className="break-words text-[15px] font-semibold leading-6 text-foreground [overflow-wrap:anywhere]">{title}</h2>
@@ -736,8 +749,8 @@ function AccountTabSection({ user, profile, stats, showStats, displayMode, onDis
   const storageBytes = stats?.storageBytes || 0
   const quotaPct = quotaBytes > 0 ? Math.min(100, Math.round((storageBytes / quotaBytes) * 100)) : 0
   return (
-    <div className="space-y-6">
-      <SettingsCard title="账号信息">
+    <div className="profile-continuous-panel">
+      <SettingsCard title="账号信息" surface="section">
         <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); profile.mutate(new FormData(event.currentTarget)) }}>
           <InfoLine label="主登录邮箱" value={accountName} />
           <div className="grid gap-2 sm:grid-cols-[10rem_minmax(0,1fr)] sm:items-center">
@@ -750,7 +763,7 @@ function AccountTabSection({ user, profile, stats, showStats, displayMode, onDis
         </form>
       </SettingsCard>
 
-      <SettingsCard title="邮件列表显示">
+      <SettingsCard title="邮件列表显示" surface="section">
         <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1" role="group" aria-label="邮件列表显示模式">
           {(["detailed", "compact"] as DisplayMode[]).map((mode) => (
             <button
@@ -766,7 +779,7 @@ function AccountTabSection({ user, profile, stats, showStats, displayMode, onDis
         </div>
       </SettingsCard>
 
-      {showStats && <SettingsCard title="存储容量" action={<Button type="button" variant="outline" size="sm" onClick={onOpenCleanup}>邮件清理</Button>}>
+      {showStats && <SettingsCard title="存储容量" surface="section" action={<Button type="button" variant="outline" size="sm" onClick={onOpenCleanup}>邮件清理</Button>}>
         <div className="mb-2 flex items-center justify-between text-sm text-muted-foreground">
           <span>{quotaBytes > 0 ? `${formatBytes(storageBytes)} / ${formatBytes(quotaBytes)}` : formatBytes(storageBytes)}</span>
           <span>{quotaBytes > 0 ? `${quotaPct}%` : "不限"}</span>
@@ -776,7 +789,7 @@ function AccountTabSection({ user, profile, stats, showStats, displayMode, onDis
         </div>
       </SettingsCard>}
 
-      <SettingsCard title="账号配额" action={<span className="pt-1 text-sm text-muted-foreground">实时按当前账号配置计算</span>}>
+      <SettingsCard title="账号配额" surface="section" action={<span className="pt-1 text-sm text-muted-foreground">实时按当前账号配置计算</span>}>
         <div className="grid gap-3 md:grid-cols-2">
           <QuotaBox title="邮箱创建" lines={[`当前拥有 ${mailboxes.length} 个邮箱`, user.limits?.maxMailboxCount ? `最多可添加 ${user.limits.maxMailboxCount} 个邮箱` : "管理员不限制邮箱数量", user.limits?.maxMailboxCount ? "达到上限后不可继续自助申请" : "可继续添加邮箱"]} highlight={user.limits?.maxMailboxCount ? "普通额度" : "管理员无限"} />
           <QuotaBox title="验证邮箱" lines={["已绑定主账号邮箱", "可继续添加验证邮箱"]} />

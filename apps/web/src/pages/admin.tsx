@@ -142,7 +142,7 @@ export function AdminPage() {
 
   return (
     <ScrollArea className="h-[calc(100svh-3rem)] md:h-svh">
-      <main className="admin-page mx-auto w-full max-w-[1320px] px-3 pb-8 pt-3 sm:px-4 sm:pt-4">
+      <main className="admin-page admin-workspace-content mx-auto w-full max-w-[1320px] px-3 pb-8 pt-3 sm:px-4 sm:pt-4">
         <AdminPageHeader section={section} refreshing={refreshing} onRefresh={refreshAdminPage} checklist={overviewChecklist} onSectionChange={changeSection} />
 
         {sectionError && <QueryFailure error={sectionError.error} onRetry={() => { void Promise.all(sectionQueries.map((query) => query.refetch())) }} />}

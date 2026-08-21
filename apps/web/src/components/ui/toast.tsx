@@ -48,6 +48,8 @@ const Toast = React.forwardRef<
   return (
     <ToastPrimitives.Root
       ref={ref}
+      data-slot="toast"
+      data-variant={variant || "default"}
       className={cn(toastVariants({ variant }), props.onClick && "cursor-pointer", className)}
       {...props}
     />

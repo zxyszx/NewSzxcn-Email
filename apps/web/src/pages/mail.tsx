@@ -647,6 +647,10 @@ export function MailPage() {
     applyTheme(darkMode, themeMountedRef.current)
     themeMountedRef.current = true
   }, [darkMode])
+  React.useEffect(() => {
+    document.documentElement.classList.add("workspace-ui")
+    return () => document.documentElement.classList.remove("workspace-ui")
+  }, [])
 
   React.useEffect(() => {
     const unlock = () => {
@@ -1380,7 +1384,7 @@ export function MailPage() {
           )}
         </div>
         {canSendMail && (
-          <Button className={cn("mt-4 h-9 w-full rounded-md text-[13px] font-semibold shadow-none", sidebarCollapsed && "px-0")} size={sidebarCollapsed ? "icon" : "default"} onClick={() => openCompose()} disabled={!selectedComposeMailbox}>
+          <Button className={cn("workspace-compose-button mt-4 h-9 w-full rounded-md text-[13px] font-semibold", sidebarCollapsed && "px-0")} size={sidebarCollapsed ? "icon" : "default"} onClick={() => openCompose()} disabled={!selectedComposeMailbox}>
             <PencilLine className="h-4 w-4" />
             {!sidebarCollapsed && <span>写邮件</span>}
           </Button>
@@ -1906,8 +1910,8 @@ export function MailPage() {
   )
 
   return (
-    <div className="h-svh overflow-hidden bg-background">
-      <SidebarProvider className="h-full min-h-0 w-full min-w-0 flex-col">
+    <div className="mail-workspace-theme h-svh overflow-hidden bg-background">
+      <SidebarProvider className="mail-workspace-provider h-full min-h-0 w-full min-w-0 flex-col">
         {isMobile ? (
           <div className="flex h-full min-h-0 flex-col">
             {!selectedId && (

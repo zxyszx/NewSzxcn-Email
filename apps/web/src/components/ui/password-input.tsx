@@ -2,13 +2,14 @@ import * as React from "react"
 import { Eye, EyeOff } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
 export const PasswordInput = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
   ({ className, ...props }, ref) => {
     const [show, setShow] = React.useState(false)
     return (
       <div className="relative">
-        <Input ref={ref} type={show ? "text" : "password"} className="pr-10" {...props} />
+        <Input ref={ref} type={show ? "text" : "password"} className={cn("pr-10", className)} {...props} />
         <Button
           type="button"
           variant="ghost"
