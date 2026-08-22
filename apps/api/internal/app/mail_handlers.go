@@ -339,6 +339,118 @@ func (a *App) handleCreateMailFolder(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusCreated, folder)
 }
 
+func (a *App) handleRenameMailFolder(w http.ResponseWriter, r *http.Request) {
+	folderID := strings.TrimSpace(chi.URLParam(r, "id"))
+	if folderID == "" {
+		badRequest(w, errors.New("folder id is required"))
+		return
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		badRequest(w, err)
+		return
+	}
+	name, err := normalizeCustomFolderName(req.Name)
+	if err != nil {
+		badRequest(w, err)
+		return
+	}
+	if isSystemFolderName(name) {
+		badRequest(w, errors.New("system folder names cannot be used"))
+		return
+	}
+	if isAllMailboxID(r.URL.Query().Get("mailboxId")) {
+		a.handleRenameAllMailFolders(w, r, folderID, name)
+		return
+	}
+	mb, err := a.mailboxForCurrentUser(r)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "mailbox not found")
+		return
+	}
+	var oldName string
+	if err := a.db.QueryRowContext(r.Context(), `SELECT name FROM folders WHERE id=? AND mailbox_id=?`, folderID, mb.ID).Scan(&oldName); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			respondError(w, http.StatusNotFound, "folder not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to load folder")
+		return
+	}
+	if isSystemFolderName(oldName) {
+		badRequest(w, errors.New("system folders cannot be renamed"))
+		return
+	}
+	var duplicate int
+	if err := a.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM folders WHERE mailbox_id=? AND lower(name)=lower(?) AND id<>?`, mb.ID, name, folderID).Scan(&duplicate); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to check folder name")
+		return
+	}
+	if duplicate > 0 {
+		badRequest(w, errors.New("folder name already exists"))
+		return
+	}
+	if _, err := a.db.ExecContext(r.Context(), `UPDATE folders SET name=?,role=? WHERE id=? AND mailbox_id=?`, name, strings.ToLower(name), folderID, mb.ID); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to rename folder")
+		return
+	}
+	folder, err := a.folderByID(r.Context(), folderID, mb.ID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to load folder")
+		return
+	}
+	respondJSON(w, http.StatusOK, folder)
+}
+
+func (a *App) handleRenameAllMailFolders(w http.ResponseWriter, r *http.Request, folderID, name string) {
+	oldName := strings.TrimSpace(r.URL.Query().Get("folderName"))
+	if oldName == "" && strings.HasPrefix(strings.ToLower(folderID), "all-") {
+		oldName = strings.TrimSpace(folderID[4:])
+	}
+	oldName, err := normalizeCustomFolderName(oldName)
+	if err != nil {
+		badRequest(w, err)
+		return
+	}
+	if isSystemFolderName(oldName) {
+		badRequest(w, errors.New("system folders cannot be renamed"))
+		return
+	}
+	user := currentUser(r)
+	var targetCount, duplicate int
+	var icon string
+	if err := a.db.QueryRowContext(r.Context(), `SELECT COUNT(*),COALESCE(MIN(icon),'') FROM folders WHERE lower(name)=lower(?) AND mailbox_id IN (SELECT id FROM mailboxes WHERE user_id=? AND status='active')`, oldName, user.ID).Scan(&targetCount, &icon); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to load folders")
+		return
+	}
+	if targetCount == 0 {
+		respondError(w, http.StatusNotFound, "folder not found")
+		return
+	}
+	if !strings.EqualFold(oldName, name) {
+		if err := a.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM folders WHERE lower(name)=lower(?) AND mailbox_id IN (SELECT id FROM mailboxes WHERE user_id=? AND status='active')`, name, user.ID).Scan(&duplicate); err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to check folder name")
+			return
+		}
+		if duplicate > 0 {
+			badRequest(w, errors.New("folder name already exists"))
+			return
+		}
+	}
+	res, err := a.db.ExecContext(r.Context(), `UPDATE folders SET name=?,role=? WHERE lower(name)=lower(?) AND mailbox_id IN (SELECT id FROM mailboxes WHERE user_id=? AND status='active')`, name, strings.ToLower(name), oldName, user.ID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to rename folders")
+		return
+	}
+	if affected, err := res.RowsAffected(); err != nil || affected == 0 {
+		respondError(w, http.StatusNotFound, "folder not found")
+		return
+	}
+	respondJSON(w, http.StatusOK, MailFolder{ID: "all-" + strings.ToLower(name), Name: name, Role: strings.ToLower(name), Icon: folderIconForName(name, icon), SortOrder: customFolderDefaultSortOrderBase})
+}
+
 func (a *App) handleDeleteMailFolder(w http.ResponseWriter, r *http.Request) {
 	folderID := strings.TrimSpace(chi.URLParam(r, "id"))
 	if folderID == "" {

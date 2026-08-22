@@ -234,6 +234,7 @@ export function MailPage() {
   const [messageContextMenu, setMessageContextMenu] = React.useState<MessageContextMenuState | null>(null)
   const [sidebarContextMenu, setSidebarContextMenu] = React.useState<SidebarContextMenuState | null>(null)
   const [folderDialogOpen, setFolderDialogOpen] = React.useState(false)
+  const [renamingFolder, setRenamingFolder] = React.useState<Extract<MailMenuItem, { type: "folder" }> | null>(null)
   const [draggingFolderId, setDraggingFolderId] = React.useState("")
   const [folderDropTarget, setFolderDropTarget] = React.useState<FolderDropTarget | null>(null)
   const themeMountedRef = React.useRef(false)
@@ -600,6 +601,17 @@ export function MailPage() {
       toast({ title: "文件夹排序失败", description: error instanceof Error ? error.message : "请稍后重试" })
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ["folders", activeMailboxId] }),
+  })
+  const renameFolder = useMutation({
+    mutationFn: ({ item, name }: { item: Extract<MailMenuItem, { type: "folder" }>; name: string }) => api.renameFolder(item.folderId, { mailboxId: activeMailboxId, folderName: item.folderName, name }),
+    onSuccess: async (renamed, { item }) => {
+      if (mailView === "folder" && folder === item.folderName) setFolder(renamed.name)
+      setRenamingFolder(null)
+      await qc.invalidateQueries({ queryKey: ["folders"] })
+      await qc.invalidateQueries({ queryKey: ["messages"] })
+      toast({ title: "文件夹已重命名" })
+    },
+    onError: (error) => toast({ title: "重命名失败", description: error instanceof Error ? error.message : "请稍后重试" }),
   })
   const deleteFolder = useMutation({
     mutationFn: (item: Extract<MailMenuItem, { type: "folder" }>) => api.deleteFolder(item.folderId, activeMailboxId, item.folderName),
@@ -1048,6 +1060,12 @@ export function MailPage() {
     event.preventDefault()
     event.stopPropagation()
     setSidebarContextMenu({ item, x: event.clientX, y: event.clientY })
+  }
+  function openMobileFolderMenu(event: React.MouseEvent<HTMLButtonElement>, item: MailMenuItem) {
+    event.preventDefault()
+    event.stopPropagation()
+    const rect = event.currentTarget.getBoundingClientRect()
+    setSidebarContextMenu({ item, x: rect.right, y: rect.bottom + 4 })
   }
   function closeSidebarContextMenu() {
     setSidebarContextMenu(null)
@@ -1548,6 +1566,7 @@ export function MailPage() {
             <SidebarMenu>
               {customMailMenuItems.map((item) => (
                 <SidebarMenuItem
+                  className="relative"
                   key={item.key}
                   draggable={item.type === "folder" && item.custom && canOrganizeCurrentMailbox && !sidebarCollapsed}
                   onDragStart={(event) => handleFolderDragStart(event, item)}
@@ -1561,6 +1580,7 @@ export function MailPage() {
                     isActive={mailView === "folder" && folder === item.folderName}
                     className={cn(
                       "h-8 rounded-md px-2 text-[13px] font-normal",
+                      isMobile && canManageFolders && "pr-9",
                       sidebarCollapsed && "justify-center px-0",
                       item.type === "folder" && item.custom && canOrganizeCurrentMailbox && !sidebarCollapsed && "cursor-grab active:cursor-grabbing",
                       draggingFolderId === item.folderId && "opacity-50",
@@ -1574,6 +1594,19 @@ export function MailPage() {
                     {!sidebarCollapsed && <span className="min-w-0 flex-1 truncate">{item.label}</span>}
                     {!sidebarCollapsed && <UnreadBadge count={item.count} />}
                   </SidebarMenuButton>
+                  {isMobile && item.type === "folder" && item.custom && canManageFolders && !sidebarCollapsed && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-1 top-1/2 z-10 h-7 w-7 -translate-y-1/2 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                      aria-label={`更多操作：${item.label}`}
+                      title={`更多操作：${item.label}`}
+                      onClick={(event) => openMobileFolderMenu(event, item)}
+                    >
+                      <Ellipsis className="h-4 w-4" />
+                    </Button>
+                  )}
                 </SidebarMenuItem>
               ))}
               {!sidebarCollapsed && canOrganizeCurrentMailbox && (
@@ -1663,10 +1696,10 @@ export function MailPage() {
       </SidebarContent>
       <SidebarContextMenu
         state={sidebarContextMenu}
-        canCreate={canManageFolders}
+        canRename={canManageFolders}
         canReorder={canOrganizeCurrentMailbox}
         canDelete={canManageFolders}
-        pending={reorderFolders.isPending || deleteFolder.isPending}
+        pending={renameFolder.isPending || reorderFolders.isPending || deleteFolder.isPending}
         onClose={closeSidebarContextMenu}
         onOpen={(item) => {
           closeSidebarContextMenu()
@@ -1676,9 +1709,9 @@ export function MailPage() {
           closeSidebarContextMenu()
           void refreshMailData()
         }}
-        onCreateFolder={() => {
+        onRename={(item) => {
           closeSidebarContextMenu()
-          runAfterClosingMobileSidebar(() => setFolderDialogOpen(true))
+          if (item.type === "folder") runAfterClosingMobileSidebar(() => setRenamingFolder(item))
         }}
         onMove={(item, action) => {
           closeSidebarContextMenu()
@@ -2015,6 +2048,12 @@ export function MailPage() {
         scope={isAllMailboxSelected ? "全部邮箱" : selectedMailbox?.address || "当前邮箱"}
         onOpenChange={setFolderDialogOpen}
         onCreate={(payload) => createFolder.mutate(payload)}
+      />
+      <RenameFolderDialog
+        item={renamingFolder}
+        pending={renameFolder.isPending}
+        onOpenChange={(open) => { if (!open) setRenamingFolder(null) }}
+        onRename={(name) => { if (renamingFolder) renameFolder.mutate({ item: renamingFolder, name }) }}
       />
       <ConfirmDialog
         open={!!pendingConfirm}
@@ -2705,7 +2744,7 @@ function BulkActionToolbar({ pending, currentFolder, folders = [], readAction = 
   )
 }
 
-function SidebarContextMenu({ state, canCreate, canReorder, canDelete, pending, onClose, onOpen, onRefresh, onCreateFolder, onMove, onDelete }: { state: SidebarContextMenuState | null; canCreate: boolean; canReorder: boolean; canDelete: boolean; pending: boolean; onClose: () => void; onOpen: (item: MailMenuItem) => void; onRefresh: () => void; onCreateFolder: () => void; onMove: (item: MailMenuItem, action: "top" | "up" | "down" | "bottom") => void; onDelete: (item: MailMenuItem) => void }) {
+function SidebarContextMenu({ state, canRename, canReorder, canDelete, pending, onClose, onOpen, onRefresh, onRename, onMove, onDelete }: { state: SidebarContextMenuState | null; canRename: boolean; canReorder: boolean; canDelete: boolean; pending: boolean; onClose: () => void; onOpen: (item: MailMenuItem) => void; onRefresh: () => void; onRename: (item: MailMenuItem) => void; onMove: (item: MailMenuItem, action: "top" | "up" | "down" | "bottom") => void; onDelete: (item: MailMenuItem) => void }) {
   React.useEffect(() => {
     if (!state) return
     const close = () => onClose()
@@ -2743,14 +2782,12 @@ function SidebarContextMenu({ state, canCreate, canReorder, canDelete, pending, 
       <Button type="button" variant="ghost" className={itemClass} onClick={onRefresh}>
         <RefreshCcw className="h-4 w-4" />刷新
       </Button>
-      {canCreate && (
-        <Button type="button" variant="ghost" className={itemClass} onClick={onCreateFolder}>
-          新建文件夹
-        </Button>
-      )}
-      {customFolder && (canReorder || canDelete) && (
+      {customFolder && (canRename || canReorder || canDelete) && (
         <>
           <div className="my-1 h-px bg-border" />
+          {canRename && <Button type="button" variant="ghost" className={itemClass} disabled={pending} onClick={() => onRename(item)}>
+            <PencilLine className="h-4 w-4" />重新命名
+          </Button>}
           {canReorder && <>
             <Button type="button" variant="ghost" className={itemClass} disabled={pending} onClick={() => onMove(item, "top")}>
               <ArrowLeft className="h-4 w-4 rotate-90" />移到最上
@@ -2765,7 +2802,7 @@ function SidebarContextMenu({ state, canCreate, canReorder, canDelete, pending, 
               <ArrowLeft className="h-4 w-4 -rotate-90" />移到最下
             </Button>
           </>}
-          {canReorder && canDelete && <div className="my-1 h-px bg-border" />}
+          {(canRename || canReorder) && canDelete && <div className="my-1 h-px bg-border" />}
           {canDelete && <Button type="button" variant="ghost" className={cn(itemClass, "text-destructive hover:bg-destructive/10 hover:text-destructive")} disabled={pending} onClick={() => onDelete(item)}>
               <Trash2 className="h-4 w-4" />删除文件夹
           </Button>}
@@ -2970,6 +3007,31 @@ function CreateFolderDialog({ open, pending, scope, onOpenChange, onCreate }: { 
           <DialogFooter className="gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
             <Button disabled={!trimmed || pending}>{pending ? "创建中..." : "创建"}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function RenameFolderDialog({ item, pending, onOpenChange, onRename }: { item: Extract<MailMenuItem, { type: "folder" }> | null; pending: boolean; onOpenChange: (open: boolean) => void; onRename: (name: string) => void }) {
+  const [name, setName] = React.useState("")
+  React.useEffect(() => {
+    if (item) setName(item.folderName)
+  }, [item])
+  const trimmed = name.trim()
+  return (
+    <Dialog open={!!item} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[min(92vw,28rem)] max-w-none">
+        <DialogHeader><DialogTitle>重新命名文件夹</DialogTitle></DialogHeader>
+        <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); if (trimmed && trimmed !== item?.folderName) onRename(trimmed) }}>
+          <div className="space-y-2">
+            <Label htmlFor="rename-folder-name">文件夹名称</Label>
+            <Input id="rename-folder-name" autoFocus value={name} onChange={(event) => setName(event.target.value)} maxLength={48} />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>取消</Button>
+            <Button type="submit" disabled={pending || !trimmed || trimmed === item?.folderName}>{pending ? "保存中" : "保存"}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -3483,7 +3545,7 @@ function CompactMessageRow({ message, active, checked, scheduled, onCheckedChang
               {!message.isRead && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-label="未读" />}
             </div>
             <div className="flex shrink-0 items-center gap-1 sm:hidden">
-              <span className="min-w-[72px] text-right text-xs text-muted-foreground">{messageDisplayDate(message)}</span>
+              <time dateTime={message.receivedAt || message.sentAt} className="min-w-[72px] whitespace-nowrap text-right text-xs text-muted-foreground">{messageDisplayDate(message)}</time>
               {canOrganize && <Button type="button" variant="ghost" size="icon" aria-label={message.isStarred ? "取消星标" : "添加星标"} className="h-6 w-6 text-muted-foreground hover:text-yellow-500" onClick={(event) => { event.stopPropagation(); onStar() }}>
                 <Star className={cn("h-3.5 w-3.5", message.isStarred && "fill-yellow-400 text-yellow-500")} />
               </Button>}
@@ -3500,7 +3562,7 @@ function CompactMessageRow({ message, active, checked, scheduled, onCheckedChang
           <div className={cn("mt-1 line-clamp-2 text-xs sm:hidden", message.isRead ? "text-muted-foreground" : "text-foreground/70")}>{message.snippet}</div>
         </div>
       </div>
-      <div className="hidden min-w-[86px] shrink-0 text-right text-xs text-muted-foreground sm:block">{messageDisplayDate(message)}</div>
+      <time dateTime={message.receivedAt || message.sentAt} className="hidden min-w-[86px] shrink-0 whitespace-nowrap text-right text-xs text-muted-foreground sm:block">{messageDisplayDate(message)}</time>
       {canOrganize && <Button type="button" variant="ghost" size="icon" aria-label={message.isStarred ? "取消星标" : "添加星标"} className="hidden h-6 w-6 text-muted-foreground hover:text-yellow-500 sm:inline-flex" onClick={(event) => { event.stopPropagation(); onStar() }}>
         <Star className={cn("h-3.5 w-3.5", message.isStarred && "fill-yellow-400 text-yellow-500")} />
       </Button>}
@@ -3964,7 +4026,7 @@ function MessageRow({
             >
               <Star className={cn("h-3.5 w-3.5", message.isStarred && "fill-yellow-400 text-yellow-500")} />
             </Button>}
-            <div className="min-w-[86px] shrink-0 text-right text-xs text-muted-foreground">{messageDisplayDate(message)}</div>
+            <time dateTime={message.receivedAt || message.sentAt} className="min-w-[86px] shrink-0 whitespace-nowrap text-right text-xs text-muted-foreground">{messageDisplayDate(message)}</time>
           </div>
         </div>
         <div className="mb-1 flex min-w-0 items-center gap-2">

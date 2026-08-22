@@ -2421,11 +2421,15 @@ func TestUserCanSelectMultipleMailboxes(t *testing.T) {
 	if code := userClient.do("POST", "/api/mail/folders?mailboxId=all", map[string]string{"name": "Shared Project"}, &sharedFolder); code != http.StatusCreated {
 		t.Fatalf("create shared folder code=%d folder=%+v", code, sharedFolder)
 	}
+	renamePath := "/api/mail/folders/" + url.PathEscape(sharedFolder.ID) + "?mailboxId=all&folderName=" + url.QueryEscape(sharedFolder.Name)
+	if code := userClient.do("PATCH", renamePath, map[string]string{"name": "Shared Archive"}, &sharedFolder); code != http.StatusOK || sharedFolder.Name != "Shared Archive" {
+		t.Fatalf("rename shared folders code=%d folder=%+v", code, sharedFolder)
+	}
 	var primarySharedID, secondarySharedID string
-	if err := a.db.QueryRowContext(ctx, `SELECT id FROM folders WHERE mailbox_id=? AND name=?`, primary.ID, "Shared Project").Scan(&primarySharedID); err != nil {
+	if err := a.db.QueryRowContext(ctx, `SELECT id FROM folders WHERE mailbox_id=? AND name=?`, primary.ID, "Shared Archive").Scan(&primarySharedID); err != nil {
 		t.Fatalf("primary shared folder: %v", err)
 	}
-	if err := a.db.QueryRowContext(ctx, `SELECT id FROM folders WHERE mailbox_id=? AND name=?`, secondary.ID, "Shared Project").Scan(&secondarySharedID); err != nil {
+	if err := a.db.QueryRowContext(ctx, `SELECT id FROM folders WHERE mailbox_id=? AND name=?`, secondary.ID, "Shared Archive").Scan(&secondarySharedID); err != nil {
 		t.Fatalf("secondary shared folder: %v", err)
 	}
 	if _, err := a.db.ExecContext(ctx, `UPDATE messages SET folder_id=? WHERE id=?`, primarySharedID, "msg_multi_primary_read"); err != nil {
@@ -2442,7 +2446,7 @@ func TestUserCanSelectMultipleMailboxes(t *testing.T) {
 		t.Fatalf("delete shared folders code=%d moved=%d", code, deleted.Moved)
 	}
 	var sharedCount int
-	if err := a.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM folders WHERE mailbox_id IN (?,?) AND name=?`, primary.ID, secondary.ID, "Shared Project").Scan(&sharedCount); err != nil || sharedCount != 0 {
+	if err := a.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM folders WHERE mailbox_id IN (?,?) AND name=?`, primary.ID, secondary.ID, "Shared Archive").Scan(&sharedCount); err != nil || sharedCount != 0 {
 		t.Fatalf("shared folders remaining=%d err=%v", sharedCount, err)
 	}
 	var restoredPrimaryFolder, restoredSecondaryFolder string
@@ -2674,6 +2678,15 @@ func TestCustomMailFoldersCreateAndMove(t *testing.T) {
 	}
 	if customUnread != 1 {
 		t.Fatalf("custom folder unread count=%d, want 1", customUnread)
+	}
+	if code := admin.do("PATCH", "/api/mail/folders/"+url.PathEscape(custom.ID), map[string]string{"name": "客户资料"}, &custom); code != http.StatusOK || custom.Name != "客户资料" || custom.Icon != "netflix" {
+		t.Fatalf("rename custom folder code=%d folder=%+v", code, custom)
+	}
+	if code := admin.do("PATCH", "/api/mail/folders/"+url.PathEscape(custom.ID), map[string]string{"name": "Inbox"}, &bad); code != http.StatusBadRequest {
+		t.Fatalf("rename custom folder to system name should be rejected code=%d body=%v", code, bad)
+	}
+	if code := admin.do("GET", "/api/mail/messages?folder="+url.QueryEscape("客户资料"), nil, &list); code != http.StatusOK || len(list.Items) != 1 || list.Items[0].ID != sent.ID {
+		t.Fatalf("renamed custom folder messages code=%d items=%+v", code, list.Items)
 	}
 	if code := admin.do("POST", "/api/mail/messages/"+sent.ID+"/move", map[string]string{"folder": "bad/name"}, &bad); code != http.StatusBadRequest {
 		t.Fatalf("invalid move folder should be rejected code=%d body=%v", code, bad)

@@ -254,6 +254,13 @@ export const api = {
     const query = payload.mailboxId ? `?mailboxId=${encodeURIComponent(payload.mailboxId)}` : ""
     return request<MailFolder>(`/api/mail/folders${query}`, { method: "POST", body: JSON.stringify({ name: payload.name, icon: payload.icon }) })
   },
+  renameFolder: (id: string, payload: { mailboxId?: string; folderName?: string; name: string }) => {
+    const query = new URLSearchParams()
+    if (payload.mailboxId) query.set("mailboxId", payload.mailboxId)
+    if (payload.folderName) query.set("folderName", payload.folderName)
+    const suffix = query.toString()
+    return request<MailFolder>(`/api/mail/folders/${id}${suffix ? `?${suffix}` : ""}`, { method: "PATCH", body: JSON.stringify({ name: payload.name }) })
+  },
   reorderFolders: (payload: { mailboxId?: string; folderIds: string[]; folders?: { id: string; sortOrder: number }[] }) => {
     const query = payload.mailboxId ? `?mailboxId=${encodeURIComponent(payload.mailboxId)}` : ""
     return request<{ ok: boolean }>(`/api/mail/folders/reorder${query}`, { method: "POST", body: JSON.stringify(payload.folders ? { folders: payload.folders } : { folderIds: payload.folderIds }) })

@@ -1339,9 +1339,9 @@ function MailboxManagement({
       </section>
 
       <section className="rounded-lg border bg-card">
-        <div className="flex items-center justify-between gap-4 px-6 py-4">
+        <div className="flex flex-col items-stretch gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <h2 className="text-lg font-semibold leading-7">我的邮箱 ({mailboxes.length})</h2>
-          <div className="relative w-64 shrink-0">
+          <div className="relative w-full sm:w-64 sm:shrink-0">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input value={mailboxSearch} onChange={(event) => setMailboxSearch(event.target.value)} className="h-[34px] pl-9 text-sm shadow-none" placeholder="搜索邮箱地址..." />
           </div>
@@ -1355,7 +1355,7 @@ function MailboxManagement({
             const forwardingSubtitle = accountForwardTargets.length > 0 && forwardTargets.length > 0 ? "账号级目标固定生效，并追加邮箱单独目标" : accountForwardTargets.length > 0 ? "继承账号级转发" : "邮箱单独转发"
             const forwardingPrefix = accountForwardTargets.length > 0 && forwardTargets.length > 0 ? "转发：账号级+单独" : accountForwardTargets.length > 0 ? "转发：使用账号级" : "转发："
             return (
-              <div key={mailbox.id} className={cn("grid gap-3 px-6 py-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center", selectedMailboxId === mailbox.id && "bg-muted/50")}>
+              <div key={mailbox.id} className={cn("grid gap-3 px-4 py-4 sm:px-6 md:grid-cols-[minmax(0,1fr)_auto] md:items-center", selectedMailboxId === mailbox.id && "bg-muted/50")}>
                 <div className="flex min-w-0 items-center gap-4">
                   <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-slate-950 text-white">
                     <Mail className="h-5 w-5" />
@@ -1378,7 +1378,7 @@ function MailboxManagement({
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-2">
-                  <Button type="button" variant="outline" size="sm" className={cn("h-[30px] w-[72px] gap-1 px-0", forwardingActive && "border-foreground/20 bg-foreground text-background hover:bg-foreground/90 hover:text-background")} onClick={() => { onSelect(mailbox.id); openMailboxForward(mailbox) }}><SendHorizontal className="h-3.5 w-3.5" />{forwardingActive ? "转发中" : "转发"}</Button>
+                  <Button type="button" variant="outline" size="sm" className={cn("h-[34px] w-full gap-1 px-3 md:w-[80px]", forwardingActive && "border-foreground/20 bg-foreground text-background hover:bg-foreground/90 hover:text-background")} onClick={() => { onSelect(mailbox.id); openMailboxForward(mailbox) }}><SendHorizontal className="h-3.5 w-3.5" />{forwardingActive ? "转发中" : "转发"}</Button>
                 </div>
               </div>
             )
@@ -1387,11 +1387,11 @@ function MailboxManagement({
         </div>
       </section>
 
-      <section id="mailbox-forwarding-section" className="rounded-lg border bg-card px-6 py-5">
+      <section id="mailbox-forwarding-section" className="rounded-lg border bg-card px-4 py-5 sm:px-6">
         <div className="mb-5 flex items-center gap-4">
           <h2 className="text-lg font-semibold leading-7">邮件转发</h2>
         </div>
-        <div className="rounded-xl bg-muted/20 px-5 py-5">
+        <div className="rounded-xl bg-muted/20 px-4 py-5 sm:px-5">
           <div className="mb-3 text-sm font-medium">账号级转发</div>
           <div className="mb-4 text-sm text-muted-foreground">对所有邮箱生效，可同时转发到多个已验证邮箱；单个邮箱可继续追加自己的转发目标</div>
           <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_72px] md:items-start">
@@ -1457,13 +1457,13 @@ function MailboxManagement({
       )}
 
       <Dialog open={!!forwardingMailbox} onOpenChange={(open) => { if (!open) setForwardingMailbox(null) }}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="forwarding-dialog w-[calc(100vw-1.5rem)] max-w-none sm:max-w-lg">
           <DialogHeader><DialogTitle>邮件转发</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="truncate text-sm text-muted-foreground">{forwardingMailbox?.address}</div>
             <div className="space-y-2">
               <Label className="text-sm font-medium">转发到</Label>
-              <div className="grid grid-cols-[minmax(0,1fr)_64px_64px] items-start gap-2">
+              <div className="grid items-start gap-2 sm:grid-cols-[minmax(0,1fr)_64px_64px]">
                 <ForwardingTargetPicker emails={verifiedEmails} selected={forwardDraft} lockedSelected={accountForwardTargets} lockedLabel="账号级" onChange={(targets) => setForwardDraft(withoutForwardingTargets(targets, accountForwardTargets))} disabled={forwardingBusy} />
                 <Button type="button" variant="outline" className="h-[37px] px-0" disabled={forwardingBusy} onClick={() => setForwardingMailbox(null)}>取消</Button>
                 <Button type="button" className="h-[37px] px-0" disabled={forwardingBusy} onClick={saveMailboxForward}>{saveMailboxForwarding.isPending ? "保存中" : "保存"}</Button>
@@ -1476,7 +1476,7 @@ function MailboxManagement({
       </Dialog>
 
       <Dialog open={!!forwardingTargetPreview} onOpenChange={(open) => { if (!open) setForwardingTargetPreview(null) }}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="forwarding-dialog w-[calc(100vw-1.5rem)] max-w-none sm:max-w-md">
           <DialogHeader><DialogTitle>转发目标</DialogTitle></DialogHeader>
           {forwardingTargetPreview && (
             <div className="space-y-4">
@@ -1504,21 +1504,21 @@ function MailboxManagement({
         setVerifiedDialogOpen(open)
         if (!open) setVerifiedEmailDraft("")
       }}>
-        <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-[640px]">
-          <DialogHeader className="px-8 pt-8">
+        <DialogContent className="verified-email-dialog max-h-[92svh] w-[calc(100vw-1.5rem)] max-w-none gap-0 overflow-hidden p-0 sm:max-w-[640px]">
+          <DialogHeader className="px-4 pt-6 sm:px-8 sm:pt-8">
             <DialogTitle className="text-2xl leading-8">验证邮箱管理</DialogTitle>
           </DialogHeader>
-          <div className="px-8 pt-4 text-sm leading-6 text-muted-foreground">
+          <div className="px-4 pt-4 text-sm leading-6 text-muted-foreground sm:px-8">
             搜索已添加地址，或输入新的外部邮箱并发送验证邮件。
           </div>
-          <form className="grid gap-3 px-8 pt-6 sm:grid-cols-[minmax(0,1fr)_96px]" onSubmit={submitVerifiedEmail}>
+          <form className="grid gap-3 px-4 pt-5 sm:grid-cols-[minmax(0,1fr)_96px] sm:px-8 sm:pt-6" onSubmit={submitVerifiedEmail}>
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input type="email" value={verifiedEmailDraft} onChange={(event) => setVerifiedEmailDraft(event.target.value)} className="h-12 pl-10 text-base shadow-none" placeholder="搜索或输入新邮箱" disabled={forwardingBusy} aria-label="搜索或输入新邮箱" />
             </div>
             <Button className="h-12 px-0 text-base" disabled={forwardingBusy || !verifiedEmailDraft.trim() || verifiedEmailDraftExists}>{addVerifiedEmail.isPending ? "添加中" : verifiedEmailDraftExists ? "已添加" : "添加"}</Button>
           </form>
-          <div className="mx-8 mt-6 max-h-[380px] space-y-4 overflow-y-auto pr-1">
+          <div className="mx-4 mt-5 max-h-[min(46svh,380px)] space-y-4 overflow-y-auto pr-1 sm:mx-8 sm:mt-6">
             {pendingVerifiedEmailItems.length > 0 && (
               <div className="rounded-lg border">
                 <div className="border-b bg-muted/30 px-4 py-3 text-sm font-medium">待验证 ({pendingVerifiedEmailItems.length})</div>
@@ -1550,8 +1550,8 @@ function MailboxManagement({
               <div className="rounded-md bg-muted/40 px-4 py-3 text-sm text-muted-foreground">没有匹配地址，可点击「添加」发送验证邮件。</div>
             )}
           </div>
-          <DialogFooter className="border-t px-8 py-6">
-            <Button type="button" variant="outline" className="h-12 px-8 text-base" onClick={() => { setVerifiedDialogOpen(false); setVerifiedEmailDraft("") }}>关闭</Button>
+          <DialogFooter className="border-t px-4 py-4 sm:px-8 sm:py-6">
+            <Button type="button" variant="outline" className="h-11 w-full px-8 text-base sm:h-12 sm:w-auto" onClick={() => { setVerifiedDialogOpen(false); setVerifiedEmailDraft("") }}>关闭</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1749,10 +1749,10 @@ function ForwardingTargetSummary({ targets, prefix = "转发：", onView }: { ta
   if (targets.length === 0) return null
   const prefixText = prefix.endsWith("：") ? prefix : `${prefix} `
   return (
-    <span className="inline-flex min-w-0 max-w-full items-center gap-1 font-semibold text-foreground" title={`${prefixText}${targets.join("、")}`}>
-      <span className="min-w-0 truncate">{prefixText}{targets[0]}</span>
+    <span className="inline-flex min-w-0 max-w-full flex-wrap items-center gap-x-1 gap-y-0.5 font-semibold text-foreground" title={`${prefixText}${targets.join("、")}`}>
+      <span className="min-w-0 max-w-full truncate sm:max-w-[20rem]">{prefixText}{targets[0]}</span>
       {targets.length > 1 && (
-        <Button type="button" variant="link" className="h-auto shrink-0 px-1 py-0 text-xs font-semibold" onClick={onView}>
+        <Button type="button" variant="link" className="h-7 shrink-0 px-1 py-0 text-xs font-semibold" onClick={onView}>
           查看全部 {targets.length} 个
         </Button>
       )}
