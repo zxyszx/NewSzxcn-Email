@@ -1378,7 +1378,17 @@ function MailboxManagement({
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-2">
-                  <Button type="button" variant="outline" size="sm" className={cn("h-[34px] w-full gap-1 px-3 md:w-[80px]", forwardingActive && "border-foreground/20 bg-foreground text-background hover:bg-foreground/90 hover:text-background")} onClick={() => { onSelect(mailbox.id); openMailboxForward(mailbox) }}><SendHorizontal className="h-3.5 w-3.5" />{forwardingActive ? "转发中" : "转发"}</Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    data-forwarding-active={forwardingActive || undefined}
+                    className="h-[34px] w-full gap-1 px-3 md:w-[80px]"
+                    onClick={() => { onSelect(mailbox.id); openMailboxForward(mailbox) }}
+                  >
+                    <SendHorizontal className="h-3.5 w-3.5" />
+                    {forwardingActive ? "转发中" : "转发"}
+                  </Button>
                 </div>
               </div>
             )
