@@ -98,6 +98,25 @@
 }
 
 @layer components {
+  html.workspace-ui,
+  html.workspace-ui body,
+  html.workspace-ui #root {
+    min-width: 100%;
+    min-height: 100%;
+    background-color: #dff3ff;
+  }
+
+  html.dark.workspace-ui,
+  html.dark.workspace-ui body,
+  html.dark.workspace-ui #root {
+    background-color: #030719;
+  }
+
+  html.workspace-ui,
+  html.workspace-ui body {
+    overflow-x: clip;
+  }
+
   /* Signed-in workspaces share the city artwork while keeping operational
      surfaces substantially opaque. Theme changes swap both art and tokens. */
   .mail-workspace-theme,
@@ -200,7 +219,7 @@
   .profile-workspace-theme::after {
     content: "";
     position: fixed;
-    inset: -1px;
+    inset: -2px;
     z-index: 0;
     pointer-events: none;
     background-position: center;
@@ -689,9 +708,12 @@
   }
 
   @media (max-width: 767px) {
-    .mail-workspace-theme,
-    .admin-workspace-theme,
-    .profile-workspace-theme {
+    .mail-workspace-theme::before,
+    .mail-workspace-theme::after,
+    .admin-workspace-theme::before,
+    .admin-workspace-theme::after,
+    .profile-workspace-theme::before,
+    .profile-workspace-theme::after {
       background-position: 58% center;
     }
   }
