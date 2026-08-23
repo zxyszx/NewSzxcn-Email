@@ -671,6 +671,18 @@
     box-shadow: 0 20px 60px hsl(240 62% 2% / 0.42), inset 0 1px 0 hsl(231 100% 82% / 0.12);
   }
 
+  html.workspace-ui [data-slot="sheet-content"].mailbox-sheet-content {
+    --primary: 218 88% 57%;
+    --primary-foreground: 0 0% 100%;
+    --ring: 218 91% 61%;
+  }
+
+  html.dark.workspace-ui [data-slot="sheet-content"].mailbox-sheet-content {
+    --primary: 244 83% 63%;
+    --primary-foreground: 0 0% 100%;
+    --ring: 231 100% 76%;
+  }
+
   html.workspace-ui [data-slot="dialog-content"].verified-email-dialog,
   html.workspace-ui [data-slot="dialog-content"].forwarding-dialog {
     background: hsl(204 70% 99% / 0.96);

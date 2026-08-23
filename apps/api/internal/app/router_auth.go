@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -17,11 +18,50 @@ type contextKey string
 const userContextKey contextKey = "user"
 const apiTokenScopesContextKey contextKey = "api_token_scopes"
 
+type requestLogPrinter struct {
+	logger interface {
+		Info(string, ...any)
+	}
+}
+
+func (p requestLogPrinter) Print(values ...interface{}) {
+	p.logger.Info("http request", "detail", fmt.Sprint(values...))
+}
+
+type redactingLogFormatter struct {
+	delegate middleware.LogFormatter
+}
+
+func (f redactingLogFormatter) NewLogEntry(r *http.Request) middleware.LogEntry {
+	return f.delegate.NewLogEntry(redactedRequestForLogging(r))
+}
+
+func redactedRequestForLogging(r *http.Request) *http.Request {
+	if r == nil || r.URL == nil {
+		return r
+	}
+	clone := r.Clone(r.Context())
+	clonedURL := *r.URL
+	query := clonedURL.Query()
+	for key := range query {
+		if strings.EqualFold(key, "token") {
+			query.Set(key, "[REDACTED]")
+		}
+	}
+	clonedURL.RawQuery = query.Encode()
+	clone.URL = &clonedURL
+	clone.RequestURI = clonedURL.RequestURI()
+	return clone
+}
+
 func (a *App) Router() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger)
+	r.Use(middleware.RequestLogger(redactingLogFormatter{delegate: &middleware.DefaultLogFormatter{
+		Logger:  requestLogPrinter{logger: a.log},
+		NoColor: true,
+	}}))
 	r.Use(middleware.Recoverer)
 	r.Use(a.corsMiddleware)
 

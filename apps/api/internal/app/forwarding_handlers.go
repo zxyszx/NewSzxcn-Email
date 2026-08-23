@@ -7,13 +7,25 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 )
 
-const forwardingVerificationTTL = 24 * time.Hour
+const (
+	forwardingVerificationTTL          = 24 * time.Hour
+	forwardingVerificationUserCooldown = 60 * time.Second
+	forwardingVerificationTargetLimit  = 5
+)
+
+type forwardingVerificationRateLimitError struct {
+	message    string
+	retryAfter time.Duration
+}
+
+func (e *forwardingVerificationRateLimitError) Error() string { return e.message }
 
 type ForwardingVerifiedEmail struct {
 	ID                    string     `json:"id"`
@@ -81,6 +93,9 @@ func (a *App) handleAddForwardingVerifiedEmail(w http.ResponseWriter, r *http.Re
 		id = newID("fwd")
 	}
 	if err := a.issueForwardingVerification(r.Context(), user.ID, id, email, errors.Is(err, sql.ErrNoRows)); err != nil {
+		if respondForwardingVerificationRateLimit(w, err) {
+			return
+		}
 		respondError(w, http.StatusInternalServerError, "failed to save verified email")
 		return
 	}
@@ -120,6 +135,9 @@ func (a *App) handleResendForwardingVerifiedEmail(w http.ResponseWriter, r *http
 		return
 	}
 	if err := a.issueForwardingVerification(r.Context(), user.ID, id, email, false); err != nil {
+		if respondForwardingVerificationRateLimit(w, err) {
+			return
+		}
 		respondError(w, http.StatusInternalServerError, "failed to resend verification email")
 		return
 	}
@@ -363,19 +381,36 @@ func (a *App) issueForwardingVerification(ctx context.Context, userID, id, email
 	token := randomToken()
 	nowRaw := now.Format(time.RFC3339Nano)
 	expiresRaw := expires.Format(time.RFC3339Nano)
+	tx, err := a.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := reserveForwardingVerificationAttempt(ctx, tx, userID, email, now); err != nil {
+		return err
+	}
 	if insert {
-		if _, err := a.db.ExecContext(ctx, `INSERT INTO forwarding_verified_emails(id,user_id,email,verified,verified_at,verification_token_hash,verification_sent_at,verification_expires_at,delivery_queue_id,delivery_status,delivery_error,created_at,updated_at)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO forwarding_verified_emails(id,user_id,email,verified,verified_at,verification_token_hash,verification_sent_at,verification_expires_at,delivery_queue_id,delivery_status,delivery_error,created_at,updated_at)
 			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			id, userID, email, 0, nil, hashToken(token), nowRaw, expiresRaw, "", sendQueueStatusQueued, "", nowRaw, nowRaw); err != nil {
 			return err
 		}
 	} else {
-		if _, err := a.db.ExecContext(ctx, `UPDATE forwarding_verified_emails
+		if _, err := tx.ExecContext(ctx, `UPDATE forwarding_verified_emails
 			SET verified=0,verified_at=NULL,verification_token_hash=?,verification_sent_at=?,verification_expires_at=?,delivery_queue_id='',delivery_status=?,delivery_error='',updated_at=?
 			WHERE id=? AND user_id=?`,
 			hashToken(token), nowRaw, expiresRaw, sendQueueStatusQueued, nowRaw, id, userID); err != nil {
 			return err
 		}
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO forwarding_verification_attempts(id,user_id,email,created_at) VALUES(?,?,?,?)`, newID("fva"), userID, email, nowRaw); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM forwarding_verification_attempts WHERE created_at<?`, now.Add(-forwardingVerificationTTL).Format(time.RFC3339Nano)); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
 	}
 	queueID, err := a.sendForwardingVerificationEmail(ctx, userID, email, token, now)
 	if err != nil {
@@ -386,6 +421,72 @@ func (a *App) issueForwardingVerification(ctx context.Context, userID, id, email
 		_, _ = a.db.ExecContext(ctx, `UPDATE forwarding_verified_emails SET delivery_queue_id=?,delivery_status=?,delivery_error='',updated_at=? WHERE id=? AND user_id=?`, queueID, sendQueueStatusQueued, nowRaw, id, userID)
 	}
 	return nil
+}
+
+func reserveForwardingVerificationAttempt(ctx context.Context, tx *sql.Tx, userID, email string, now time.Time) error {
+	var lastSentRaw string
+	err := tx.QueryRowContext(ctx, `SELECT created_at FROM forwarding_verification_attempts WHERE user_id=? AND email=? ORDER BY created_at DESC LIMIT 1`, userID, email).Scan(&lastSentRaw)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if err == nil {
+		retryAfter := parseTime(lastSentRaw).Add(forwardingVerificationUserCooldown).Sub(now)
+		if retryAfter > 0 {
+			return &forwardingVerificationRateLimitError{
+				message:    "操作过于频繁，请在" + formatForwardingVerificationWait(retryAfter) + "后重试",
+				retryAfter: retryAfter,
+			}
+		}
+	}
+
+	var count int
+	var earliestRaw sql.NullString
+	cutoff := now.Add(-forwardingVerificationTTL)
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(1),MIN(created_at) FROM forwarding_verification_attempts WHERE email=? AND created_at>?`, email, cutoff.Format(time.RFC3339Nano)).Scan(&count, &earliestRaw); err != nil {
+		return err
+	}
+	if count >= forwardingVerificationTargetLimit && earliestRaw.Valid {
+		retryAfter := parseTime(earliestRaw.String).Add(forwardingVerificationTTL).Sub(now)
+		if retryAfter < time.Second {
+			retryAfter = time.Second
+		}
+		return &forwardingVerificationRateLimitError{
+			message:    "该邮箱24小时内验证邮件发送次数已达上限，请在" + formatForwardingVerificationWait(retryAfter) + "后重试",
+			retryAfter: retryAfter,
+		}
+	}
+	return nil
+}
+
+func respondForwardingVerificationRateLimit(w http.ResponseWriter, err error) bool {
+	var rateLimitErr *forwardingVerificationRateLimitError
+	if !errors.As(err, &rateLimitErr) {
+		return false
+	}
+	seconds := int((rateLimitErr.retryAfter + time.Second - 1) / time.Second)
+	if seconds < 1 {
+		seconds = 1
+	}
+	w.Header().Set("Retry-After", strconv.Itoa(seconds))
+	respondError(w, http.StatusTooManyRequests, rateLimitErr.Error())
+	return true
+}
+
+func formatForwardingVerificationWait(wait time.Duration) string {
+	seconds := int((wait + time.Second - 1) / time.Second)
+	if seconds < 60 {
+		return strconv.Itoa(seconds) + "秒"
+	}
+	minutes := (seconds + 59) / 60
+	if minutes < 60 {
+		return strconv.Itoa(minutes) + "分钟"
+	}
+	hours := minutes / 60
+	remainingMinutes := minutes % 60
+	if remainingMinutes == 0 {
+		return strconv.Itoa(hours) + "小时"
+	}
+	return fmt.Sprintf("%d小时%d分钟", hours, remainingMinutes)
 }
 
 func (a *App) sendForwardingVerificationEmail(ctx context.Context, userID, targetEmail, token string, now time.Time) (string, error) {
@@ -399,18 +500,23 @@ func (a *App) sendForwardingVerificationEmail(ctx context.Context, userID, targe
 	fromDomain := domainPart(mb.Address)
 	from := "noreply@" + fromDomain
 	link := a.forwardingVerificationURL(token)
-	text := "邮箱转发验证\n\n您正在将此邮箱添加为邮件转发目标地址。请打开以下链接完成验证：\n" + link + "\n\n此链接 24 小时内有效。如果您没有发起此操作，请忽略此邮件。"
+	maskedEmail := maskEmailAddress(targetEmail)
+	text := "请确认您的邮箱转发设置\n\n您正在 NewSzxcn 邮箱中添加此地址作为邮件转发目标，请确认这是您本人的操作。\n\n转发地址：" + maskedEmail + "\n有效时间：24 小时\n\n确认转发地址：\n" + link + "\n\n如果链接无法打开，请复制上方完整链接到浏览器中访问。\n\n如果这不是您的操作，可以直接忽略此邮件。您的邮箱设置不会被更改。"
 	html := `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#111827;line-height:1.6;padding:32px 24px">
-<div style="max-width:640px;margin:0 auto">
-<h1 style="font-size:28px;line-height:1.25;margin:0 0 28px;font-weight:700">邮箱转发验证</h1>
-<p style="font-size:17px;margin:0 0 28px">您正在将此邮箱添加为邮件转发目标地址。请点击下方按钮完成验证：</p>
-<p style="text-align:center;margin:0 0 34px"><a href="` + htmlEscape(link) + `" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:8px;padding:14px 38px;font-size:18px;font-weight:700">确认验证</a></p>
-<p style="font-size:15px;color:#6b7280;margin:0 0 12px">如果按钮无法点击，请复制以下链接到浏览器：</p>
-<p style="font-size:15px;color:#6b7280;word-break:break-all;margin:0 0 28px">` + htmlEscape(link) + `</p>
-<p style="font-size:15px;color:#9ca3af;margin:0">此链接 24 小时内有效。如果您没有发起此操作，请忽略此邮件。</p>
-</div></div>`
+	<div style="max-width:640px;margin:0 auto">
+	<h1 style="font-size:26px;line-height:1.3;margin:0 0 24px;font-weight:700">请确认您的邮箱转发设置</h1>
+	<p style="font-size:16px;margin:0 0 22px">您正在 NewSzxcn 邮箱中添加此地址作为邮件转发目标，请确认这是您本人的操作。</p>
+	<div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:16px 18px;margin:0 0 26px">
+	<p style="font-size:15px;margin:0 0 8px"><strong>转发地址：</strong>` + htmlEscape(maskedEmail) + `</p>
+	<p style="font-size:15px;margin:0"><strong>有效时间：</strong>24 小时</p>
+	</div>
+	<p style="text-align:center;margin:0 0 30px"><a href="` + htmlEscape(link) + `" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:6px;padding:12px 28px;font-size:16px;font-weight:600">确认转发地址</a></p>
+	<p style="font-size:14px;color:#4b5563;margin:0 0 10px">如果按钮无法点击，请复制下方链接到浏览器中打开：</p>
+	<p style="font-size:15px;color:#6b7280;word-break:break-all;margin:0 0 28px">` + htmlEscape(link) + `</p>
+	<p style="font-size:14px;color:#6b7280;margin:0">如果这不是您的操作，可以直接忽略此邮件。您的邮箱设置不会被更改。</p>
+	</div></div>`
 	messageID := fmt.Sprintf("<%s@%s>", newID("fwdverify"), fromDomain)
-	mimeBytes, err := BuildMIME(MIMEMessage{From: from, FromName: "noreply", To: []string{targetEmail}, Subject: "邮箱转发验证", Text: text, HTML: html, MessageID: messageID, Date: now})
+	mimeBytes, err := BuildMIME(MIMEMessage{From: from, FromName: systemSenderDisplayName, To: []string{targetEmail}, Subject: "请确认您的邮箱转发设置", Text: text, HTML: html, MessageID: messageID, Date: now})
 	if err != nil {
 		return "", err
 	}
@@ -425,6 +531,28 @@ func (a *App) sendForwardingVerificationEmail(ctx context.Context, userID, targe
 		MIMEBytes:  mimeBytes,
 		Now:        now,
 	})
+}
+
+func maskEmailAddress(value string) string {
+	value = strings.TrimSpace(value)
+	at := strings.LastIndex(value, "@")
+	if at <= 0 || at == len(value)-1 {
+		return "***"
+	}
+	local := []rune(value[:at])
+	domain := value[at+1:]
+	var maskedLocal string
+	switch len(local) {
+	case 0:
+		maskedLocal = "***"
+	case 1:
+		maskedLocal = "*"
+	case 2:
+		maskedLocal = string(local[0]) + "*"
+	default:
+		maskedLocal = string(local[0]) + "***" + string(local[len(local)-1])
+	}
+	return maskedLocal + "@" + domain
 }
 
 func (a *App) forwardingVerificationURL(token string) string {

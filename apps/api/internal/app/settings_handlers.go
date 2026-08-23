@@ -303,6 +303,7 @@ func (a *App) handleTestSMTP(w http.ResponseWriter, r *http.Request) {
 	}
 	mimeBytes, err := BuildMIME(MIMEMessage{
 		From:      from,
+		FromName:  systemSenderDisplayName,
 		To:        []string{to},
 		Subject:   subject,
 		Text:      bodyText,

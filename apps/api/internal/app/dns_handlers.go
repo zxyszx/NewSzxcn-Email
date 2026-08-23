@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	netmail "net/mail"
 	"strings"
 	"time"
 
@@ -73,7 +74,7 @@ func (a *App) checkDNS(ctx context.Context, d *Domain) DNSCheckResult {
 	checks["dkim"] = checkDKIMRecord(dkimTXT, d.DKIMPublicKey)
 
 	dmarcTXT, _ := resolver.LookupTXT(ctx, "_dmarc."+d.Name)
-	checks["dmarc"] = txtContains(dmarcTXT, "v=DMARC1", "DMARC 记录存在", "未找到 DMARC 记录")
+	checks["dmarc"] = checkDMARCRecords(dmarcTXT)
 
 	status := "ok"
 	for _, c := range checks {
@@ -119,6 +120,113 @@ func compactDKIMPublicKey(value string) string {
 		}
 		return r
 	}, value)
+}
+
+func checkDMARCRecords(records []string) DNSCheckStatus {
+	recordSets := make([][]string, 0, len(records))
+	for _, record := range records {
+		// net.Resolver.LookupTXT returns each logical TXT record with its
+		// character-string fragments already concatenated.
+		recordSets = append(recordSets, []string{record})
+	}
+	return checkDMARCRecordSets(recordSets)
+}
+
+func checkDMARCRecordSets(recordSets [][]string) DNSCheckStatus {
+	found := make([]string, 0, len(recordSets))
+	dmarcRecords := make([]string, 0, len(recordSets))
+	for _, fragments := range recordSets {
+		record := strings.Join(fragments, "")
+		found = append(found, record)
+		if containsDMARCVersion(record) {
+			dmarcRecords = append(dmarcRecords, record)
+		}
+	}
+	if len(dmarcRecords) == 0 {
+		return DNSCheckStatus{OK: false, Message: "未找到 DMARC 记录", Found: found}
+	}
+	if len(dmarcRecords) > 1 {
+		return DNSCheckStatus{OK: false, Message: "检测到多条 DMARC 记录，请删除重复记录，否则可能导致 DMARC 认证失败（记录名称：_dmarc）", Found: found}
+	}
+	policy, message := validateDMARCRecord(dmarcRecords[0])
+	if message != "" {
+		return DNSCheckStatus{OK: false, Message: message + "（记录名称：_dmarc）", Found: found}
+	}
+	if policy == "none" {
+		return DNSCheckStatus{OK: true, Message: "DMARC 记录有效（p=none，当前为监控策略）", Found: found}
+	}
+	return DNSCheckStatus{OK: true, Message: "DMARC 记录唯一且语法有效", Found: found}
+}
+
+func containsDMARCVersion(record string) bool {
+	for _, part := range strings.Split(record, ";") {
+		key, value, ok := strings.Cut(part, "=")
+		if ok && strings.EqualFold(strings.TrimSpace(key), "v") && strings.EqualFold(strings.TrimSpace(value), "DMARC1") {
+			return true
+		}
+	}
+	return false
+}
+
+func validateDMARCRecord(record string) (string, string) {
+	parts := strings.Split(record, ";")
+	tags := map[string]string{}
+	firstTag := ""
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		key, value, ok := strings.Cut(part, "=")
+		key = strings.ToLower(strings.TrimSpace(key))
+		value = strings.TrimSpace(value)
+		if !ok || key == "" || value == "" {
+			return "", "DMARC 记录包含无效标签"
+		}
+		if firstTag == "" {
+			firstTag = key
+			if key != "v" || !strings.EqualFold(value, "DMARC1") {
+				return "", "DMARC 记录必须以 v=DMARC1 开头"
+			}
+		}
+		if _, exists := tags[key]; exists {
+			return "", "DMARC 记录包含重复标签：" + key
+		}
+		tags[key] = value
+	}
+	if firstTag == "" || !strings.EqualFold(tags["v"], "DMARC1") {
+		return "", "DMARC 记录必须以 v=DMARC1 开头"
+	}
+	policy, ok := tags["p"]
+	if !ok {
+		return "", "DMARC 记录缺少 p 策略"
+	}
+	policy = strings.ToLower(policy)
+	if policy != "none" && policy != "quarantine" && policy != "reject" {
+		return "", "DMARC p 策略只能是 none、quarantine 或 reject"
+	}
+	if rua, ok := tags["rua"]; ok && !validDMARCRUA(rua) {
+		return "", "DMARC rua 格式无效，必须使用 mailto: 邮箱地址"
+	}
+	return policy, ""
+}
+
+func validDMARCRUA(value string) bool {
+	for _, item := range strings.Split(value, ",") {
+		item = strings.TrimSpace(item)
+		if len(item) <= len("mailto:") || !strings.EqualFold(item[:len("mailto:")], "mailto:") {
+			return false
+		}
+		address := strings.TrimSpace(item[len("mailto:"):])
+		if sizeIndex := strings.LastIndex(address, "!"); sizeIndex > 0 {
+			address = strings.TrimSpace(address[:sizeIndex])
+		}
+		parsed, err := netmail.ParseAddress(address)
+		if err != nil || parsed.Address != address || !strings.Contains(address, "@") {
+			return false
+		}
+	}
+	return true
 }
 
 func txtContains(records []string, needle, okMsg, failMsg string) DNSCheckStatus {

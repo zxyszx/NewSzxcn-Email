@@ -307,6 +307,14 @@ func (a *App) migrate(ctx context.Context) error {
 			UNIQUE(user_id, email)
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_forwarding_verified_emails_user ON forwarding_verified_emails(user_id, email)`,
+		`CREATE TABLE IF NOT EXISTS forwarding_verification_attempts (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			email TEXT NOT NULL,
+			created_at TEXT NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_forwarding_verification_attempts_user_email_created ON forwarding_verification_attempts(user_id, email, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_forwarding_verification_attempts_email_created ON forwarding_verification_attempts(email, created_at DESC)`,
 		`CREATE TABLE IF NOT EXISTS account_forwarding_settings (
 			user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
 			target_email TEXT NOT NULL DEFAULT '',
@@ -2030,7 +2038,7 @@ func (a *App) seedWelcomeMessage(ctx context.Context, mailboxID string) error {
 		MessageID:  fmt.Sprintf("<%s@%s>", newID("msg"), systemDomain),
 		Subject:    subject,
 		From:       systemAddress,
-		FromName:   "NewSzxcn 邮箱",
+		FromName:   systemSenderDisplayName,
 		To:         []string{cfg.AdminEmail},
 		SentAt:     now,
 		ReceivedAt: now,

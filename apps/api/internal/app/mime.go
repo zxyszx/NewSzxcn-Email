@@ -19,6 +19,8 @@ import (
 
 const smtpSessionTimeout = 45 * time.Second
 
+const systemSenderDisplayName = "NewSzxcn Email Service"
+
 type MIMEMessage struct {
 	From        string
 	FromName    string
@@ -48,34 +50,26 @@ func BuildMIME(m MIMEMessage) ([]byte, error) {
 	writeHeader("Date", m.Date.Format(time.RFC1123Z))
 	writeHeader("MIME-Version", "1.0")
 
+	altBody, altBoundary, err := buildAlternativeBody(m.Text, m.HTML)
+	if err != nil {
+		return nil, err
+	}
+	if len(m.Attachments) == 0 {
+		writeHeader("Content-Type", `multipart/alternative; boundary="`+altBoundary+`"`)
+		buf.WriteString("\r\n")
+		_, err := buf.Write(altBody)
+		return buf.Bytes(), err
+	}
+
 	mixed := multipart.NewWriter(&buf)
 	writeHeader("Content-Type", `multipart/mixed; boundary="`+mixed.Boundary()+`"`)
 	buf.WriteString("\r\n")
-
-	var altBuf bytes.Buffer
-	alt := multipart.NewWriter(&altBuf)
-	textHeader := textprotoMIMEHeader(map[string]string{"Content-Type": `text/plain; charset="utf-8"`, "Content-Transfer-Encoding": "base64"})
-	textPart, err := alt.CreatePart(textHeader)
-	if err != nil {
-		return nil, err
-	}
-	writeBase64(textPart, []byte(m.Text))
-	htmlHeader := textprotoMIMEHeader(map[string]string{"Content-Type": `text/html; charset="utf-8"`, "Content-Transfer-Encoding": "base64"})
-	htmlPart, err := alt.CreatePart(htmlHeader)
-	if err != nil {
-		return nil, err
-	}
-	writeBase64(htmlPart, []byte(m.HTML))
-	if err := alt.Close(); err != nil {
-		return nil, err
-	}
-
-	altMixedHeader := textprotoMIMEHeader(map[string]string{"Content-Type": `multipart/alternative; boundary="` + alt.Boundary() + `"`})
+	altMixedHeader := textprotoMIMEHeader(map[string]string{"Content-Type": `multipart/alternative; boundary="` + altBoundary + `"`})
 	altMixedPart, err := mixed.CreatePart(altMixedHeader)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := altMixedPart.Write(altBuf.Bytes()); err != nil {
+	if _, err := altMixedPart.Write(altBody); err != nil {
 		return nil, err
 	}
 
@@ -104,6 +98,27 @@ func BuildMIME(m MIMEMessage) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+func buildAlternativeBody(text, html string) ([]byte, string, error) {
+	var buf bytes.Buffer
+	alt := multipart.NewWriter(&buf)
+	textHeader := textprotoMIMEHeader(map[string]string{"Content-Type": `text/plain; charset="utf-8"`, "Content-Transfer-Encoding": "base64"})
+	textPart, err := alt.CreatePart(textHeader)
+	if err != nil {
+		return nil, "", err
+	}
+	writeBase64(textPart, []byte(text))
+	htmlHeader := textprotoMIMEHeader(map[string]string{"Content-Type": `text/html; charset="utf-8"`, "Content-Transfer-Encoding": "base64"})
+	htmlPart, err := alt.CreatePart(htmlHeader)
+	if err != nil {
+		return nil, "", err
+	}
+	writeBase64(htmlPart, []byte(html))
+	if err := alt.Close(); err != nil {
+		return nil, "", err
+	}
+	return buf.Bytes(), alt.Boundary(), nil
 }
 
 func formatAddressHeader(name, address string) string {

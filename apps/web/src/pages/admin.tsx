@@ -2473,14 +2473,14 @@ function DNSPanel({ domain, embedded = false }: { domain?: Domain; embedded?: bo
   const check = useMutation({ mutationFn: () => api.checkDns(domain!.id), onSuccess: (res) => { qc.invalidateQueries({ queryKey: ["admin", "domains"] }); toast({ title: res.status === "ok" ? "DNS 检测通过" : "DNS 检测未通过", description: Object.values(res.checks).map((c) => c.message).join("；") }) }, onError: (error) => toast({ title: "DNS 检测失败", description: error.message }) })
   if (!domain) return <Card><CardContent className="p-6 text-muted-foreground">请选择域名</CardContent></Card>
   const content = <>
-    <p className="mb-3 text-sm text-muted-foreground">以下内容可直接填写到常见 DNS 控制台，根域名的主机记录使用 @。</p>
+    <p className="mb-3 text-sm text-muted-foreground">下方是推荐配置值；检测结果显示的是当前线上实际解析，两者需要分别核对。根域名的主机记录使用 @。</p>
     {check.isPending && <DNSCheckPending />}
     {check.isError && <DNSCheckFailure error={check.error} />}
     {check.data && !check.isPending && <DNSCheckSummary checks={check.data.checks} />}
     {records.isError ? <QueryFailure error={records.error} onRetry={() => { void records.refetch() }} compact /> : <div className="grid gap-3 md:auto-rows-fr md:grid-cols-2">{records.data?.items.map((r) => <DNSRecordRow key={`${r.type}-${r.name}`} record={r} domainName={domain.name} />)}</div>}
   </>
   const checkButton = canCheckDNS ? <Button variant="outline" size="sm" onClick={() => check.mutate()} disabled={check.isPending}><RefreshCcw className={cn("h-4 w-4", check.isPending && "animate-spin")} />{check.isPending ? "检测中" : check.data ? "重新检测" : "检测"}</Button> : null
-  const header = <div className="flex items-center justify-between"><CardTitle>DNS 记录</CardTitle>{checkButton}</div>
+  const header = <div className="flex items-center justify-between"><CardTitle>DNS 推荐配置</CardTitle>{checkButton}</div>
   if (embedded) return <div className="space-y-3"><div className="flex items-center justify-between"><div className="font-medium">DNS 记录</div>{checkButton}</div>{content}</div>
   return <Card><CardHeader>{header}</CardHeader><CardContent>{content}</CardContent></Card>
 }
@@ -2543,8 +2543,8 @@ function DNSCheckRow({ name, check }: { name: string; check: { ok: boolean; mess
         <div className={cn("mt-0.5", check.ok ? "text-muted-foreground" : "font-medium text-destructive")}>{check.message}</div>
       </div>
     </div>
-    {!check.ok && visibleRecords.length > 0 && <div className="ml-6 rounded-md bg-background/70 px-3 py-2 font-mono text-xs text-muted-foreground">
-      <div className="mb-1 font-sans text-foreground">当前解析</div>
+    {visibleRecords.length > 0 && (!check.ok || name.toLowerCase() === "dmarc") && <div className="ml-6 rounded-md bg-background/70 px-3 py-2 font-mono text-xs text-muted-foreground">
+      <div className="mb-1 font-sans text-foreground">当前线上解析</div>
       <div className="space-y-1">{visibleRecords.map((record, index) => <div key={`${name}-${index}`} className="break-all">{record}</div>)}</div>
     </div>}
   </div>

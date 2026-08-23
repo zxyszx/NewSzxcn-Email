@@ -60,6 +60,23 @@ func newTestApp(t *testing.T) *App {
 	return newTestAppWithConfig(t, cfg)
 }
 
+func TestRedactedRequestForLogging(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "http://example.test/api/verify-email?token=super-secret&next=inbox", nil)
+	redacted := redactedRequestForLogging(req)
+	if strings.Contains(redacted.RequestURI, "super-secret") {
+		t.Fatalf("request log still contains verification token: %s", redacted.RequestURI)
+	}
+	if got := redacted.URL.Query().Get("token"); got != "[REDACTED]" {
+		t.Fatalf("redacted token = %q, want [REDACTED]", got)
+	}
+	if got := redacted.URL.Query().Get("next"); got != "inbox" {
+		t.Fatalf("unrelated query value changed: %q", got)
+	}
+	if got := req.URL.Query().Get("token"); got != "super-secret" {
+		t.Fatalf("original request token changed: %q", got)
+	}
+}
+
 func newTestAppWithConfig(t *testing.T, cfg Config) *App {
 	t.Helper()
 	a, err := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -5063,7 +5080,7 @@ func TestAdminSMTPTestEndpoint(t *testing.T) {
 	}
 	select {
 	case body := <-received:
-		if !strings.Contains(body, "From: admin@lanqin.local") || !strings.Contains(body, "To: test@example.com") || !strings.Contains(body, "=?utf-8?q?=E8=87=AA=E5=AE=9A=E4=B9=89_SMTP_=E6=B5=8B=E8=AF=95?=") {
+		if !strings.Contains(body, `From: "NewSzxcn Email Service" <admin@lanqin.local>`) || !strings.Contains(body, "To: test@example.com") || !strings.Contains(body, "=?utf-8?q?=E8=87=AA=E5=AE=9A=E4=B9=89_SMTP_=E6=B5=8B=E8=AF=95?=") {
 			t.Fatalf("unexpected smtp body: %s", body)
 		}
 	case <-time.After(2 * time.Second):
