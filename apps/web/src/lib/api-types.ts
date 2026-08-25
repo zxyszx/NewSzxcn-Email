@@ -160,7 +160,20 @@ export type ForwardingVerifiedEmail = {
   deliveryError?: string
 }
 export type MailboxForwardingRule = { mailboxId: string; targetEmail: string; targetEmails?: string[] }
-export type ForwardingSettings = { verifiedEmails: ForwardingVerifiedEmail[]; accountTargetEmail: string; accountTargetEmails?: string[]; mailboxRules: MailboxForwardingRule[] }
+export type ForwardingPendingBinding = {
+  id: string
+  verifiedEmailId: string
+  email: string
+  scope: "account" | "mailbox"
+  mailboxId?: string
+  mailboxAddress?: string
+  status: "pending_verification" | "active" | "activation_failed" | "cancelled" | "expired"
+  failureReason?: string
+  createdAt: string
+  updatedAt: string
+  activatedAt?: string
+}
+export type ForwardingSettings = { verifiedEmails: ForwardingVerifiedEmail[]; accountTargetEmail: string; accountTargetEmails?: string[]; mailboxRules: MailboxForwardingRule[]; pendingBindings?: ForwardingPendingBinding[] }
 export type ExternalImapStorageMode = "local" | "remote"
 export type ExternalImapTlsMode = "tls" | "starttls" | "plain"
 export type ExternalImapAuthMode = "password" | "oauth2"

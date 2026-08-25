@@ -109,6 +109,11 @@ async function uploadForm<T>(path: string, form: FormData): Promise<T> {
 
 export const api = {
   publicSettings: () => request<PublicSettings>("/api/public/settings"),
+  confirmForwardingEmail: async (token: string) => {
+    const res = await fetch(`/api/verify-email?format=json&token=${encodeURIComponent(token)}`, { credentials: "include", headers: { Accept: "application/json" } })
+    const body = await res.json() as { ok?: boolean; email?: string; message?: string; activations?: { scope: "account" | "mailbox"; sourceEmail: string; targetEmail: string }[] }
+    return { ok: !!body.ok, email: body.email || "", message: body.message || (res.ok ? "邮箱验证成功" : "验证链接无效或已经过期"), activations: body.activations || [], status: res.status }
+  },
   register: (payload: RegisterPayload) => request<{ user: User }>("/api/auth/register", { method: "POST", body: JSON.stringify(payload) }),
   login: (payload: LoginPayload) => request<LoginResponse>("/api/auth/login", { method: "POST", body: JSON.stringify(payload) }),
   logout: () => request<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
@@ -159,6 +164,9 @@ export const api = {
   addForwardingVerifiedEmail: (email: string) => request<ForwardingSettings>("/api/me/forwarding/verified-emails", { method: "POST", body: JSON.stringify({ email }) }),
   resendForwardingVerifiedEmail: (id: string) => request<ForwardingSettings>(`/api/me/forwarding/verified-emails/${id}/resend`, { method: "POST" }),
   deleteForwardingVerifiedEmail: (id: string) => request<ForwardingSettings>(`/api/me/forwarding/verified-emails/${id}`, { method: "DELETE" }),
+  createForwardingPendingBinding: (payload: { email: string; scope: "account" | "mailbox"; mailboxId?: string }) => request<ForwardingSettings>("/api/me/forwarding/pending-bindings", { method: "POST", body: JSON.stringify(payload) }),
+  deleteForwardingPendingBinding: (id: string) => request<ForwardingSettings>(`/api/me/forwarding/pending-bindings/${id}`, { method: "DELETE" }),
+  retryForwardingPendingBinding: (id: string) => request<ForwardingSettings>(`/api/me/forwarding/pending-bindings/${id}/retry`, { method: "POST" }),
   updateAccountForwarding: (targetEmails: string[] | string) => request<ForwardingSettings>("/api/me/forwarding/account", { method: "POST", body: JSON.stringify(Array.isArray(targetEmails) ? { targetEmails } : { targetEmail: targetEmails }) }),
   updateMailboxForwarding: (mailboxId: string, targetEmails: string[] | string) => request<ForwardingSettings>(`/api/me/mailboxes/${mailboxId}/forwarding`, { method: "POST", body: JSON.stringify(Array.isArray(targetEmails) ? { targetEmails } : { targetEmail: targetEmails }) }),
   externalImapAccounts: (mailboxId?: string) => request<ListResponse<ExternalImapAccount>>(`/api/me/external-imap-accounts${mailboxId ? `?mailboxId=${encodeURIComponent(mailboxId)}` : ""}`),

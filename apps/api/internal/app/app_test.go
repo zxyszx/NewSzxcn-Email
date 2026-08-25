@@ -250,7 +250,7 @@ func extractForwardingVerificationToken(t *testing.T, raw string) string {
 		t.Fatalf("read verification message: %v", err)
 	}
 	body := extractMIMETextForTest(t, msg.Header, msg.Body)
-	marker := "/api/verify-email?token="
+	marker := "/mail/forwarding/verification/confirm?token="
 	idx := strings.Index(body, marker)
 	if idx < 0 {
 		t.Fatalf("verification link not found in body: %q", body)
@@ -3005,7 +3005,7 @@ func TestForwardingVerificationPageDoesNotLinkToMailbox(t *testing.T) {
 	a := newTestApp(t)
 	recorder := httptest.NewRecorder()
 
-	a.renderForwardingVerificationPage(recorder, http.StatusOK, true, "friend@example.test", "该邮箱已通过转发验证")
+	a.renderForwardingVerificationPage(recorder, http.StatusOK, true, "friend@example.test", "该邮箱已通过转发验证", nil)
 	body := recorder.Body.String()
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status=%d", recorder.Code)
@@ -3058,8 +3058,8 @@ func TestInboundForwardingSettingsAndDelivery(t *testing.T) {
 		if code := admin.do("GET", "/api/verify-email?token="+url.QueryEscape(token), nil, nil); code != http.StatusOK {
 			t.Fatalf("verify email code=%d", code)
 		}
-		if code := admin.do("GET", "/api/verify-email?token="+url.QueryEscape(token), nil, nil); code != http.StatusOK {
-			t.Fatalf("reopen verified email link code=%d", code)
+		if code := admin.do("GET", "/api/verify-email?token="+url.QueryEscape(token), nil, nil); code != http.StatusBadRequest {
+			t.Fatalf("reused verified email link code=%d", code)
 		}
 		if code := admin.do("GET", "/api/me/forwarding", nil, &settings); code != http.StatusOK {
 			t.Fatalf("reload forwarding settings code=%d", code)
@@ -3095,8 +3095,8 @@ func TestInboundForwardingSettingsAndDelivery(t *testing.T) {
 	if code := admin.do("GET", "/api/verify-email?token="+url.QueryEscape(token), nil, nil); code != http.StatusOK {
 		t.Fatalf("verify account target code=%d", code)
 	}
-	if code := admin.do("GET", "/api/verify-email?token="+url.QueryEscape(token), nil, nil); code != http.StatusOK {
-		t.Fatalf("reopen account verification link code=%d", code)
+	if code := admin.do("GET", "/api/verify-email?token="+url.QueryEscape(token), nil, nil); code != http.StatusBadRequest {
+		t.Fatalf("reused account verification link code=%d", code)
 	}
 	verifyTarget("account-forward-two@example.test")
 	if code := admin.do("POST", "/api/me/forwarding/account", map[string]any{"targetEmails": []string{"account-forward@example.test", "account-forward-two@example.test"}}, &settings); code != http.StatusOK || settings.AccountTargetEmail != "account-forward@example.test" || len(settings.AccountTargetEmails) != 2 {
