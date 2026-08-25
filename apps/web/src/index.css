@@ -1967,6 +1967,7 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
 }
 
 .app-rail {
+  isolation: isolate;
   width: var(--app-rail-width);
   min-width: var(--app-rail-width);
   display: flex;
@@ -1982,9 +1983,12 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
   background: linear-gradient(180deg, var(--mail-glass-rail-top) 0%, color-mix(in srgb, var(--mail-glass-rail-top) 58%, var(--mail-glass-rail-bottom)) 46%, var(--mail-glass-rail-bottom) 100%);
   backdrop-filter: blur(var(--app-rail-blur)) saturate(130%);
   -webkit-backdrop-filter: blur(var(--app-rail-blur)) saturate(130%);
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  contain: paint;
   border-color: rgba(255, 255, 255, 0.5);
   box-shadow: 0 10px 28px rgba(24, 54, 76, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.34);
-  overflow: visible;
+  overflow: hidden;
 }
 .dark .app-rail { border-color: rgba(255, 255, 255, 0.16); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.08); }
 .rail-top,
