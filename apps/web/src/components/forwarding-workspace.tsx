@@ -59,36 +59,11 @@ type Props = {
 };
 const mailboxPageSize = 8;
 const verificationPageSize = 8;
-const previewTargetEmail = "friend@example.com";
-
-const previewVerifiedEmail: ForwardingVerifiedEmail = {
-  id: "local-preview-verified-email",
-  email: previewTargetEmail,
-  verified: true,
-  createdAt: "2026-08-25T00:00:00Z",
-  verifiedAt: "2026-08-25T00:00:00Z",
-  deliveryStatus: "verified",
-};
 
 export function ForwardingWorkspace({ mailboxes, tab, onTabChange }: Props) {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [params, setParams] = useSearchParams();
-  const localPreviewAvailable =
-    typeof window !== "undefined" &&
-    ["127.0.0.1", "localhost"].includes(window.location.hostname);
-  const verifiedPreview =
-    localPreviewAvailable && params.get("preview") === "verified";
-  const previewMailboxes = React.useMemo(
-    () => (verifiedPreview ? buildPreviewMailboxes(mailboxes) : mailboxes),
-    [mailboxes, verifiedPreview],
-  );
-  const [previewTargets, setPreviewTargets] = React.useState<
-    Record<string, string[]>
-  >({ all: [previewTargetEmail] });
-  const [previewVerifiedExtras, setPreviewVerifiedExtras] = React.useState<
-    ForwardingVerifiedEmail[]
-  >([]);
   const [mailboxSearch, setMailboxSearch] = React.useState(
     params.get("q") || "",
   );
@@ -122,24 +97,8 @@ export function ForwardingWorkspace({ mailboxes, tab, onTabChange }: Props) {
   });
   const settings = forwarding.data;
   const verifiedItems = React.useMemo(
-    () => {
-      const items = (settings?.verifiedEmails || []).filter(
-        (item) => item.verified,
-      );
-      const previewItems =
-        verifiedPreview && items.length === 0
-          ? [previewVerifiedEmail]
-          : items;
-      if (!verifiedPreview) return previewItems;
-      return [...previewItems, ...previewVerifiedExtras].filter(
-        (item, index, values) =>
-          values.findIndex(
-            (candidate) =>
-              candidate.email.toLowerCase() === item.email.toLowerCase(),
-          ) === index,
-      );
-    },
-    [previewVerifiedExtras, settings?.verifiedEmails, verifiedPreview],
+    () => (settings?.verifiedEmails || []).filter((item) => item.verified),
+    [settings?.verifiedEmails],
   );
   const pendingItems = React.useMemo(
     () => (settings?.verifiedEmails || []).filter((item) => !item.verified),
@@ -153,11 +112,8 @@ export function ForwardingWorkspace({ mailboxes, tab, onTabChange }: Props) {
     [verifiedItems],
   );
   const accountTargets = React.useMemo(
-    () =>
-      verifiedPreview
-        ? previewTargets.all || []
-        : forwardingTargets(settings),
-    [previewTargets.all, settings, verifiedPreview],
+    () => forwardingTargets(settings),
+    [settings],
   );
   const mailboxTargets = React.useMemo(() => {
     const map = new Map<string, string[]>();
@@ -170,15 +126,12 @@ export function ForwardingWorkspace({ mailboxes, tab, onTabChange }: Props) {
             ? [rule.targetEmail]
             : [],
       );
-    if (verifiedPreview)
-      for (const [scope, targets] of Object.entries(previewTargets))
-        if (scope !== "all") map.set(scope, targets);
     return map;
-  }, [previewTargets, settings?.mailboxRules, verifiedPreview]);
+  }, [settings?.mailboxRules]);
   const selectedMailbox =
     selectedScope === "all"
       ? null
-      : previewMailboxes.find((item) => item.id === selectedScope) || null;
+      : mailboxes.find((item) => item.id === selectedScope) || null;
   const savedTargets = selectedMailbox
     ? mailboxTargets.get(selectedMailbox.id) || []
     : accountTargets;
@@ -324,7 +277,7 @@ export function ForwardingWorkspace({ mailboxes, tab, onTabChange }: Props) {
   });
 
   const mailboxFilter = mailboxSearch.trim().toLowerCase();
-  const filteredMailboxes = previewMailboxes.filter(
+  const filteredMailboxes = mailboxes.filter(
     (item) =>
       !mailboxFilter || item.address.toLowerCase().includes(mailboxFilter),
   );
@@ -353,7 +306,7 @@ export function ForwardingWorkspace({ mailboxes, tab, onTabChange }: Props) {
     .map((item) => item.verifiedAt || item.createdAt)
     .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
   const ownAddresses = new Set(
-    previewMailboxes.map((item) => item.address.toLowerCase()),
+    mailboxes.map((item) => item.address.toLowerCase()),
   );
   const emailDraft = verificationDraft.trim().toLowerCase();
   const verificationError = !emailDraft
@@ -412,69 +365,6 @@ export function ForwardingWorkspace({ mailboxes, tab, onTabChange }: Props) {
     setTargetSearch("");
     updateParams({ scope: scope === "all" ? null : scope }, true);
   }
-  function savePreviewTargets() {
-    setPreviewTargets((current) => ({
-      ...current,
-      [selectedScope]: [...draftTargets],
-    }));
-    toast({
-      title: "本地预览已更新",
-      description: "演示设置只保存在当前页面，不会写入真实邮箱数据。",
-    });
-  }
-  function simulatePreviewVerification(email: string) {
-    const sentAt = new Date().toISOString();
-    const item: ForwardingVerifiedEmail = {
-      id: `local-preview-pending-${Date.now()}`,
-      email,
-      verified: false,
-      createdAt: sentAt,
-      verificationSentAt: sentAt,
-      verificationExpiresAt: new Date(
-        Date.now() + 24 * 60 * 60 * 1000,
-      ).toISOString(),
-      deliveryStatus: "delivered",
-    };
-    setVerificationItem(item);
-    setVerificationStage("sent");
-    toast({
-      title: "本地模拟：验证邮件已发送",
-      description: "可继续模拟车友点击确认链接。",
-    });
-  }
-  function confirmPreviewVerification() {
-    if (!verificationItem) return;
-    const verifiedItem: ForwardingVerifiedEmail = {
-      ...verificationItem,
-      verified: true,
-      verifiedAt: new Date().toISOString(),
-      deliveryStatus: "verified",
-    };
-    setVerificationItem(verifiedItem);
-    setPreviewVerifiedExtras((items) => [...items, verifiedItem]);
-    setVerificationStage("success");
-    setDraftTargets((targets) =>
-      targets.includes(verifiedItem.email)
-        ? targets
-        : [...targets, verifiedItem.email],
-    );
-    if (verificationPurpose.scope !== "verification") {
-      const scope =
-        verificationPurpose.scope === "account"
-          ? "all"
-          : verificationPurpose.mailboxId || selectedScope;
-      setPreviewTargets((current) => ({
-        ...current,
-        [scope]: Array.from(
-          new Set([...(current[scope] || []), verifiedItem.email]),
-        ),
-      }));
-    }
-    toast({
-      title: "本地模拟：车友已完成确认",
-      description: `${verifiedItem.email} 已自动启用转发。`,
-    });
-  }
   function openVerification(
     purpose: VerificationPurpose = { scope: "verification" },
     preset = "",
@@ -507,14 +397,9 @@ export function ForwardingWorkspace({ mailboxes, tab, onTabChange }: Props) {
         tab={tab}
         pending={pendingItems.length}
         fetching={forwarding.isFetching}
-        preview={verifiedPreview}
         onTab={onTabChange}
         onHelp={() => setHelpOpen(true)}
         onRefresh={() => void forwarding.refetch()}
-        onExitPreview={() => {
-          setSelectedScope("all");
-          updateParams({ preview: null, page: "1", scope: null }, true);
-        }}
       />
       <div className="forwarding-tab-content">
         {forwarding.isError ? (
@@ -549,11 +434,6 @@ export function ForwardingWorkspace({ mailboxes, tab, onTabChange }: Props) {
             pendingItems={pendingItems}
             onAdd={() => openVerification()}
             onRefresh={() => void forwarding.refetch()}
-            onPreview={
-              localPreviewAvailable
-                ? () => updateParams({ preview: "verified" }, true)
-                : undefined
-            }
             onCancel={setPendingDelete}
             onResend={(item) => resendVerified.mutate(item)}
             resendPending={resendVerified.isPending}
@@ -684,9 +564,7 @@ export function ForwardingWorkspace({ mailboxes, tab, onTabChange }: Props) {
                   email,
                 )
               }
-              onSave={() =>
-                verifiedPreview ? savePreviewTargets() : saveScope.mutate()
-              }
+              onSave={() => saveScope.mutate()}
             />
           </div>
         )}
@@ -701,13 +579,12 @@ export function ForwardingWorkspace({ mailboxes, tab, onTabChange }: Props) {
         sending={addVerified.isPending}
         refreshing={forwarding.isFetching}
         resendPending={resendVerified.isPending}
-        preview={verifiedPreview}
         autoBind={verificationPurpose.scope !== "verification"}
         bindingLabel={
           verificationPurpose.scope === "account"
             ? "全部邮箱（账号级转发）"
             : verificationPurpose.scope === "mailbox"
-              ? previewMailboxes.find(
+              ? mailboxes.find(
                   (mailbox) => mailbox.id === verificationPurpose.mailboxId,
                 )?.address || "当前邮箱"
               : "仅加入已验证邮箱列表"
@@ -715,12 +592,7 @@ export function ForwardingWorkspace({ mailboxes, tab, onTabChange }: Props) {
         onEmail={setVerificationDraft}
         onNote={setVerificationNote}
         onClose={closeVerification}
-        onSend={() =>
-          verifiedPreview
-            ? simulatePreviewVerification(emailDraft)
-            : addVerified.mutate(emailDraft)
-        }
-        onPreviewConfirm={confirmPreviewVerification}
+        onSend={() => addVerified.mutate(emailDraft)}
         onRefresh={() => void forwarding.refetch()}
         onResend={() =>
           verificationItem && resendVerified.mutate(verificationItem)
@@ -784,20 +656,16 @@ function ForwardingToolbar({
   tab,
   pending,
   fetching,
-  preview,
   onTab,
   onHelp,
   onRefresh,
-  onExitPreview,
 }: {
   tab: ForwardingTab;
   pending: number;
   fetching: boolean;
-  preview: boolean;
   onTab: (tab: ForwardingTab) => void;
   onHelp: () => void;
   onRefresh: () => void;
-  onExitPreview: () => void;
 }) {
   return (
     <div className="forwarding-toolbar">
@@ -825,16 +693,6 @@ function ForwardingToolbar({
       </div>
       <TooltipProvider delayDuration={350}>
         <div className="forwarding-toolbar-actions">
-          {preview && (
-            <button
-              type="button"
-              className="forwarding-preview-indicator"
-              onClick={onExitPreview}
-            >
-              本地预览 · 已验证
-              <span>退出</span>
-            </button>
-          )}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -876,7 +734,6 @@ function ForwardingOnboarding({
   pendingItems,
   onAdd,
   onRefresh,
-  onPreview,
   onCancel,
   onResend,
   resendPending,
@@ -884,7 +741,6 @@ function ForwardingOnboarding({
   pendingItems: ForwardingVerifiedEmail[];
   onAdd: () => void;
   onRefresh: () => void;
-  onPreview?: () => void;
   onCancel: (item: ForwardingVerifiedEmail) => void;
   onResend: (item: ForwardingVerifiedEmail) => void;
   resendPending: boolean;
@@ -984,12 +840,6 @@ function ForwardingOnboarding({
           <ArrowClockwise20Regular />
           我已经添加，刷新验证状态
         </Button>
-        {onPreview && (
-          <Button type="button" variant="outline" onClick={onPreview}>
-            <CheckmarkCircle20Regular />
-            预览已验证状态
-          </Button>
-        )}
       </div>
     </article>
   );
@@ -1486,14 +1336,12 @@ function VerificationSheet({
   sending,
   refreshing,
   resendPending,
-  preview,
   autoBind,
   bindingLabel,
   onEmail,
   onNote,
   onClose,
   onSend,
-  onPreviewConfirm,
   onRefresh,
   onResend,
   onChangeAddress,
@@ -1509,14 +1357,12 @@ function VerificationSheet({
   sending: boolean;
   refreshing: boolean;
   resendPending: boolean;
-  preview: boolean;
   autoBind: boolean;
   bindingLabel: string;
   onEmail: (value: string) => void;
   onNote: (value: string) => void;
   onClose: () => void;
   onSend: () => void;
-  onPreviewConfirm: () => void;
   onRefresh: () => void;
   onResend: () => void;
   onChangeAddress: () => void;
@@ -1679,17 +1525,6 @@ function VerificationSheet({
               />
               刷新状态
             </Button>
-            {preview && (
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                onClick={onPreviewConfirm}
-              >
-                <CheckmarkCircle20Regular />
-                模拟车友确认
-              </Button>
-            )}
           </div>
         )}
       </SheetContent>
@@ -1843,49 +1678,6 @@ function forwardingTargets(settings?: ForwardingSettings) {
     : settings?.accountTargetEmail
       ? [settings.accountTargetEmail]
       : [];
-}
-function buildPreviewMailboxes(mailboxes: Mailbox[]) {
-  if (mailboxes.length >= 16) return mailboxes;
-  const base = mailboxes[0];
-  const existing = new Set(mailboxes.map((item) => item.address.toLowerCase()));
-  const prefixes = [
-    "amazonses",
-    "appleus",
-    "brevo",
-    "chatgpt.pro",
-    "chatgpt01",
-    "chatgpt02",
-    "cloudsilk",
-    "crrhuawei",
-    "dmit.io",
-    "elasticemail",
-    "gomoney",
-    "halocloud",
-    "iqiyi02",
-    "layer3",
-    "netflix01",
-    "netflix02",
-    "netflix03",
-  ];
-  const result = [...mailboxes];
-  for (const prefix of prefixes) {
-    if (result.length >= 16) break;
-    const address = `${prefix}@newszxcn.com`;
-    if (existing.has(address)) continue;
-    existing.add(address);
-    result.push({
-      id: `local-preview-mailbox-${prefix}`,
-      userId: base?.userId || "local-preview-user",
-      domainId: base?.domainId || "local-preview-domain",
-      localPart: prefix,
-      address,
-      displayName: prefix,
-      quotaMb: base?.quotaMb || 1024,
-      status: "active",
-      createdAt: "2026-08-25T00:00:00Z",
-    });
-  }
-  return result;
 }
 function looksLikeEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());

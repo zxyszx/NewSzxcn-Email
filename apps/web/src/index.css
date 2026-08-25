@@ -1488,21 +1488,6 @@ vue-devtools-anchor,
 .forwarding-toolbar-actions [data-slot="button"]:hover { background: rgba(244,249,255,.68); }
 .dark .forwarding-toolbar-actions [data-slot="button"] { border-color: rgba(255,255,255,.13); background: rgba(15,22,36,.48); box-shadow: inset 0 1px 0 rgba(255,255,255,.06); }
 .dark .forwarding-toolbar-actions [data-slot="button"]:hover { background: rgba(15,22,36,.72); }
-.forwarding-preview-indicator {
-  display: inline-flex;
-  height: 30px;
-  align-items: center;
-  gap: 8px;
-  margin-right: 4px;
-  padding: 0 10px;
-  border: 1px solid color-mix(in srgb, var(--mail-accent-color) 32%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--mail-accent-color) 10%, transparent);
-  color: hsl(var(--foreground));
-  font-size: 12px;
-}
-.forwarding-preview-indicator span { color: var(--mail-accent-color); font-weight: 650; }
-
 .forwarding-tabs {
   display: flex;
   width: fit-content;
