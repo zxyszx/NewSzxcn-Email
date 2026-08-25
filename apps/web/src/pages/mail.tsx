@@ -2481,12 +2481,12 @@ const accentOptions = ["#2f75e8", "#8b5cf6", "#ec4899", "#ef4444", "#0f9f9a", "#
 
 function AppearanceDialog({ open, onOpenChange, mode, onModeChange, accentColor, onAccentColorChange, selectedThemeId, onThemeChange }: { open: boolean; onOpenChange: (open: boolean) => void; mode: ThemeMode; onModeChange: (mode: ThemeMode) => void; accentColor: string; onAccentColorChange: (color: string) => void; selectedThemeId: string; onThemeChange: (id: string) => void }) {
   const [railBlur, setRailBlur] = React.useState(() => {
-    const stored = Number(window.localStorage.getItem("newszxcn-app-rail-blur-v3"))
-    return Number.isFinite(stored) && stored >= 4 && stored <= 20 ? stored : 8
+    const stored = Number(window.localStorage.getItem("newszxcn-app-rail-blur-v4"))
+    return Number.isFinite(stored) && stored >= 32 && stored <= 56 ? stored : 44
   })
   React.useEffect(() => {
     document.documentElement.style.setProperty("--app-rail-blur", `${railBlur}px`)
-    window.localStorage.setItem("newszxcn-app-rail-blur-v3", String(railBlur))
+    window.localStorage.setItem("newszxcn-app-rail-blur-v4", String(railBlur))
   }, [railBlur])
   const modeOptions: { value: ThemeMode; label: string; icon: React.ReactNode }[] = [{ value: "light", label: "浅色", icon: <WeatherSunny20Regular /> }, { value: "dark", label: "深色", icon: <WeatherMoon20Regular /> }, { value: "system", label: "跟随系统", icon: <Desktop20Regular /> }]
   return (
@@ -2496,7 +2496,7 @@ function AppearanceDialog({ open, onOpenChange, mode, onModeChange, accentColor,
         <section aria-labelledby="appearance-mode"><h3 id="appearance-mode">显示模式</h3><div className="appearance-segments">{modeOptions.map((option) => <Button type="button" variant="outline" key={option.value} className={cn(mode === option.value && "is-selected")} onClick={() => onModeChange(option.value)} aria-pressed={mode === option.value}>{option.icon}<span>{option.label}</span>{mode === option.value && <Checkmark20Regular />}</Button>)}</div></section>
         <section aria-labelledby="appearance-background"><h3 id="appearance-background">背景图</h3><div className="theme-gallery"><Button type="button" variant="outline" className={cn("theme-option theme-option--none", selectedThemeId === "none" && "is-selected")} onClick={() => onThemeChange("none")} aria-pressed={selectedThemeId === "none"}><span><strong>无背景图</strong><small>使用纯色背景</small></span>{selectedThemeId === "none" && <Checkmark20Regular />}</Button>{mailThemes.map((theme) => <Button type="button" variant="outline" className={cn("theme-option", selectedThemeId === theme.id && "is-selected")} key={theme.id} onClick={() => onThemeChange(theme.id)} aria-pressed={selectedThemeId === theme.id}><img src={theme.thumbnail} loading="lazy" width="240" height="135" alt={`${theme.name} 背景预览`} /><span><strong>{theme.name}</strong><small>{theme.id}</small></span>{selectedThemeId === theme.id && <Checkmark20Regular />}</Button>)}</div></section>
         <section aria-labelledby="appearance-accent"><h3 id="appearance-accent">强调色</h3><div className="accent-swatches">{accentOptions.map((color) => <Button type="button" variant="ghost" size="icon" key={color} style={{ backgroundColor: color }} className={cn(accentColor === color && "is-selected")} onClick={() => onAccentColorChange(color)} aria-label={`选择强调色 ${color}`} aria-pressed={accentColor === color}>{accentColor === color && <Checkmark20Regular />}</Button>)}</div></section>
-        <section aria-labelledby="appearance-glass"><div className="appearance-glass-heading"><h3 id="appearance-glass">毛玻璃强度</h3><output>{railBlur}px</output></div><Input type="range" min={4} max={20} step={2} value={railBlur} onChange={(event) => setRailBlur(Number(event.target.value))} className="appearance-glass-slider" aria-label="应用栏毛玻璃强度" /></section>
+        <section aria-labelledby="appearance-glass"><div className="appearance-glass-heading"><h3 id="appearance-glass">功能栏背景模糊</h3><output>{railBlur}px</output></div><Input type="range" min={32} max={56} step={4} value={railBlur} onChange={(event) => setRailBlur(Number(event.target.value))} className="appearance-glass-slider" aria-label="功能栏背景模糊强度" /></section>
         <DialogFooter><Button type="button" onClick={() => onOpenChange(false)}>完成</Button></DialogFooter>
       </DialogContent>
     </Dialog>

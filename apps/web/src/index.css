@@ -47,7 +47,7 @@
     --rail-button-gap: 8px;
     --rail-radius: 22px;
     --rail-button-radius: 999px;
-    --app-rail-blur: 8px;
+    --app-rail-blur: 44px;
     --rail-icon: rgba(31, 41, 55, 0.76);
     --rail-icon-hover: #111827;
     --focus-ring: #2563eb;
@@ -1967,7 +1967,6 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
 }
 
 .app-rail {
-  isolation: isolate;
   width: var(--app-rail-width);
   min-width: var(--app-rail-width);
   display: flex;
@@ -1981,16 +1980,13 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
   box-sizing: border-box;
   border-radius: var(--rail-radius);
   background: linear-gradient(180deg, var(--mail-glass-rail-top) 0%, color-mix(in srgb, var(--mail-glass-rail-top) 58%, var(--mail-glass-rail-bottom)) 46%, var(--mail-glass-rail-bottom) 100%);
-  backdrop-filter: blur(var(--app-rail-blur)) saturate(130%);
-  -webkit-backdrop-filter: blur(var(--app-rail-blur)) saturate(130%);
-  transform: translateZ(0);
-  backface-visibility: hidden;
-  contain: paint;
+  backdrop-filter: blur(var(--app-rail-blur)) contrast(34%) brightness(112%) saturate(82%);
+  -webkit-backdrop-filter: blur(var(--app-rail-blur)) contrast(34%) brightness(112%) saturate(82%);
   border-color: rgba(255, 255, 255, 0.5);
   box-shadow: 0 10px 28px rgba(24, 54, 76, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.34);
   overflow: hidden;
 }
-.dark .app-rail { border-color: rgba(255, 255, 255, 0.16); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.08); }
+.dark .app-rail { border-color: rgba(255, 255, 255, 0.16); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.08); backdrop-filter: blur(var(--app-rail-blur)) contrast(26%) brightness(68%) saturate(78%); -webkit-backdrop-filter: blur(var(--app-rail-blur)) contrast(26%) brightness(68%) saturate(78%); }
 .rail-top,
 .rail-bottom,
 .rail-group { display: flex; width: 100%; flex-direction: column; align-items: center; gap: var(--rail-button-gap); }
