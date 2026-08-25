@@ -1556,7 +1556,7 @@ export function MailPage() {
           </>
         ) : (
           <div className="mail-folder-heading">
-            <span>所有邮箱</span>
+            <span title={isAllMailboxSelected ? "所有邮箱" : selectedMailbox?.address}>{isAllMailboxSelected ? "所有邮箱" : selectedMailbox?.address || "所有邮箱"}</span>
             <Button type="button" variant="ghost" size="icon" onClick={() => setAccountOverlayOpen(true)} aria-label="切换邮箱" title="切换邮箱">
               <ChevronDown className="h-4 w-4" />
             </Button>
@@ -2135,6 +2135,7 @@ export function MailPage() {
               onRefresh={() => void refreshMail()}
               onCalendarToggle={() => setCalendarOpen((value) => !value)}
             />}
+            {accountOverlayOpen && <AccountOverlay mailboxes={mailboxList.data?.items || []} selectedMailboxId={selectedMailboxId} onSelect={(id) => { switchMailbox(id); setAccountOverlayOpen(false) }} onClose={() => setAccountOverlayOpen(false)} />}
             <div className={cn("desktop-workspace", forwardingWorkspaceOpen && "forwarding-is-open", !forwardingWorkspaceOpen && calendarOpen && "calendar-is-open", !forwardingWorkspaceOpen && sidebarCollapsed && "folder-is-collapsed")}>
               <AppRail
                 active={forwardingWorkspaceOpen ? "forwarding" : "mail"}
@@ -2147,7 +2148,6 @@ export function MailPage() {
                 onAppearance={() => setAppearanceOpen(true)}
                 onSettings={openSettings}
               />
-              {accountOverlayOpen && <AccountOverlay mailboxes={mailboxList.data?.items || []} selectedMailboxId={selectedMailboxId} onSelect={(id) => { switchMailbox(id); setAccountOverlayOpen(false) }} onClose={() => setAccountOverlayOpen(false)} />}
               {forwardingWorkspaceOpen ? (
                 <div className="forwarding-shell-pane">
                   <ForwardingWorkspace
@@ -2463,8 +2463,12 @@ function AccountOverlay({ mailboxes, selectedMailboxId, onSelect, onClose }: { m
           <Search20Regular aria-hidden="true" />
           <Input autoFocus type="search" name="mailbox-account-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索邮箱账号" autoComplete="off" data-1p-ignore="true" data-lpignore="true" data-bwignore="true" />
         </label>
-        <div className="account-overlay-heading"><h2 id="account-overlay-title">全部邮箱账号</h2><span>A-Z</span></div>
-        <div className="account-list" role="listbox" aria-label="邮箱账号">
+        <div className="account-list" role="listbox" aria-labelledby="account-overlay-title">
+          <Button type="button" variant="ghost" className="account-overlay-heading" role="option" aria-selected={selectedMailboxId === "all"} onClick={() => onSelect("all")}>
+            <span id="account-overlay-title" className="account-overlay-title">所有邮箱</span>
+            {selectedMailboxId === "all" && <Checkmark20Regular aria-hidden="true" />}
+            <span className="account-sort-label">A-Z</span>
+          </Button>
           {items.map((mailbox) => <Button type="button" variant="ghost" role="option" key={mailbox.id} aria-selected={selectedMailboxId === mailbox.id} onClick={() => onSelect(mailbox.id)} title={mailbox.address}><Mail20Regular aria-hidden="true" /><span>{mailbox.address}</span>{selectedMailboxId === mailbox.id && <Checkmark20Regular aria-hidden="true" />}</Button>)}
           {items.length === 0 && <p className="account-empty">没有匹配的邮箱账号</p>}
         </div>
