@@ -1212,6 +1212,18 @@ vue-devtools-anchor,
   background-image: var(--mail-wallpaper-dark);
 }
 
+/* Ruby Hills has a darker color field than the other wallpapers, so its main
+   panes need a slightly stronger neutral tint for the same perceived density. */
+.mail-wallpaper[data-mail-theme="violet-lake"] {
+  --mail-glass-folder: rgba(244, 249, 253, 0.66);
+  --mail-glass-list: rgba(246, 250, 253, 0.76);
+}
+
+.dark .mail-wallpaper[data-mail-theme="violet-lake"] {
+  --mail-glass-folder: rgba(15, 19, 27, 0.34);
+  --mail-glass-list: rgba(24, 23, 31, 0.72);
+}
+
 .mail-wallpaper::before,
 .mail-wallpaper::after,
 .mail-window::before,
@@ -2315,7 +2327,7 @@ html.pwa-standalone .mail-window {
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  .mail-wallpaper { --mail-glass-strong: rgba(248, 252, 255, 0.97); --mail-glass-medium: rgba(244, 249, 253, 0.96); --mail-glass-soft: rgba(239, 247, 252, 0.94); --mail-glass-rail-top: rgba(239, 247, 252, 0.96); --mail-glass-rail-bottom: rgba(239, 247, 252, 0.94); --mail-glass-folder: rgba(244, 249, 253, 0.97); --mail-glass-list: rgba(242, 248, 252, 0.97); --mail-glass-reader: rgba(248, 251, 253, 0.98); --mail-glass-calendar: rgba(246, 250, 253, 0.98); }
-  .dark .mail-wallpaper { --mail-glass-strong: rgba(18, 23, 31, 0.98); --mail-glass-medium: rgba(22, 28, 38, 0.97); --mail-glass-soft: rgba(27, 34, 45, 0.95); --mail-glass-rail-top: rgba(20, 30, 49, 0.96); --mail-glass-rail-bottom: rgba(20, 30, 49, 0.94); --mail-glass-folder: rgba(20, 27, 42, 0.97); --mail-glass-list: rgba(31, 28, 39, 0.97); --mail-glass-reader: rgba(22, 24, 28, 0.98); --mail-glass-calendar: rgba(24, 27, 33, 0.98); }
+  .mail-wallpaper, .mail-wallpaper[data-mail-theme] { --mail-glass-strong: rgba(248, 252, 255, 0.97); --mail-glass-medium: rgba(244, 249, 253, 0.96); --mail-glass-soft: rgba(239, 247, 252, 0.94); --mail-glass-rail-top: rgba(239, 247, 252, 0.96); --mail-glass-rail-bottom: rgba(239, 247, 252, 0.94); --mail-glass-folder: rgba(244, 249, 253, 0.97); --mail-glass-list: rgba(242, 248, 252, 0.97); --mail-glass-reader: rgba(248, 251, 253, 0.98); --mail-glass-calendar: rgba(246, 250, 253, 0.98); }
+  .dark .mail-wallpaper, .dark .mail-wallpaper[data-mail-theme] { --mail-glass-strong: rgba(18, 23, 31, 0.98); --mail-glass-medium: rgba(22, 28, 38, 0.97); --mail-glass-soft: rgba(27, 34, 45, 0.95); --mail-glass-rail-top: rgba(20, 30, 49, 0.96); --mail-glass-rail-bottom: rgba(20, 30, 49, 0.94); --mail-glass-folder: rgba(20, 27, 42, 0.97); --mail-glass-list: rgba(31, 28, 39, 0.97); --mail-glass-reader: rgba(22, 24, 28, 0.98); --mail-glass-calendar: rgba(24, 27, 33, 0.98); }
   .app-rail, .mail-folder-pane, .calendar-pane, .mail-window .mail-list-pane > div, .mail-window .mail-detail-pane > div, .mail-filter-menu, .account-overlay, .appearance-dialog { backdrop-filter: none; -webkit-backdrop-filter: none; }
 }
