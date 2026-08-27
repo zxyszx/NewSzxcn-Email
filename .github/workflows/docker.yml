@@ -276,12 +276,17 @@ jobs:
           import re
 
           notes = open("release-notes.md", "r", encoding="utf-8").read().strip()
+          notes = re.sub(r"<!--[\s\S]*?-->", "", notes)
           entries = []
           for raw in notes.splitlines():
               line = re.sub(r"^#{1,6}\s+", "", raw).strip()
               line = re.sub(r"^[-*+]\s+", "", line)
               line = re.sub(r"\*\*([^*]+)\*\*", r"\1", line)
               line = re.sub(r"`([^`]+)`", r"\1", line)
+              if re.match(r"^(full changelog|what's changed|new contributors)\b", line, re.IGNORECASE):
+                  continue
+              if re.match(r"^https?://", line, re.IGNORECASE):
+                  continue
               line = re.sub(r"\[([^]]+)\]\([^)]+\)", r"\1", line)
               if line:
                   entries.append(line)

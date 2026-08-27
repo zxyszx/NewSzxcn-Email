@@ -327,34 +327,6 @@ func (a *App) migrate(ctx context.Context) error {
 			target_emails TEXT NOT NULL DEFAULT '[]',
 			updated_at TEXT NOT NULL
 		)`,
-		`CREATE TABLE IF NOT EXISTS forwarding_pending_bindings (
-			id TEXT PRIMARY KEY,
-			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-			verified_email_id TEXT NOT NULL REFERENCES forwarding_verified_emails(id) ON DELETE CASCADE,
-			target_email TEXT NOT NULL,
-			scope TEXT NOT NULL,
-			mailbox_id TEXT NOT NULL DEFAULT '',
-			status TEXT NOT NULL DEFAULT 'pending_verification',
-			failure_reason TEXT NOT NULL DEFAULT '',
-			created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL,
-			activated_at TEXT,
-			UNIQUE(user_id, verified_email_id, scope, mailbox_id)
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_forwarding_pending_bindings_user_status ON forwarding_pending_bindings(user_id,status,updated_at DESC)`,
-		`CREATE TABLE IF NOT EXISTS forwarding_audit_events (
-			id TEXT PRIMARY KEY,
-			user_id TEXT NOT NULL,
-			verified_email_id TEXT NOT NULL DEFAULT '',
-			binding_id TEXT NOT NULL DEFAULT '',
-			mailbox_id TEXT NOT NULL DEFAULT '',
-			target_email TEXT NOT NULL DEFAULT '',
-			event TEXT NOT NULL,
-			status TEXT NOT NULL,
-			detail TEXT NOT NULL DEFAULT '',
-			created_at TEXT NOT NULL
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_forwarding_audit_user_created ON forwarding_audit_events(user_id,created_at DESC)`,
 		`CREATE TABLE IF NOT EXISTS aliases (
 			id TEXT PRIMARY KEY,
 			domain_id TEXT NOT NULL REFERENCES domains(id) ON DELETE CASCADE,

@@ -2,9 +2,40 @@ package app
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 )
+
+func TestGoogleTranslateRequestUsesFormBody(t *testing.T) {
+	text := strings.Repeat("长邮件正文", 2000)
+	req, err := newGoogleTranslateRequest(context.Background(), text, "zh-CN")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.Method != http.MethodPost {
+		t.Fatalf("method = %s", req.Method)
+	}
+	if req.URL.RawQuery != "" {
+		t.Fatalf("translation text leaked into URL query: %q", req.URL.RawQuery)
+	}
+	if got := req.Header.Get("Content-Type"); !strings.HasPrefix(got, "application/x-www-form-urlencoded") {
+		t.Fatalf("content type = %q", got)
+	}
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values, err := url.ParseQuery(string(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if values.Get("q") != text || values.Get("tl") != "zh-CN" || values.Get("sl") != "auto" {
+		t.Fatalf("unexpected form values: q=%d runes tl=%q sl=%q", len([]rune(values.Get("q"))), values.Get("tl"), values.Get("sl"))
+	}
+}
 
 func TestParseGoogleTranslateResponse(t *testing.T) {
 	raw := []any{

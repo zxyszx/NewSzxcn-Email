@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	netmail "net/mail"
 	"regexp"
 	"strings"
 	"time"
@@ -155,16 +154,6 @@ func normalizeEmail(s string) string {
 	}
 	parts := strings.SplitN(s, "@", 2)
 	return normalizeLocalPart(parts[0]) + "@" + normalizeDomain(parts[1])
-}
-
-func validEmailAddress(value string) bool {
-	value = strings.TrimSpace(value)
-	parsed, err := netmail.ParseAddress(value)
-	if err != nil || parsed.Name != "" || parsed.Address != value {
-		return false
-	}
-	parts := strings.Split(parsed.Address, "@")
-	return len(parts) == 2 && parts[0] != "" && parts[1] != ""
 }
 
 func normalizeLoginName(s string) string {

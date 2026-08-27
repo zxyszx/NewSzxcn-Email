@@ -77,7 +77,7 @@ func (a *App) handleTranslateMailMessage(w http.ResponseWriter, r *http.Request)
 	translated, source, err := googleFreeTranslate(r.Context(), text, target)
 	if err != nil {
 		a.log.Warn("mail translation failed", "message_id", msg.ID, "target", target, "error", err)
-		respondError(w, http.StatusBadGateway, "translation failed")
+		respondError(w, http.StatusBadGateway, "翻译服务暂时不可用，请稍后重试")
 		return
 	}
 	translatedHTML := <-translatedHTMLResult
@@ -150,7 +150,7 @@ func (a *App) handleTranslateExternalIMAPMessage(w http.ResponseWriter, r *http.
 	translated, source, err := googleFreeTranslate(r.Context(), text, target)
 	if err != nil {
 		a.log.Warn("external mail translation failed", "account_id", account.ID, "remote_id", chi.URLParam(r, "remoteId"), "target", target, "error", err)
-		respondError(w, http.StatusBadGateway, "translation failed")
+		respondError(w, http.StatusBadGateway, "翻译服务暂时不可用，请稍后重试")
 		return
 	}
 	translatedHTML := <-translatedHTMLResult
@@ -290,17 +290,10 @@ func truncateRunes(value string, max int) (string, bool) {
 func googleFreeTranslate(ctx context.Context, text, target string) (string, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
-	params := url.Values{}
-	params.Set("client", "gtx")
-	params.Set("sl", "auto")
-	params.Set("tl", target)
-	params.Set("dt", "t")
-	params.Set("q", text)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, googleTranslateEndpoint+"?"+params.Encode(), nil)
+	req, err := newGoogleTranslateRequest(ctx, text, target)
 	if err != nil {
 		return "", "", err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0")
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", "", err
@@ -320,6 +313,22 @@ func googleFreeTranslate(ctx context.Context, text, target string) (string, stri
 		return "", source, errors.New("empty translation")
 	}
 	return translated, source, nil
+}
+
+func newGoogleTranslateRequest(ctx context.Context, text, target string) (*http.Request, error) {
+	params := url.Values{}
+	params.Set("client", "gtx")
+	params.Set("sl", "auto")
+	params.Set("tl", target)
+	params.Set("dt", "t")
+	params.Set("q", text)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, googleTranslateEndpoint, strings.NewReader(params.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+	return req, nil
 }
 
 func parseGoogleTranslateResponse(raw any) (string, string) {
