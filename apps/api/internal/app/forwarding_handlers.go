@@ -1089,11 +1089,11 @@ func (a *App) renderForwardingVerificationPage(w http.ResponseWriter, status int
 }
 
 func (a *App) cleanForwardingVerificationEmail(w http.ResponseWriter, r *http.Request, userID, value string) (string, bool) {
-	email := normalizeEmail(value)
-	if email == "" || !strings.Contains(email, "@") {
+	if !validEmailAddress(value) {
 		badRequest(w, errors.New("邮箱地址无效"))
 		return "", false
 	}
+	email := normalizeEmail(value)
 	if owns, err := a.userOwnsMailboxAddress(r.Context(), userID, email); err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to check mailbox")
 		return "", false
