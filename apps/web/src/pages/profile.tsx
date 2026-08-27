@@ -421,7 +421,7 @@ export function ProfilePage() {
             <Button type="button" variant="ghost" size="icon" onClick={() => navigate("/")} aria-label="返回邮箱"><ArrowLeft className="h-4 w-4" /></Button>
           </header>
           <ScrollArea className="min-h-0 flex-1">
-            <main className="w-full pb-10">
+            <main className="w-full pb-4">
               {tab !== "mailboxes" && <SettingsPageHeader title={pageTitle} subtitle={pageSubtitle} action={pageAction} activeTab={tab === "profile" ? accountTab : undefined} onAccountTabChange={setAccountTab} />}
               <div className={contentFrameClass(tab)}>{renderTab()}</div>
             </main>
@@ -431,7 +431,7 @@ export function ProfilePage() {
         <div className="flex h-full min-h-0 w-full">
           {sidebarContent}
           <section className="min-w-0 flex-1 overflow-y-auto">
-            <main className="pb-12">
+            <main className="pb-4">
               <SettingsPageHeader title={pageTitle} subtitle={pageSubtitle} action={pageAction} activeTab={tab === "profile" ? accountTab : undefined} onAccountTabChange={setAccountTab} />
               <div className={contentFrameClass(tab)}>{renderTab()}</div>
             </main>
@@ -556,7 +556,7 @@ function ProfileSectionLoading() {
 function contentFrameClass(tab: Tab) {
   return cn(
     "w-full",
-    tab === "mailboxes" ? "pt-4 sm:pt-6" : "pt-6",
+    "pt-1",
     tab === "profile" ? "mx-auto max-w-[896px]" :
       tab === "mailboxes" ? "mx-auto max-w-5xl px-4 sm:px-6" :
       tab === "stats" ? "px-4 sm:px-6" :
@@ -567,8 +567,8 @@ function contentFrameClass(tab: Tab) {
 
 function SettingsPageHeader({ title, subtitle, action, activeTab, onAccountTabChange }: { title: string; subtitle?: string; action?: React.ReactNode; activeTab?: AccountSettingsTab; onAccountTabChange: (tab: AccountSettingsTab) => void }) {
   return (
-    <div className="border-b px-4 py-4 sm:px-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="border-b px-4 pb-1.5 pt-2 sm:px-6">
+      <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <h1 className="text-[20px] font-semibold leading-7">{title}</h1>
           {subtitle && <p className="text-sm leading-5 text-muted-foreground">{subtitle}</p>}
@@ -576,7 +576,7 @@ function SettingsPageHeader({ title, subtitle, action, activeTab, onAccountTabCh
         {action && <div className="shrink-0">{action}</div>}
       </div>
       {activeTab && (
-        <div className="profile-settings-tabs mt-3 flex overflow-x-auto">
+        <div className="profile-settings-tabs mt-1.5 flex overflow-x-auto">
           {accountSettingTabs.map((item) => (
             <button
               key={item.key}
@@ -720,14 +720,14 @@ function SettingsCard({ title, subtitle, action, children, className, contentCla
         className,
       )}
     >
-      <div className="flex flex-col gap-3 px-6 py-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-2 px-5 py-3 sm:flex-row sm:items-start sm:justify-between sm:px-6">
         <div className="min-w-0">
           <h2 className="break-words text-[15px] font-semibold leading-6 text-foreground [overflow-wrap:anywhere]">{title}</h2>
           {subtitle && <p className="mt-0.5 break-words text-xs leading-5 text-muted-foreground [overflow-wrap:anywhere]">{subtitle}</p>}
         </div>
         {action && <div className="w-full shrink-0 sm:w-auto sm:justify-end [&>a]:w-full [&>button]:w-full sm:[&>a]:w-auto sm:[&>button]:w-auto">{action}</div>}
       </div>
-      <div className={cn("px-6 pb-5", contentClassName)}>{children}</div>
+      <div className={cn("px-5 pb-3 sm:px-6", contentClassName)}>{children}</div>
     </section>
   )
 }
@@ -753,7 +753,7 @@ function AccountTabSection({ user, profile, stats, showStats, displayMode, onDis
   return (
     <div className="profile-continuous-panel">
       <SettingsCard title="账号信息" surface="section">
-        <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); profile.mutate(new FormData(event.currentTarget)) }}>
+        <form className="space-y-2" onSubmit={(event) => { event.preventDefault(); profile.mutate(new FormData(event.currentTarget)) }}>
           <InfoLine label="主登录邮箱" value={accountName} />
           <div className="grid gap-2 sm:grid-cols-[10rem_minmax(0,1fr)] sm:items-center">
             <Label htmlFor="profile-display-name" className="text-base font-normal text-muted-foreground">显示名称</Label>
@@ -792,7 +792,7 @@ function AccountTabSection({ user, profile, stats, showStats, displayMode, onDis
       </SettingsCard>}
 
       <SettingsCard title="账号配额" surface="section" action={<span className="pt-1 text-sm text-muted-foreground">实时按当前账号配置计算</span>}>
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid gap-2 md:grid-cols-2">
           <QuotaBox title="邮箱创建" lines={[`当前拥有 ${mailboxes.length} 个邮箱`, user.limits?.maxMailboxCount ? `最多可添加 ${user.limits.maxMailboxCount} 个邮箱` : "管理员不限制邮箱数量", user.limits?.maxMailboxCount ? "达到上限后不可继续自助申请" : "可继续添加邮箱"]} highlight={user.limits?.maxMailboxCount ? "普通额度" : "管理员无限"} />
           <QuotaBox title="验证邮箱" lines={["已绑定主账号邮箱", "可继续添加验证邮箱"]} />
           <QuotaBox title="发信频率" lines={[`每 24 小时 最多 ${user.limits?.smtpDailyLimit || "不限"} 封邮件`, `每分钟最多 ${user.limits?.smtpMinuteLimit || "不限"} 封`]} />
@@ -816,8 +816,8 @@ function InfoLine({ label, value }: { label: string; value: React.ReactNode }) {
 
 function QuotaBox({ title, lines, highlight, className }: { title: string; lines: string[]; highlight?: string; className?: string }) {
   return (
-    <div className={cn("rounded-lg border p-4", className)}>
-      <div className="mb-3 flex items-center gap-2">
+    <div className={cn("rounded-lg border p-3", className)}>
+      <div className="mb-2 flex items-center gap-2">
         <div className="text-base font-semibold">{title}</div>
         {highlight && <Badge variant="secondary" className="text-[10px]">{highlight}</Badge>}
       </div>
@@ -1408,7 +1408,7 @@ function MailboxManagement({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       <section className="overflow-hidden rounded-lg border bg-card">
         <MailboxViewTabs value={mailboxView} onChange={setMailboxView} pendingCount={pendingVerifiedEmailItems.length + failedVerifiedEmailItems.length} />
         {mailboxView === "mine" && (
@@ -1433,9 +1433,9 @@ function MailboxManagement({
           <Button type="button" className="h-11 w-full" onClick={() => setMobileCreateOpen(true)}>创建邮箱</Button>
           <p className="mt-2 text-sm leading-5 text-muted-foreground">创建新地址时再展开表单，让邮箱列表保持在首屏。</p>
         </section>
-      ) : <section className="rounded-lg border bg-card px-5 py-3">
+      ) : <section className="rounded-lg border bg-card px-5 py-2.5">
         <h2 className="mb-2 text-base font-semibold leading-6">创建新邮箱</h2>
-        <form className="grid gap-3 md:grid-cols-[minmax(0,1fr)_160px_80px]" onSubmit={submitMailbox}>
+        <form className="grid gap-2 md:grid-cols-[minmax(0,1fr)_160px_80px]" onSubmit={submitMailbox}>
           <Input
             value={localPart}
             onChange={(event) => setLocalPart(event.target.value)}
@@ -1467,7 +1467,7 @@ function MailboxManagement({
       </section>}
 
       <section className="rounded-lg border bg-card">
-        <div className="flex flex-col items-stretch gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <div className="flex flex-col items-stretch gap-2 px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
           <h2 className="text-lg font-semibold leading-7">我的邮箱 ({mailboxes.length})</h2>
           <div className="relative w-full sm:w-64 sm:shrink-0">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -1483,7 +1483,7 @@ function MailboxManagement({
             const forwardingSubtitle = accountForwardTargets.length > 0 && forwardTargets.length > 0 ? "账号级目标固定生效，并追加邮箱单独目标" : accountForwardTargets.length > 0 ? "继承账号级转发" : "邮箱单独转发"
             const forwardingPrefix = accountForwardTargets.length > 0 && forwardTargets.length > 0 ? "转发：账号级+单独" : accountForwardTargets.length > 0 ? "转发：使用账号级" : "转发："
             return (
-              <div key={mailbox.id} className={cn("grid gap-2 px-4 py-2.5 sm:px-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center", selectedMailboxId === mailbox.id && "bg-muted/50")}>
+              <div key={mailbox.id} className={cn("grid gap-2 px-4 py-2 sm:px-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center", selectedMailboxId === mailbox.id && "bg-muted/50")}>
                 <div className="flex min-w-0 items-center gap-4">
                   <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-slate-950 text-white">
                     <Mail className="h-5 w-5" />
@@ -1651,10 +1651,10 @@ function MailboxManagement({
             </div>
           </div>
 
-          <div className="space-y-5 px-4 py-4 sm:px-5">
+          <div className="space-y-3 px-4 py-3 sm:px-5">
             {failedVerifiedEmailItems.length > 0 && (
               <div>
-                <div className="mb-3 flex items-center gap-2">
+                <div className="mb-2 flex items-center gap-2">
                   <span className="h-5 w-1 rounded-full bg-destructive" />
                   <h3 className="font-semibold">发送失败</h3>
                   <Badge variant="outline">{failedVerifiedEmailItems.length}</Badge>
@@ -1663,13 +1663,13 @@ function MailboxManagement({
                   {matchingFailedVerifiedEmailItems.map((item) => (
                     <VerifiedEmailRow key={item.id} item={item} busy={resendVerifiedEmail.isPending || deleteVerifiedEmail.isPending} onResend={resendVerification} onRemove={() => setPendingVerifiedDelete(item)} />
                   ))}
-                  {matchingFailedVerifiedEmailItems.length === 0 && <div className="px-4 py-6 text-center text-sm text-muted-foreground">发送失败记录中没有匹配地址</div>}
+                  {matchingFailedVerifiedEmailItems.length === 0 && <div className="px-4 py-5 text-center text-sm text-muted-foreground">发送失败记录中没有匹配地址</div>}
                 </div>
               </div>
             )}
             {pendingVerifiedEmailItems.length > 0 && (
               <div>
-                <div className="mb-3 flex items-center gap-2">
+                <div className="mb-2 flex items-center gap-2">
                   <span className="h-5 w-1 rounded-full bg-amber-500" />
                   <h3 className="font-semibold">待验证邮箱</h3>
                   <Badge variant="outline">{pendingVerifiedEmailItems.length}</Badge>
@@ -1678,13 +1678,13 @@ function MailboxManagement({
                   {matchingPendingVerifiedEmailItems.map((item) => (
                     <VerifiedEmailRow key={item.id} item={item} busy={resendVerifiedEmail.isPending || deleteVerifiedEmail.isPending} onResend={resendVerification} onRemove={() => setPendingVerifiedDelete(item)} />
                   ))}
-                  {matchingPendingVerifiedEmailItems.length === 0 && <div className="px-4 py-10 text-center text-sm text-muted-foreground">待验证邮箱中没有匹配地址</div>}
+                  {matchingPendingVerifiedEmailItems.length === 0 && <div className="px-4 py-6 text-center text-sm text-muted-foreground">待验证邮箱中没有匹配地址</div>}
                 </div>
               </div>
             )}
 
             {completedVerifiedEmailItems.length > 0 ? <div>
-              <div className="mb-3 flex items-center gap-2">
+              <div className="mb-2 flex items-center gap-2">
                 <span className="h-5 w-1 rounded-full bg-emerald-500" />
                 <h3 className="font-semibold">已验证邮箱</h3>
                 <Badge variant="outline">{completedVerifiedEmailItems.length}</Badge>
@@ -1694,7 +1694,7 @@ function MailboxManagement({
                   <VerifiedEmailRow key={item.id} item={item} busy={deleteVerifiedEmail.isPending} onResend={resendVerification} onRemove={() => setPendingVerifiedDelete(item)} />
                 ))}
                 {pagedVerifiedEmailItems.length === 0 && (
-                  <div className="px-4 py-10 text-center text-sm text-muted-foreground">
+                  <div className="px-4 py-6 text-center text-sm text-muted-foreground">
                     {normalizedVerifiedSearch ? "已验证邮箱中没有匹配地址" : "暂无已验证邮箱"}
                   </div>
                 )}

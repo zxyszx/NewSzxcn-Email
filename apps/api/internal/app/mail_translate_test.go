@@ -71,6 +71,30 @@ func TestTranslateHTMLTextNodesWithPreservesMarkupAndSkipsCode(t *testing.T) {
 	}
 }
 
+func TestTranslateHTMLTextNodesBatchWithUsesSingleRequest(t *testing.T) {
+	calls := 0
+	translator := func(_ context.Context, text, target string) (string, string, error) {
+		calls++
+		if !strings.Contains(text, `data-newszxcn-segment="0"`) || !strings.Contains(text, `data-newszxcn-segment="1"`) {
+			t.Fatalf("batched request missing segments: %q", text)
+		}
+		return strings.NewReplacer("Hello", "你好", "world", "世界").Replace(text), "en", nil
+	}
+	got, err := translateHTMLTextNodesBatchWith(context.Background(), nil, `<p>Hello <strong>world</strong></p><pre>keep me</pre>`, "zh-CN", 100, translator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("translator calls = %d, want 1", calls)
+	}
+	if !strings.Contains(got, `<p>你好 <strong>世界</strong></p>`) {
+		t.Fatalf("translated HTML = %q", got)
+	}
+	if !strings.Contains(got, `<pre>keep me</pre>`) {
+		t.Fatalf("code block was translated: %q", got)
+	}
+}
+
 func TestTruncateRunes(t *testing.T) {
 	got, truncated := truncateRunes("你好world", 4)
 	if got != "你好wo" || !truncated {

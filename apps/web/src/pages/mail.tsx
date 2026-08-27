@@ -3549,7 +3549,7 @@ function CompactMessageRow({ message, active, checked, scheduled, onCheckedChang
               {!message.isRead && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-label="未读" />}
             </div>
             <div className="flex shrink-0 items-center gap-1 sm:hidden">
-              <time dateTime={message.receivedAt || message.sentAt} className="min-w-[72px] whitespace-nowrap text-right text-xs text-muted-foreground">{messageDisplayDate(message)}</time>
+              <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="min-w-[64px] whitespace-nowrap text-right text-xs font-medium tabular-nums text-foreground/65">{messageDisplayDate(message)}</time>
               {canOrganize && <Button type="button" variant="ghost" size="icon" aria-label={message.isStarred ? "取消星标" : "添加星标"} className="h-6 w-6 text-muted-foreground hover:text-yellow-500" onClick={(event) => { event.stopPropagation(); onStar() }}>
                 <Star className={cn("h-3.5 w-3.5", message.isStarred && "fill-yellow-400 text-yellow-500")} />
               </Button>}
@@ -3566,7 +3566,7 @@ function CompactMessageRow({ message, active, checked, scheduled, onCheckedChang
           <div className={cn("mt-1 line-clamp-2 text-xs sm:hidden", message.isRead ? "text-muted-foreground" : "text-foreground/70")}>{message.snippet}</div>
         </div>
       </div>
-      <time dateTime={message.receivedAt || message.sentAt} className="hidden min-w-[86px] shrink-0 whitespace-nowrap text-right text-xs text-muted-foreground sm:block">{messageDisplayDate(message)}</time>
+      <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="hidden min-w-[72px] shrink-0 whitespace-nowrap text-right text-xs font-medium tabular-nums text-foreground/65 sm:block">{messageDisplayDate(message)}</time>
       {canOrganize && <Button type="button" variant="ghost" size="icon" aria-label={message.isStarred ? "取消星标" : "添加星标"} className="hidden h-6 w-6 text-muted-foreground hover:text-yellow-500 sm:inline-flex" onClick={(event) => { event.stopPropagation(); onStar() }}>
         <Star className={cn("h-3.5 w-3.5", message.isStarred && "fill-yellow-400 text-yellow-500")} />
       </Button>}
@@ -3776,7 +3776,18 @@ function messageSubject(message: MailMessage) {
 }
 
 function messageDisplayDate(message: MailMessage) {
-  return formatDate(message.receivedAt) || formatDate(message.sentAt) || "时间未知"
+  const value = message.receivedAt || message.sentAt
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return "时间未知"
+  const now = new Date()
+  const sameDay = date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate()
+  if (sameDay) return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }).format(date)
+  if (date.getFullYear() === now.getFullYear()) return formatDate(value)
+  return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }).format(date)
+}
+
+function messageFullDate(message: MailMessage) {
+  return formatDateTime(message.receivedAt || message.sentAt) || "时间未知"
 }
 
 function displayNameFromAddress(value: string) {
@@ -4063,7 +4074,7 @@ function MessageRow({
             >
               <Star className={cn("h-3.5 w-3.5", message.isStarred && "fill-yellow-400 text-yellow-500")} />
             </Button>}
-            <time dateTime={message.receivedAt || message.sentAt} className="min-w-[86px] shrink-0 whitespace-nowrap text-right text-xs text-muted-foreground">{messageDisplayDate(message)}</time>
+            <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="min-w-[72px] shrink-0 whitespace-nowrap text-right text-xs font-medium tabular-nums text-foreground/65">{messageDisplayDate(message)}</time>
           </div>
         </div>
         <div className="mb-1 flex min-w-0 items-center gap-2">

@@ -20,6 +20,11 @@ import (
 
 const googleTranslateEndpoint = "https://translate.googleapis.com/translate_a/single"
 
+var googleTranslateEndpoints = []string{
+	googleTranslateEndpoint,
+	"https://translate.google.com/translate_a/single",
+}
+
 type translateMailMessageRequest struct {
 	TargetLanguage string `json:"targetLanguage"`
 }
@@ -65,22 +70,16 @@ func (a *App) handleTranslateMailMessage(w http.ResponseWriter, r *http.Request)
 		maxChars = 8000
 	}
 	text, truncated := truncateRunes(text, maxChars)
-	translatedHTMLResult := make(chan string, 1)
-	if strings.TrimSpace(msg.BodyHTML) != "" {
-		go func() {
-			translatedHTML, _ := translateHTMLTextNodes(r.Context(), a.policy, msg.BodyHTML, target, maxChars)
-			translatedHTMLResult <- translatedHTML
-		}()
-	} else {
-		translatedHTMLResult <- ""
-	}
 	translated, source, err := googleFreeTranslate(r.Context(), text, target)
 	if err != nil {
 		a.log.Warn("mail translation failed", "message_id", msg.ID, "target", target, "error", err)
 		respondError(w, http.StatusBadGateway, "翻译服务暂时不可用，请稍后重试")
 		return
 	}
-	translatedHTML := <-translatedHTMLResult
+	translatedHTML := ""
+	if strings.TrimSpace(msg.BodyHTML) != "" {
+		translatedHTML, _ = translateHTMLTextNodes(r.Context(), a.policy, msg.BodyHTML, target, maxChars)
+	}
 	respondJSON(w, http.StatusOK, translateMailMessageResponse{TranslatedText: translated, TranslatedHTML: translatedHTML, SourceLanguage: source, TargetLanguage: target, Truncated: truncated})
 }
 
@@ -138,30 +137,129 @@ func (a *App) handleTranslateExternalIMAPMessage(w http.ResponseWriter, r *http.
 		maxChars = 8000
 	}
 	text, truncated := truncateRunes(text, maxChars)
-	translatedHTMLResult := make(chan string, 1)
-	if err == nil && strings.TrimSpace(stored.BodyHTML) != "" {
-		go func() {
-			translatedHTML, _ := translateHTMLTextNodes(r.Context(), a.policy, stored.BodyHTML, target, maxChars)
-			translatedHTMLResult <- translatedHTML
-		}()
-	} else {
-		translatedHTMLResult <- ""
-	}
 	translated, source, err := googleFreeTranslate(r.Context(), text, target)
 	if err != nil {
 		a.log.Warn("external mail translation failed", "account_id", account.ID, "remote_id", chi.URLParam(r, "remoteId"), "target", target, "error", err)
 		respondError(w, http.StatusBadGateway, "翻译服务暂时不可用，请稍后重试")
 		return
 	}
-	translatedHTML := <-translatedHTMLResult
+	translatedHTML := ""
+	if err == nil && strings.TrimSpace(stored.BodyHTML) != "" {
+		translatedHTML, _ = translateHTMLTextNodes(r.Context(), a.policy, stored.BodyHTML, target, maxChars)
+	}
 	respondJSON(w, http.StatusOK, translateMailMessageResponse{TranslatedText: translated, TranslatedHTML: translatedHTML, SourceLanguage: source, TargetLanguage: target, Truncated: truncated})
 }
 
 func translateHTMLTextNodes(ctx context.Context, policy *HTMLPolicy, bodyHTML, target string, maxChars int) (string, error) {
-	return translateHTMLTextNodesWith(ctx, policy, bodyHTML, target, maxChars, googleFreeTranslate)
+	return translateHTMLTextNodesBatchWith(ctx, policy, bodyHTML, target, maxChars, googleFreeTranslate)
 }
 
 type htmlTextTranslator func(context.Context, string, string) (string, string, error)
+
+// translateHTMLTextNodesBatchWith sends all visible text nodes in one request.
+// This preserves the original markup without flooding the translation provider
+// with one request per HTML node.
+func translateHTMLTextNodesBatchWith(ctx context.Context, policy *HTMLPolicy, bodyHTML, target string, maxChars int, translator htmlTextTranslator) (string, error) {
+	nodes, err := html.ParseFragment(strings.NewReader(bodyHTML), nil)
+	if err != nil {
+		return "", err
+	}
+	type translationJob struct {
+		node *html.Node
+		text string
+	}
+	remaining := maxChars
+	jobs := make([]translationJob, 0)
+	var collect func(*html.Node)
+	collect = func(n *html.Node) {
+		if n.Type == html.ElementNode && shouldSkipHTMLTranslationElement(n.Data) {
+			return
+		}
+		if n.Type == html.TextNode {
+			text := strings.TrimSpace(n.Data)
+			if text != "" && containsTranslatableLetter(text) && remaining > 0 {
+				limited, _ := truncateRunes(text, remaining)
+				remaining -= utf8.RuneCountInString(limited)
+				jobs = append(jobs, translationJob{node: n, text: limited})
+			}
+		}
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			collect(child)
+		}
+	}
+	for _, node := range nodes {
+		collect(node)
+	}
+	if len(jobs) == 0 {
+		return "", errors.New("html has no translatable text")
+	}
+
+	var requestBody strings.Builder
+	for index, job := range jobs {
+		fmt.Fprintf(&requestBody, `<p data-newszxcn-segment="%d">%s</p>`, index, html.EscapeString(job.text))
+	}
+	translatedBody, _, err := translator(ctx, requestBody.String(), target)
+	if err != nil {
+		return "", err
+	}
+	translatedNodes, err := html.ParseFragment(strings.NewReader(translatedBody), nil)
+	if err != nil {
+		return "", err
+	}
+	results := make([]string, len(jobs))
+	var readResults func(*html.Node)
+	readResults = func(n *html.Node) {
+		if n.Type == html.ElementNode {
+			for _, attr := range n.Attr {
+				if attr.Key != "data-newszxcn-segment" {
+					continue
+				}
+				var index int
+				if _, scanErr := fmt.Sscanf(attr.Val, "%d", &index); scanErr == nil && index >= 0 && index < len(results) {
+					results[index] = strings.TrimSpace(htmlNodeText(n))
+				}
+				break
+			}
+		}
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			readResults(child)
+		}
+	}
+	for _, node := range translatedNodes {
+		readResults(node)
+	}
+	for index, result := range results {
+		if result == "" {
+			return "", fmt.Errorf("missing translated html segment %d", index)
+		}
+		jobs[index].node.Data = strings.Replace(jobs[index].node.Data, jobs[index].text, result, 1)
+	}
+	var rendered bytes.Buffer
+	for _, node := range nodes {
+		if err := html.Render(&rendered, node); err != nil {
+			return "", err
+		}
+	}
+	if policy != nil {
+		return policy.Sanitize(rendered.String()), nil
+	}
+	return rendered.String(), nil
+}
+
+func htmlNodeText(node *html.Node) string {
+	var text strings.Builder
+	var walk func(*html.Node)
+	walk = func(current *html.Node) {
+		if current.Type == html.TextNode {
+			text.WriteString(current.Data)
+		}
+		for child := current.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(node)
+	return text.String()
+}
 
 func translateHTMLTextNodesWith(ctx context.Context, policy *HTMLPolicy, bodyHTML, target string, maxChars int, translator htmlTextTranslator) (string, error) {
 	nodes, err := html.ParseFragment(strings.NewReader(bodyHTML), nil)
@@ -290,7 +388,31 @@ func truncateRunes(value string, max int) (string, bool) {
 func googleFreeTranslate(ctx context.Context, text, target string) (string, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
-	req, err := newGoogleTranslateRequest(ctx, text, target)
+	var lastErr error
+	for endpointIndex, endpoint := range googleTranslateEndpoints {
+		translated, source, err := googleTranslateOnce(ctx, endpoint, text, target)
+		if err == nil {
+			return translated, source, nil
+		}
+		lastErr = err
+		if ctx.Err() != nil {
+			return "", "", ctx.Err()
+		}
+		if endpointIndex < len(googleTranslateEndpoints)-1 {
+			timer := time.NewTimer(200 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return "", "", ctx.Err()
+			case <-timer.C:
+			}
+		}
+	}
+	return "", "", lastErr
+}
+
+func googleTranslateOnce(ctx context.Context, endpoint, text, target string) (string, string, error) {
+	req, err := newGoogleTranslateRequestForEndpoint(ctx, endpoint, text, target)
 	if err != nil {
 		return "", "", err
 	}
@@ -316,13 +438,17 @@ func googleFreeTranslate(ctx context.Context, text, target string) (string, stri
 }
 
 func newGoogleTranslateRequest(ctx context.Context, text, target string) (*http.Request, error) {
+	return newGoogleTranslateRequestForEndpoint(ctx, googleTranslateEndpoint, text, target)
+}
+
+func newGoogleTranslateRequestForEndpoint(ctx context.Context, endpoint, text, target string) (*http.Request, error) {
 	params := url.Values{}
 	params.Set("client", "gtx")
 	params.Set("sl", "auto")
 	params.Set("tl", target)
 	params.Set("dt", "t")
 	params.Set("q", text)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, googleTranslateEndpoint, strings.NewReader(params.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(params.Encode()))
 	if err != nil {
 		return nil, err
 	}
