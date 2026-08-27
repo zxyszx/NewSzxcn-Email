@@ -773,7 +773,7 @@
 
   .mail-content-grid {
     display: grid;
-    grid-template-columns: 384px minmax(0, 1fr);
+    grid-template-columns: clamp(20rem, 28vw, 24rem) minmax(0, 1fr);
   }
 
   .mail-list-pane,
@@ -784,14 +784,19 @@
 
   .mail-list-pane {
     border-right: 1px solid hsl(var(--border));
-    width: 384px;
-    max-width: 384px;
+    width: auto;
+    max-width: none;
   }
 
   .mail-selected-row {
     background-color: hsl(var(--mail-selected));
   }
 
+  @media (min-width: 768px) and (max-width: 1023px) {
+    .mail-shell-grid {
+      grid-template-columns: 15rem minmax(0, 1fr);
+    }
+  }
 
   @media (max-width: 767px) {
     .mail-content-grid {

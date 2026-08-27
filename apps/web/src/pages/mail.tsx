@@ -138,19 +138,11 @@ type MailMenuItem =
   | { type: "unknown"; key: string; label: string; icon: React.ReactNode; count: number; order: number }
   | { type: "folder"; key: string; folderId: string; folderName: string; label: string; icon: React.ReactNode; count: number; custom: boolean; order: number }
 
-const filterLabels: Record<MailFilter, string> = {
-  all: "全部",
-  unread: "未读",
-  starred: "已加旗标",
-  attachments: "有附件",
-  recent7: "最近 7 天",
-}
-
 const emptyAdvancedSearch: AdvancedMailSearch = { from: "", to: "", subject: "", startDate: "", endDate: "", hasAttachments: false, unread: false, starred: false }
 const emptyAdvancedSearchDraft: AdvancedMailSearchDraft = { ...emptyAdvancedSearch }
 const mailImportBatchBytes = 32 * 1024 * 1024
 const mailImportBatchFiles = 20
-const mailCompactBreakpoint = 768
+const mailCompactBreakpoint = 1024
 const mailDetailBreakpoint = 768
 
 function buildMailImportBatches(files: File[]) {
@@ -1382,9 +1374,6 @@ export function MailPage() {
   function clearAdvancedSearch() {
     updateAdvancedSearch(emptyAdvancedSearch)
   }
-  function removeAdvancedSearchFilter(key: keyof AdvancedMailSearch) {
-    updateAdvancedSearch({ ...advancedSearch, [key]: emptyAdvancedSearch[key] })
-  }
   function handleSearchKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
     if (event.key !== "Enter") return
     const parsed = parseSmartSearchQuery(query)
@@ -1741,6 +1730,55 @@ export function MailPage() {
     </div>
   ) : null
 
+  const mailSearchControl = (
+    <div className="relative">
+      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      <Input
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        onKeyDown={handleSearchKeyDown}
+        placeholder="搜索发件人、主题、内容..."
+        aria-label="搜索发件人、主题或邮件内容"
+        className="h-10 rounded-md bg-background pl-9 pr-20 text-[13px] shadow-none"
+      />
+      {query && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="absolute right-10 top-1/2 h-8 w-8 -translate-y-1/2 text-muted-foreground"
+          onClick={() => setQuery("")}
+          aria-label="清空搜索"
+          title="清空搜索"
+        >
+          <X className="h-3.5 w-3.5" />
+        </Button>
+      )}
+      <Button
+        type="button"
+        variant={advancedSearchActive || advancedSearchOpen ? "secondary" : "ghost"}
+        size="icon"
+        className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2 text-muted-foreground"
+        onClick={toggleAdvancedSearch}
+        aria-label="高级搜索"
+        title="高级搜索"
+      >
+        <SlidersHorizontal className="h-4 w-4" />
+        {advancedSearchChips.length > 0 && (
+          <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-primary" aria-hidden="true" />
+        )}
+      </Button>
+      {advancedSearchOpen && (
+        <AdvancedSearchPanel
+          draft={advancedSearchDraft}
+          onDraftChange={setAdvancedSearchDraft}
+          onSubmit={applyAdvancedSearch}
+          onClear={clearAdvancedSearch}
+        />
+      )}
+    </div>
+  )
+
   const contentView = !canAccessMail ? (
     <PermissionEmptyState title="无邮箱前台权限" description="当前账号未开启邮箱前台访问权限。" onOpenSettings={openSettings} />
   ) : !canReadMail ? (
@@ -1838,53 +1876,14 @@ export function MailPage() {
       canDownloadAttachments={canDownloadAttachments}
       language={language}
       tools={!isMobile ? mailTransferTools : undefined}
+      search={mailSearchControl}
     />
   ) : (
     <div className={cn("mail-content-grid min-h-0 flex-1 bg-background", selectedId && "is-reading")}>
       <div className={cn("mail-list-pane min-w-0", selectedId && "max-[767px]:hidden")}>
         <div className="flex h-full min-h-0 flex-col bg-background">
-          <div className="shrink-0 border-b px-3 pb-2.5 pt-2.5">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-              <Input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={handleSearchKeyDown} placeholder="搜索发件人、主题、内容..." className="h-9 rounded-md bg-background pl-8 text-[13px] shadow-none" />
-            </div>
-            <div className="relative mt-2">
-              <Button type="button" variant={advancedSearchActive || advancedSearchOpen ? "secondary" : "outline"} size="sm" className="h-7 rounded-md px-2 text-xs font-normal shadow-none" onClick={toggleAdvancedSearch}>
-                <SlidersHorizontal className="h-3.5 w-3.5" />
-                高级搜索
-              </Button>
-              {advancedSearchOpen && (
-                <AdvancedSearchPanel
-                  draft={advancedSearchDraft}
-                  onDraftChange={setAdvancedSearchDraft}
-                  onSubmit={applyAdvancedSearch}
-                  onClear={clearAdvancedSearch}
-                />
-              )}
-            </div>
-            {advancedSearchChips.length > 0 && (
-              <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                {advancedSearchChips.map((chip) => (
-                  <SearchFilterChip key={chip.key} label={chip.label} onRemove={() => removeAdvancedSearchFilter(chip.key)} />
-                ))}
-                <Button type="button" variant="ghost" className="h-6 rounded-full px-2 text-xs font-normal text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={clearAdvancedSearch}>清空</Button>
-              </div>
-            )}
-            <div className="mt-2.5 flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground">
-              <span className="shrink-0">快捷筛选</span>
-              {(["attachments", "starred", "recent7"] as MailFilter[]).map((value) => (
-                <Button
-                  key={value}
-                  type="button"
-                  variant={mailFilter === value ? "secondary" : "outline"}
-                  size="sm"
-                  className={cn("h-7 shrink-0 rounded-full px-2.5 text-xs font-normal shadow-none", mailFilter === value && "bg-accent text-accent-foreground")}
-                  onClick={() => setMailFilter(mailFilter === value ? "all" : value)}
-                >
-                  {filterLabels[value]}
-                </Button>
-              ))}
-            </div>
+          <div className="shrink-0 border-b p-3">
+            {mailSearchControl}
           </div>
           <div className="flex min-h-14 shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
             <div className="flex min-w-0 items-center gap-2">
@@ -1936,25 +1935,32 @@ export function MailPage() {
           {detail.isLoading && <div className="space-y-4 p-6"><Skeleton className="h-8 w-2/3" /><Skeleton className="h-4 w-1/3" /><Separator /><Skeleton className="h-40 w-full" /></div>}
           {detail.isError && <MailDetailFailure error={detail.error} onRetry={() => { void detail.refetch() }} />}
           {!detail.isError && selected && <div className="flex h-full min-h-0 flex-col">
-            <div className="border-b p-5">
+            <div className="shrink-0 border-b px-4 py-3">
               {isTwoPaneMailViewport && (
-                <Button variant="ghost" size="sm" className="-ml-2 mb-3 h-8 px-2 text-[13px] font-normal" onClick={closeMessageReader}>
+                <Button variant="ghost" size="sm" className="-ml-2 mb-2 h-8 px-2 text-[13px] font-normal" onClick={closeMessageReader}>
                   <ArrowLeft className="h-4 w-4" />
                   返回列表
                 </Button>
               )}
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <h2 className="text-xl font-semibold">{selected.subject}</h2>
-                <div className="flex flex-wrap justify-end gap-2">
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <h2 className="min-w-0 flex-1 break-words text-lg font-semibold leading-6">{selected.subject}</h2>
+                <div className="flex shrink-0 items-center gap-1.5">
                   {canSendMail && <Button variant="outline" size="sm" onClick={() => openReply(selected)}><Reply className="h-4 w-4" />回复</Button>}
                   {canSendMail && <Button variant="outline" size="sm" onClick={() => openForward(selected)}><Forward className="h-4 w-4" />转发</Button>}
-                  {mailView !== "external" && mailView !== "unknown" && selected.sendQueueId && <Button variant="outline" size="sm" onClick={() => openMessageSendTimeline(selected)}><History className="h-4 w-4" />投递时间线</Button>}
-                  {mailView !== "external" && mailView !== "unknown" && canOrganizeMail && (selected.folder === "Archive" ? (
-                    <Button variant="outline" size="sm" onClick={() => move.mutate({ id: selected.id, folder: "Inbox" })}>取消归档</Button>
-                  ) : (
-                    <Button variant="outline" size="sm" onClick={() => move.mutate({ id: selected.id, folder: "Archive" })}>归档</Button>
-                  ))}
-                  {mailView !== "external" && mailView !== "unknown" && canOrganizeMail && <Button variant="destructive" size="sm" onClick={() => confirmDeleteMessage(selected)}>{selected.folder === "Trash" ? "永久删除" : "移入已删除"}</Button>}
+                  {(mailView !== "external" && mailView !== "unknown") && (selected.sendQueueId || canOrganizeMail) && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="icon" className="h-9 w-9" aria-label="更多邮件操作" title="更多邮件操作">
+                          <Ellipsis className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {selected.sendQueueId && <DropdownMenuItem onSelect={() => openMessageSendTimeline(selected)}><History className="h-4 w-4" />投递时间线</DropdownMenuItem>}
+                        {canOrganizeMail && <DropdownMenuItem onSelect={() => move.mutate({ id: selected.id, folder: selected.folder === "Archive" ? "Inbox" : "Archive" })}><Archive className="h-4 w-4" />{selected.folder === "Archive" ? "取消归档" : "归档"}</DropdownMenuItem>}
+                        {canOrganizeMail && <DropdownMenuItem className="text-destructive" onSelect={() => confirmDeleteMessage(selected)}><Trash2 className="h-4 w-4" />{selected.folder === "Trash" ? "永久删除" : "移入已删除"}</DropdownMenuItem>}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                 </div>
               </div>
               <MessageMetaPanel
@@ -1963,7 +1969,7 @@ export function MailPage() {
               />
             </div>
             <ScrollArea className="min-h-0 flex-1">
-              <div className="p-6">
+              <div className="px-5 py-4">
                 <TranslatableMailBody message={selected} language={language} />
                 {selected.attachments && selected.attachments.length > 0 && <div className="mt-8 rounded-lg border p-4"><div className="mb-3 font-medium">附件</div><div className="space-y-2">{selected.attachments.map((a) => canDownloadAttachments ? <a className="flex items-center justify-between rounded-md border p-3 text-sm hover:bg-accent" href={attachmentHref(selected, a.id)} key={a.id}><span className="flex items-center gap-2"><Paperclip className="h-4 w-4" />{a.filename}</span><span className="text-muted-foreground">{formatBytes(a.sizeBytes)}</span></a> : <div className="flex items-center justify-between rounded-md border p-3 text-sm text-muted-foreground" key={a.id}><span className="flex items-center gap-2"><Paperclip className="h-4 w-4" />{a.filename}</span><span>{formatBytes(a.sizeBytes)}</span></div>)}</div></div>}
               </div>
@@ -1993,10 +1999,7 @@ export function MailPage() {
                 <div className="min-w-0 flex-1 text-sm font-semibold">{mailView === "label" && selectedLabel ? <Badge variant="outline" className="gap-1.5 rounded-md font-normal"><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: labelDotColor(selectedLabel) }} />{selectedLabel.name}</Badge> : viewTitle}</div>
                 {mailTransferTools}
                   {canSendMail && <Button type="button" size="icon" onClick={() => openCompose()} disabled={!selectedComposeMailbox} aria-label="写邮件"><PencilLine className="h-4 w-4" /></Button>}
-                <div className="relative basis-full">
-                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={mailView === "external" ? "搜索远端邮件" : mailView === "sendQueue" ? "搜索发送队列" : mailView === "scheduled" ? "搜索待发送" : "搜索邮件"} className="h-10 pl-9" />
-                </div>
+                <div className="relative basis-full">{mailSearchControl}</div>
               </header>
             )}
             <section className="flex min-h-0 flex-1 flex-col">{contentView}</section>
@@ -2298,17 +2301,6 @@ function AdvancedSearchToggle({ checked, onClick, children }: { checked: boolean
     <Button type="button" variant={checked ? "secondary" : "outline"} className={cn("h-7 rounded-full px-3 text-xs font-normal shadow-none", checked && "bg-accent text-accent-foreground")} onClick={onClick}>
       {children}
     </Button>
-  )
-}
-
-function SearchFilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
-  return (
-    <span className="inline-flex h-6 max-w-full items-center gap-1 rounded-full border bg-accent px-2 text-xs text-accent-foreground">
-      <span className="truncate">{label}</span>
-      <Button type="button" variant="ghost" size="icon" className="h-4 w-4 shrink-0 rounded-full p-0 text-muted-foreground shadow-none hover:bg-background hover:text-foreground" onClick={onRemove} aria-label={`移除筛选 ${label}`}>
-        <X className="h-3 w-3" />
-      </Button>
-    </span>
   )
 }
 
@@ -3083,6 +3075,7 @@ function CompactMailView({
   canDownloadAttachments,
   language,
   tools,
+  search,
 }: {
   title: string
   currentFolder?: string
@@ -3127,6 +3120,7 @@ function CompactMailView({
   canDownloadAttachments: boolean
   language: Language
   tools?: React.ReactNode
+  search: React.ReactNode
 }) {
   const selectedIndex = selectedId ? messages.findIndex((message) => message.id === selectedId) : -1
   const previousMessage = selectedIndex > 0 ? messages[selectedIndex - 1] : undefined
@@ -3165,6 +3159,7 @@ function CompactMailView({
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
+      <div className="shrink-0 border-b p-3">{search}</div>
       <div className="flex min-h-11 shrink-0 items-center gap-3 border-b px-3 sm:px-4">
         <div className={cn("flex min-w-0 items-center gap-2.5", selectedIds.length === 0 && "flex-1")}>
           <Checkbox aria-label="选择当前页邮件" checked={allSelected ? true : someSelected ? "indeterminate" : false} onCheckedChange={(value) => onSelectAll(value === true)} />
@@ -3293,8 +3288,8 @@ function CompactMessageDetail({
             </DropdownMenu>
           )}
         </div>
-        <div className="hidden min-h-10 items-center justify-between gap-3 sm:flex">
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="hidden min-h-10 items-center justify-between gap-2 sm:flex">
+          <div className="flex min-w-0 items-center gap-1.5">
             <Button variant="outline" size="sm" onClick={onBack}><ArrowLeft className="h-4 w-4" />返回</Button>
             {selected?.folder === "Drafts" ? (
               <Button variant="outline" size="sm" onClick={() => onSelect(selected.id)}><PencilLine className="h-4 w-4" />编辑草稿</Button>
@@ -3302,17 +3297,26 @@ function CompactMessageDetail({
               <>
                 {selected && canSend && <Button variant="outline" size="sm" onClick={() => onReply(selected)}><Reply className="h-4 w-4" />回复</Button>}
                 {selected && canSend && <Button variant="outline" size="sm" onClick={() => onForward(selected)}><Forward className="h-4 w-4" />转发</Button>}
-                {selected?.sendQueueId && <Button variant="outline" size="sm" onClick={() => onSendTimeline(selected)}><History className="h-4 w-4" />投递时间线</Button>}
-                {selected && canOrganize && <Button variant="outline" size="sm" onClick={() => onArchive(selected)}>{selected.folder === "Archive" ? "取消归档" : "归档"}</Button>}
-                {selected && canOrganize && <Button variant="outline" size="sm" onClick={() => onToggleRead(selected)}><MailCheck className="h-4 w-4" />{selected.isRead ? "标为未读" : "标为已读"}</Button>}
-                {selected && canOrganize && <Button variant="outline" size="sm" onClick={() => onStar(selected)}><Star className={cn("h-4 w-4", selected.isStarred && "fill-yellow-400 text-yellow-500")} />{selected.isStarred ? "取消星标" : "添加星标"}</Button>}
               </>
             )}
-            {selected && canOrganize && <Button variant="outline" size="sm" onClick={() => onDelete(selected)}><Trash2 className="h-4 w-4" />{selected.folder === "Trash" ? "永久删除" : "移入已删除"}</Button>}
+            {selected && (selected.sendQueueId || canOrganize) && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="icon" className="h-9 w-9" aria-label="更多邮件操作" title="更多邮件操作"><Ellipsis className="h-4 w-4" /></Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  {selected.sendQueueId && <DropdownMenuItem onSelect={() => onSendTimeline(selected)}><History className="h-4 w-4" />投递时间线</DropdownMenuItem>}
+                  {canOrganize && <DropdownMenuItem onSelect={() => onArchive(selected)}><Archive className="h-4 w-4" />{selected.folder === "Archive" ? "取消归档" : "归档"}</DropdownMenuItem>}
+                  {canOrganize && <DropdownMenuItem onSelect={() => onToggleRead(selected)}><MailCheck className="h-4 w-4" />{selected.isRead ? "标为未读" : "标为已读"}</DropdownMenuItem>}
+                  {canOrganize && <DropdownMenuItem onSelect={() => onStar(selected)}><Star className={cn("h-4 w-4", selected.isStarred && "fill-yellow-400 text-yellow-500")} />{selected.isStarred ? "取消星标" : "添加星标"}</DropdownMenuItem>}
+                  {canOrganize && <DropdownMenuItem className="text-destructive" onSelect={() => onDelete(selected)}><Trash2 className="h-4 w-4" />{selected.folder === "Trash" ? "永久删除" : "移入已删除"}</DropdownMenuItem>}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" disabled={!previousMessage} onClick={() => previousMessage && onSelect(previousMessage.id)}>上一封</Button>
-            <Button variant="ghost" size="sm" disabled={!nextMessage} onClick={() => nextMessage && onSelect(nextMessage.id)}>下一封</Button>
+          <div className="flex shrink-0 items-center gap-1">
+            <Button variant="ghost" size="icon" className="h-9 w-9" disabled={!previousMessage} onClick={() => previousMessage && onSelect(previousMessage.id)} aria-label="上一封" title="上一封"><ArrowLeft className="h-4 w-4" /></Button>
+            <Button variant="ghost" size="icon" className="h-9 w-9" disabled={!nextMessage} onClick={() => nextMessage && onSelect(nextMessage.id)} aria-label="下一封" title="下一封"><ArrowLeft className="h-4 w-4 rotate-180" /></Button>
           </div>
         </div>
       </div>
@@ -3321,10 +3325,10 @@ function CompactMessageDetail({
         {!loading && !error && !selected && <div className="grid flex-1 place-items-center text-sm text-muted-foreground">邮件不存在</div>}
         {!error && selected && (
           <ScrollArea className="min-h-0 flex-1">
-            <div className="w-full px-4 py-4 sm:px-8 sm:py-6">
-              <div className="space-y-5 border-b pb-5">
+            <div className="w-full px-4 py-3 sm:px-5 sm:py-4">
+              <div className="space-y-3 border-b pb-3">
                 <div className="flex items-start gap-3">
-                  <h1 className="min-w-0 flex-1 break-words text-xl font-semibold tracking-tight sm:text-2xl">{messageSubject(selected)}</h1>
+                  <h1 className="min-w-0 flex-1 break-words text-lg font-semibold leading-6 sm:text-xl">{messageSubject(selected)}</h1>
                   {canOrganize && <Button type="button" variant="ghost" size="icon" aria-label={selected.isStarred ? "取消星标" : "添加星标"} className="text-muted-foreground hover:text-yellow-500" onClick={() => onStar(selected)}>
                     <Star className={cn("h-5 w-5", selected.isStarred && "fill-yellow-400 text-yellow-500")} />
                   </Button>}
@@ -3334,7 +3338,7 @@ function CompactMessageDetail({
                   {...(canManageLabels ? { availableLabels: labels, onAddLabel: (label: MailLabel) => onAddLabel(selected, label), onRemoveLabel: (labelId: string) => onRemoveLabel(selected, labelId), labelPending } : {})}
                 />
               </div>
-              <div className="py-6 sm:py-8">
+              <div className="py-4">
                 <TranslatableMailBody message={selected} language={language} />
                 {selected.attachments && selected.attachments.length > 0 && <div className="mt-8 rounded-lg border p-4"><div className="mb-3 font-medium">附件</div><div className="space-y-2">{selected.attachments.map((a) => canDownloadAttachments ? <a className="flex flex-col gap-1 rounded-md border p-3 text-sm hover:bg-accent sm:flex-row sm:items-center sm:justify-between" href={attachmentHref(selected, a.id)} key={a.id}><span className="flex min-w-0 items-center gap-2"><Paperclip className="h-4 w-4 shrink-0" /><span className="truncate">{a.filename}</span></span><span className="text-muted-foreground">{formatBytes(a.sizeBytes)}</span></a> : <div className="flex flex-col gap-1 rounded-md border p-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between" key={a.id}><span className="flex min-w-0 items-center gap-2"><Paperclip className="h-4 w-4 shrink-0" /><span className="truncate">{a.filename}</span></span><span>{formatBytes(a.sizeBytes)}</span></div>)}</div></div>}
               </div>
@@ -3820,6 +3824,7 @@ function MessageMetaPanel({ message, availableLabels, onAddLabel, onRemoveLabel,
   onRemoveLabel?: (labelId: string) => void
   labelPending?: boolean
 }) {
+  const [expanded, setExpanded] = React.useState(false)
   const fromName = senderDisplayName(message)
   const fromAddress = senderAddress(message)
   const to = cleanAddressList(message.to)
@@ -3829,16 +3834,48 @@ function MessageMetaPanel({ message, availableLabels, onAddLabel, onRemoveLabel,
   const showSentAt = Boolean(message.sentAt) && !sameMailTime(message.sentAt, message.receivedAt)
   const labels = message.labels || []
 
+  React.useEffect(() => {
+    setExpanded(false)
+  }, [message.id])
+
   return (
-    <div className="space-y-3 rounded-xl border bg-muted/20 p-3 text-sm">
-      <div className="flex min-w-0 items-start gap-3">
-        <Avatar className="size-10 shrink-0 rounded-full">
+    <div className="overflow-hidden rounded-lg border bg-muted/20 text-sm">
+      <div className="flex min-w-0 items-center gap-3 p-3">
+        <Avatar className="size-9 shrink-0 rounded-full">
           <AvatarFallback className="bg-primary text-sm font-semibold text-primary-foreground">{accountInitial(fromName, fromAddress)}</AvatarFallback>
         </Avatar>
-        <div className="min-w-0 flex-1 space-y-2">
-          <MessageMetaRow label="发件人">
-            <span className="break-words font-medium text-foreground" title={senderTitle(message)}>{fromName}</span>
-          </MessageMetaRow>
+        <button
+          type="button"
+          className="min-w-0 flex-1 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          onClick={() => setExpanded((value) => !value)}
+          aria-expanded={expanded}
+          aria-label={expanded ? "收起邮件详细信息" : "展开邮件详细信息"}
+        >
+          <div className="flex min-w-0 items-baseline gap-2">
+            <span className="truncate font-medium text-foreground" title={senderTitle(message)}>{fromName}</span>
+            <span className="hidden min-w-0 truncate text-xs text-muted-foreground sm:inline" title={fromAddress}>&lt;{fromAddress}&gt;</span>
+          </div>
+          <div className="mt-0.5 truncate text-xs text-muted-foreground">
+            {to.length > 0 ? `发送至 ${to.join(", ")}` : deliveredTo ? `投递至 ${deliveredTo}` : "未填写收件人"}
+          </div>
+        </button>
+        <div className="shrink-0 text-right">
+          <div className="text-xs text-muted-foreground">{formatDateTime(message.receivedAt)}</div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="mt-0.5 h-7 w-7 text-muted-foreground"
+            onClick={() => setExpanded((value) => !value)}
+            aria-label={expanded ? "收起邮件详细信息" : "展开邮件详细信息"}
+            title={expanded ? "收起详细信息" : "查看详细信息"}
+          >
+            <ChevronDown className={cn("h-4 w-4 transition-transform duration-200", expanded && "rotate-180")} />
+          </Button>
+        </div>
+      </div>
+      {expanded && (
+        <div className="space-y-2 border-t px-3 py-3 pl-[3.75rem]">
           <MessageMetaRow label="发件人地址">
             <span className="break-all">{fromAddress}</span>
           </MessageMetaRow>
@@ -3922,7 +3959,7 @@ function MessageMetaPanel({ message, availableLabels, onAddLabel, onRemoveLabel,
             </MessageMetaRow>
           )}
         </div>
-      </div>
+      )}
     </div>
   )
 }

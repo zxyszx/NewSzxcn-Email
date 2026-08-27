@@ -84,7 +84,7 @@ func TestForwardingVerificationMessageMetadataAndContent(t *testing.T) {
 	}
 	for contentType, body := range parts {
 		content := string(body)
-		for _, expected := range []string{"请确认您的邮箱转发设置", "k***e@example.net", "24 小时", "您的邮箱设置不会被更改", "/api/verify-email?token=secret-token"} {
+		for _, expected := range []string{"NewSzxcn Email Service", "请确认您的邮箱转发设置", "k***e@example.net", "24 小时", "您的邮箱设置不会被更改", "请勿直接回复", "/mail/forwarding/verification/confirm?token=secret-token"} {
 			if !strings.Contains(content, expected) {
 				t.Fatalf("%s missing %q: %s", contentType, expected, content)
 			}
@@ -92,6 +92,15 @@ func TestForwardingVerificationMessageMetadataAndContent(t *testing.T) {
 		if strings.Contains(content, "kellisonwreede@example.net") {
 			t.Fatalf("%s exposes full target address: %s", contentType, content)
 		}
+	}
+	htmlBody := string(parts["text/html"])
+	for _, expected := range []string{`role="presentation"`, `max-width:600px`, `background:#2563eb`, "安全验证"} {
+		if !strings.Contains(htmlBody, expected) {
+			t.Fatalf("html template missing %q: %s", expected, htmlBody)
+		}
+	}
+	if strings.Contains(htmlBody, "<img") || strings.Contains(htmlBody, "linear-gradient") {
+		t.Fatalf("verification email should not depend on external images or gradients: %s", htmlBody)
 	}
 }
 
@@ -108,6 +117,19 @@ func TestMaskEmailAddress(t *testing.T) {
 	for input, expected := range tests {
 		if actual := maskEmailAddress(input); actual != expected {
 			t.Errorf("maskEmailAddress(%q)=%q want %q", input, actual, expected)
+		}
+	}
+}
+
+func TestValidEmailAddress(t *testing.T) {
+	for _, value := range []string{"friend@example.com", "Friend+tag@Example.COM", "admin@lanqin.local"} {
+		if !validEmailAddress(value) {
+			t.Errorf("validEmailAddress(%q)=false", value)
+		}
+	}
+	for _, value := range []string{"", "friend", "missing@", "@example.com", "Friend <friend@example.com>", "friend@@example.com"} {
+		if validEmailAddress(value) {
+			t.Errorf("validEmailAddress(%q)=true", value)
 		}
 	}
 }
@@ -177,6 +199,173 @@ func TestForwardingVerificationRateLimitAndTokenRotation(t *testing.T) {
 	}
 	if status := getStatusForTest(t, ts.URL+"/api/verify-email?token="+secondToken); status != http.StatusOK {
 		t.Fatalf("repeated verified token status=%d", status)
+	}
+}
+
+func TestForwardingVerificationAutomaticallyActivatesPendingMailboxBinding(t *testing.T) {
+	a := newTestApp(t)
+	stopTestWorkers(a)
+	a.updateConfig(func(cfg *Config) { cfg.SMTPHost = "postfix" })
+	user, mailbox := defaultAdminUserAndMailbox(t, a)
+	ctx := context.Background()
+	now := time.Date(2026, 8, 25, 9, 0, 0, 0, time.UTC)
+	a.now = func() time.Time { return now }
+	email := "friend@example.net"
+	verifiedID := newID("fwd")
+	if err := a.issueForwardingVerification(ctx, user.ID, verifiedID, email, true); err != nil {
+		t.Fatal(err)
+	}
+	bindingID := newID("fbind")
+	if _, err := a.db.Exec(`INSERT INTO forwarding_pending_bindings(id,user_id,verified_email_id,target_email,scope,mailbox_id,status,failure_reason,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?)`, bindingID, user.ID, verifiedID, email, forwardingBindingScopeMailbox, mailbox.ID, forwardingBindingPending, "", now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	token := latestForwardingTokenForTest(t, a, user.ID)
+	ts := httptest.NewServer(a.Router())
+	defer ts.Close()
+	resp, err := http.Get(ts.URL + "/api/verify-email?format=json&token=" + token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var result struct {
+		OK          bool                   `json:"ok"`
+		Activations []ForwardingActivation `json:"activations"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK || !result.OK || len(result.Activations) != 1 {
+		t.Fatalf("status=%d result=%+v", resp.StatusCode, result)
+	}
+	if result.Activations[0].SourceEmail != mailbox.Address || result.Activations[0].TargetEmail != email {
+		t.Fatalf("activation=%+v", result.Activations[0])
+	}
+	var target, targetsJSON, bindingStatus, tokenHash string
+	if err := a.db.QueryRow(`SELECT target_email,target_emails FROM mailbox_forwarding_settings WHERE mailbox_id=?`, mailbox.ID).Scan(&target, &targetsJSON); err != nil {
+		t.Fatal(err)
+	}
+	if target != email || len(forwardingTargetsFromStored(target, targetsJSON)) != 1 {
+		t.Fatalf("target=%q targets=%q", target, targetsJSON)
+	}
+	if err := a.db.QueryRow(`SELECT status FROM forwarding_pending_bindings WHERE id=?`, bindingID).Scan(&bindingStatus); err != nil || bindingStatus != forwardingBindingActive {
+		t.Fatalf("binding status=%q err=%v", bindingStatus, err)
+	}
+	if err := a.db.QueryRow(`SELECT verification_token_hash FROM forwarding_verified_emails WHERE id=?`, verifiedID).Scan(&tokenHash); err != nil || tokenHash != hashToken(token) {
+		t.Fatalf("token hash=%q err=%v", tokenHash, err)
+	}
+	if status := getStatusForTest(t, ts.URL+"/api/verify-email?token="+token); status != http.StatusOK {
+		t.Fatalf("repeated verified token status=%d", status)
+	}
+	var auditCount int
+	if err := a.db.QueryRow(`SELECT COUNT(1) FROM forwarding_audit_events WHERE binding_id=? AND event='binding.activated'`, bindingID).Scan(&auditCount); err != nil || auditCount != 1 {
+		t.Fatalf("audit count=%d err=%v", auditCount, err)
+	}
+}
+
+func TestForwardingVerificationAutomaticallyActivatesPendingAccountBinding(t *testing.T) {
+	a := newTestApp(t)
+	stopTestWorkers(a)
+	a.updateConfig(func(cfg *Config) { cfg.SMTPHost = "postfix" })
+	user, _ := defaultAdminUserAndMailbox(t, a)
+	ctx := context.Background()
+	now := time.Date(2026, 8, 25, 10, 0, 0, 0, time.UTC)
+	a.now = func() time.Time { return now }
+	email := "global-friend@example.net"
+	verifiedID := newID("fwd")
+	if err := a.issueForwardingVerification(ctx, user.ID, verifiedID, email, true); err != nil {
+		t.Fatal(err)
+	}
+	bindingID := newID("fbind")
+	if _, err := a.db.Exec(`INSERT INTO forwarding_pending_bindings(id,user_id,verified_email_id,target_email,scope,mailbox_id,status,failure_reason,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?)`, bindingID, user.ID, verifiedID, email, forwardingBindingScopeAccount, "", forwardingBindingPending, "", now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+
+	token := latestForwardingTokenForTest(t, a, user.ID)
+	ts := httptest.NewServer(a.Router())
+	defer ts.Close()
+	resp, err := http.Get(ts.URL + "/api/verify-email?format=json&token=" + token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var result struct {
+		OK          bool                   `json:"ok"`
+		Activations []ForwardingActivation `json:"activations"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK || !result.OK || len(result.Activations) != 1 {
+		t.Fatalf("status=%d result=%+v", resp.StatusCode, result)
+	}
+	activation := result.Activations[0]
+	if activation.Scope != forwardingBindingScopeAccount || activation.SourceEmail != "账号下全部会员邮箱" || activation.TargetEmail != email {
+		t.Fatalf("activation=%+v", activation)
+	}
+
+	var target, targetsJSON, bindingStatus string
+	if err := a.db.QueryRow(`SELECT target_email,target_emails FROM account_forwarding_settings WHERE user_id=?`, user.ID).Scan(&target, &targetsJSON); err != nil {
+		t.Fatal(err)
+	}
+	if target != email || len(forwardingTargetsFromStored(target, targetsJSON)) != 1 {
+		t.Fatalf("target=%q targets=%q", target, targetsJSON)
+	}
+	if err := a.db.QueryRow(`SELECT status FROM forwarding_pending_bindings WHERE id=?`, bindingID).Scan(&bindingStatus); err != nil || bindingStatus != forwardingBindingActive {
+		t.Fatalf("binding status=%q err=%v", bindingStatus, err)
+	}
+	var auditCount int
+	if err := a.db.QueryRow(`SELECT COUNT(1) FROM forwarding_audit_events WHERE binding_id=? AND event='binding.activated'`, bindingID).Scan(&auditCount); err != nil || auditCount != 1 {
+		t.Fatalf("audit count=%d err=%v", auditCount, err)
+	}
+}
+
+func TestCreatePendingBindingVerifiesThenActivatesAndReusesVerifiedAddress(t *testing.T) {
+	a := newTestApp(t)
+	stopTestWorkers(a)
+	a.updateConfig(func(cfg *Config) { cfg.SMTPHost = "postfix" })
+	_, mailbox := defaultAdminUserAndMailbox(t, a)
+	now := time.Date(2026, 8, 25, 11, 0, 0, 0, time.UTC)
+	a.now = func() time.Time { return now }
+	ts := httptest.NewServer(a.Router())
+	defer ts.Close()
+	client := &testClient{t: t, server: ts}
+	if code := client.do("POST", "/api/auth/login", map[string]string{"email": "admin@lanqin.local", "password": "ChangeMe123!"}, nil); code != http.StatusOK {
+		t.Fatalf("login code=%d", code)
+	}
+
+	email := "friend@example.net"
+	var pendingSettings ForwardingSettings
+	if code := client.do("POST", "/api/me/forwarding/pending-bindings", map[string]string{
+		"email": email, "scope": forwardingBindingScopeMailbox, "mailboxId": mailbox.ID,
+	}, &pendingSettings); code != http.StatusCreated {
+		t.Fatalf("create pending binding code=%d settings=%+v", code, pendingSettings)
+	}
+	if len(pendingSettings.PendingBindings) != 1 || pendingSettings.PendingBindings[0].Status != forwardingBindingPending {
+		t.Fatalf("pending bindings=%+v", pendingSettings.PendingBindings)
+	}
+
+	token := latestForwardingTokenForTest(t, a, mailbox.UserID)
+	if status := getStatusForTest(t, ts.URL+"/api/verify-email?token="+token); status != http.StatusOK {
+		t.Fatalf("verify status=%d", status)
+	}
+	var activatedSettings ForwardingSettings
+	if code := client.do("GET", "/api/me/forwarding", nil, &activatedSettings); code != http.StatusOK {
+		t.Fatalf("load activated settings code=%d", code)
+	}
+	if len(activatedSettings.MailboxRules) != 1 || len(activatedSettings.MailboxRules[0].TargetEmails) != 1 || activatedSettings.MailboxRules[0].TargetEmails[0] != email {
+		t.Fatalf("mailbox rules=%+v", activatedSettings.MailboxRules)
+	}
+
+	var immediateSettings ForwardingSettings
+	if code := client.do("POST", "/api/me/forwarding/pending-bindings", map[string]string{
+		"email": email, "scope": forwardingBindingScopeAccount,
+	}, &immediateSettings); code != http.StatusOK {
+		t.Fatalf("bind verified address code=%d settings=%+v", code, immediateSettings)
+	}
+	if len(immediateSettings.AccountTargetEmails) != 1 || immediateSettings.AccountTargetEmails[0] != email {
+		t.Fatalf("account targets=%+v", immediateSettings.AccountTargetEmails)
 	}
 }
 

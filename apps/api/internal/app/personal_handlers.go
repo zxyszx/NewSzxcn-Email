@@ -200,11 +200,11 @@ func (a *App) handleCreateContact(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, err)
 		return
 	}
-	email := normalizeEmail(req.Email)
-	if email == "" || !strings.Contains(email, "@") {
+	if !validEmailAddress(req.Email) {
 		badRequest(w, errors.New("invalid email"))
 		return
 	}
+	email := normalizeEmail(req.Email)
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		name = email
