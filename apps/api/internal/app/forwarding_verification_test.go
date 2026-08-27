@@ -84,7 +84,7 @@ func TestForwardingVerificationMessageMetadataAndContent(t *testing.T) {
 	}
 	for contentType, body := range parts {
 		content := string(body)
-		for _, expected := range []string{"NewSzxcn Email Service", "请确认您的邮箱转发设置", "k***e@example.net", "24 小时", "您的邮箱设置不会被更改", "请勿直接回复", "/mail/forwarding/verification/confirm?token=secret-token"} {
+		for _, expected := range []string{"NewSzxcn Email Service", "请确认您的邮箱转发设置", "k***e@example.net", "24 小时", "您的邮箱设置不会被更改", "请勿直接回复", "/api/verify-email?token=secret-token"} {
 			if !strings.Contains(content, expected) {
 				t.Fatalf("%s missing %q: %s", contentType, expected, content)
 			}

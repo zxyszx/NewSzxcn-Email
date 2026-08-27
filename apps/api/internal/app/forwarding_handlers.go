@@ -1051,7 +1051,7 @@ func (a *App) forwardingVerificationURL(token string) string {
 	if base == "" {
 		base = "https://" + strings.Trim(strings.TrimSpace(a.config().PublicHostname), "/")
 	}
-	return base + "/mail/forwarding/verification/confirm?token=" + url.QueryEscape(token)
+	return base + "/api/verify-email?token=" + url.QueryEscape(token)
 }
 
 func (a *App) respondForwardingVerificationResult(w http.ResponseWriter, r *http.Request, status int, ok bool, email, message string, activations []ForwardingActivation) {

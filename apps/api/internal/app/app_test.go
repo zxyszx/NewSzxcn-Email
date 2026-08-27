@@ -250,7 +250,7 @@ func extractForwardingVerificationToken(t *testing.T, raw string) string {
 		t.Fatalf("read verification message: %v", err)
 	}
 	body := extractMIMETextForTest(t, msg.Header, msg.Body)
-	marker := "/mail/forwarding/verification/confirm?token="
+	marker := "/api/verify-email?token="
 	idx := strings.Index(body, marker)
 	if idx < 0 {
 		t.Fatalf("verification link not found in body: %q", body)
