@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { Navigate, RouterProvider, createBrowserRouter } from "react-router-dom"
 import { Toaster } from "@/components/ui/toaster"
 import { LanguageDomSync } from "@/lib/language"
-import { applyTheme, getInitialTheme } from "@/lib/theme"
+import { initializeTheme } from "@/lib/theme"
 import { ProtectedLayout } from "@/components/protected-layout"
 import { AdminOnly } from "@/components/admin-only"
 import "./index.css"
@@ -16,17 +16,18 @@ const MailPage = React.lazy(() => import("@/pages/mail").then((module) => ({ def
 const AdminPage = React.lazy(() => import("@/pages/admin").then((module) => ({ default: module.AdminPage })))
 const ProfilePage = React.lazy(() => import("@/pages/profile").then((module) => ({ default: module.ProfilePage })))
 const NotFoundPage = React.lazy(() => import("@/pages/not-found").then((module) => ({ default: module.NotFoundPage })))
+const ForwardingConfirmPage = React.lazy(() => import("@/pages/forwarding-confirm").then((module) => ({ default: module.ForwardingConfirmPage })))
 
-applyTheme(getInitialTheme())
+initializeTheme()
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { refetchOnWindowFocus: false, staleTime: 10_000 } } })
 const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
   { path: "/register", element: <RegisterPage /> },
+  { path: "/mail/forwarding/verification/confirm", element: <ForwardingConfirmPage /> },
   { path: "/", element: <ProtectedLayout />, children: [
-    { index: true, element: <MailPage /> },
-    { path: "mail", element: <Navigate to="/" replace /> },
-    { path: "mail/starred", element: <Navigate to="/" replace /> },
+    { index: true, element: <Navigate to="/mail" replace /> },
+    { path: "mail/*", element: <MailPage /> },
     { path: "profile", element: <ProfilePage /> },
     { path: "admin", element: <AdminOnly><AdminPage /></AdminOnly> },
   ] },

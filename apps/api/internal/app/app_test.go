@@ -250,7 +250,7 @@ func extractForwardingVerificationToken(t *testing.T, raw string) string {
 		t.Fatalf("read verification message: %v", err)
 	}
 	body := extractMIMETextForTest(t, msg.Header, msg.Body)
-	marker := "/api/verify-email?token="
+	marker := "/mail/forwarding/verification/confirm?token="
 	idx := strings.Index(body, marker)
 	if idx < 0 {
 		t.Fatalf("verification link not found in body: %q", body)
@@ -3005,7 +3005,7 @@ func TestForwardingVerificationPageDoesNotLinkToMailbox(t *testing.T) {
 	a := newTestApp(t)
 	recorder := httptest.NewRecorder()
 
-	a.renderForwardingVerificationPage(recorder, http.StatusOK, true, "friend@example.test", "该邮箱已通过转发验证")
+	a.renderForwardingVerificationPage(recorder, http.StatusOK, true, "friend@example.test", "该邮箱已通过转发验证", nil)
 	body := recorder.Body.String()
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status=%d", recorder.Code)
@@ -3157,6 +3157,30 @@ func TestInboundForwardingSettingsAndDelivery(t *testing.T) {
 	verifyTarget("mailbox-forward-two@example.test")
 	if code := admin.do("POST", "/api/me/mailboxes/"+mb.ID+"/forwarding", map[string]any{"targetEmails": []string{"mailbox-forward@example.test", "mailbox-forward-two@example.test"}}, &settings); code != http.StatusOK {
 		t.Fatalf("save mailbox forwarding code=%d settings=%+v", code, settings)
+	}
+	if len(settings.MailboxSummaries) != 1 {
+		t.Fatalf("expected one mailbox forwarding summary, got %+v", settings.MailboxSummaries)
+	}
+	summary := settings.MailboxSummaries[0]
+	if summary.MailboxID != mb.ID || summary.MailboxAddress != mb.Address || summary.IndependentTargets != 2 || summary.InheritedTargets != 2 || !summary.Enabled || len(summary.Targets) != 2 {
+		t.Fatalf("unexpected mailbox forwarding summary: %+v", summary)
+	}
+	for _, target := range summary.Targets {
+		if !target.Verified || target.Source != "mailbox" {
+			t.Fatalf("unexpected mailbox summary target: %+v", target)
+		}
+	}
+	for _, item := range settings.VerifiedEmails {
+		switch item.Email {
+		case "account-forward@example.test", "account-forward-two@example.test":
+			if !item.GlobalBinding {
+				t.Fatalf("expected global association for %+v", item)
+			}
+		case "mailbox-forward@example.test", "mailbox-forward-two@example.test":
+			if len(item.MailboxBindings) != 1 || item.MailboxBindings[0] != mb.Address {
+				t.Fatalf("expected mailbox association for %+v", item)
+			}
+		}
 	}
 	raw = []byte("From: sender@example.test\r\nTo: admin@lanqin.local\r\nSubject: mailbox forward\r\nMessage-ID: <mailbox-forward@example.test>\r\n\r\nbody")
 	secondID := insertInbound("<mailbox-forward@example.test>", "mailbox forward", raw)
