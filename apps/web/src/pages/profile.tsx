@@ -29,6 +29,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { ConfirmDialog } from "@/components/confirm-dialog"
+import { LanguageSwitcher } from "@/components/language-switcher"
 import { useToast } from "@/hooks/use-toast"
 
 type Tab = "profile" | "mailboxes" | "contacts" | "cleanup" | "cleanupQueue" | "rules" | "blocked" | "stats" | "apiTokens"
@@ -418,6 +419,7 @@ export function ProfilePage() {
               </SheetContent>
             </Sheet>
             <div className="min-w-0 flex-1 text-sm font-semibold">{pageTitle}</div>
+            <LanguageSwitcher className="size-9" />
             <Button type="button" variant="ghost" size="icon" onClick={() => navigate("/")} aria-label="返回邮箱"><ArrowLeft className="h-4 w-4" /></Button>
           </header>
           <ScrollArea className="min-h-0 flex-1">
@@ -1446,15 +1448,10 @@ function MailboxManagement({
             placeholder="输入邮箱地址前缀"
             disabled={!canApply || applyPending}
           />
-          <select
-            value={selectedDomain?.id || ""}
-            onChange={(event) => setDomainId(event.target.value)}
-            className="h-[42px] rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-1 focus:ring-ring"
-            disabled={!canApply || applyPending}
-          >
-            {domainOptions.map((domain) => <option key={domain.id} value={domain.id}>@{domain.name}</option>)}
-            {domainOptions.length === 0 && <option value="">暂无域名</option>}
-          </select>
+          <Select value={selectedDomain?.id || ""} onValueChange={setDomainId} disabled={!canApply || applyPending || domainOptions.length === 0}>
+            <SelectTrigger className="h-[42px] text-sm shadow-none" aria-label="邮箱域名"><SelectValue placeholder="暂无域名" /></SelectTrigger>
+            <SelectContent>{domainOptions.map((domain) => <SelectItem key={domain.id} value={domain.id}>@{domain.name}</SelectItem>)}</SelectContent>
+          </Select>
           <Button className="h-[42px] px-0" disabled={!canApply || applyPending || !selectedDomain || !localPart.trim()}>{applyPending ? "创建中" : "创建"}</Button>
         </form>
         <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
@@ -3484,6 +3481,7 @@ function AccountHeader({ name, email, darkMode, onToggleTheme, onBack }: { name:
         <div className="min-w-0 truncate text-sm font-semibold leading-5">{displayName}</div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
+        <LanguageSwitcher className="size-[28px]" />
         <Button type="button" variant="ghost" size="icon" className="size-[28px] rounded-md text-muted-foreground" aria-label={darkMode ? "切换浅色模式" : "切换深色模式"} title={darkMode ? "浅色模式" : "深色模式"} onClick={onToggleTheme}>
           {darkMode ? <Sun className="h-4 w-4 text-amber-500" /> : <Moon className="h-4 w-4" />}
         </Button>
