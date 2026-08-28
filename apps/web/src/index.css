@@ -117,8 +117,8 @@
     overflow-x: clip;
   }
 
-  /* Signed-in workspaces share the city artwork while keeping operational
-     surfaces substantially opaque. Theme changes swap both art and tokens. */
+  /* Signed-in workspaces share the city artwork and frosted operational
+     surfaces. Theme changes swap both art and tokens. */
   .mail-workspace-theme,
   .admin-workspace-theme,
   .profile-workspace-theme {
@@ -133,7 +133,7 @@
     --secondary: 207 45% 91%;
     --secondary-foreground: 220 43% 18%;
     --muted: 207 40% 91%;
-    --muted-foreground: 218 18% 43%;
+    --muted-foreground: 218 22% 35%;
     --accent: 211 65% 88%;
     --accent-foreground: 220 43% 17%;
     --destructive: 0 72% 54%;
@@ -172,7 +172,7 @@
     --secondary: 226 35% 16%;
     --secondary-foreground: 220 33% 96%;
     --muted: 226 31% 15%;
-    --muted-foreground: 221 19% 70%;
+    --muted-foreground: 221 20% 76%;
     --accent: 239 58% 21%;
     --accent-foreground: 220 33% 98%;
     --destructive: 0 76% 62%;
@@ -490,14 +490,19 @@
 
   .mail-workspace-theme [data-sidebar="sidebar"],
   .admin-workspace-theme [data-sidebar="sidebar"] {
-    background: linear-gradient(180deg, hsl(204 70% 99% / 0.78), hsl(205 60% 95% / 0.72));
+    background: linear-gradient(180deg, hsl(204 70% 99% / 0.62), hsl(205 60% 95% / 0.54));
     border-color: hsl(var(--sidebar-border));
+    backdrop-filter: blur(24px) saturate(1.08);
+    -webkit-backdrop-filter: blur(24px) saturate(1.08);
     transition: background-color 320ms ease, border-color 240ms ease, color 220ms ease;
   }
 
   .admin-workspace-theme .bg-card,
   .profile-workspace-theme .bg-card {
-    background: linear-gradient(180deg, hsl(204 70% 99% / 0.8), hsl(205 60% 95% / 0.74));
+    /* Keep management surfaces translucent so the shared city artwork remains visible. */
+    background: linear-gradient(180deg, hsl(204 70% 99% / 0.14), hsl(205 60% 95% / 0.07));
+    backdrop-filter: blur(18px) saturate(1.04);
+    -webkit-backdrop-filter: blur(18px) saturate(1.04);
     transition: background-color 320ms ease, border-color 240ms ease, color 220ms ease, box-shadow 240ms ease;
   }
 
@@ -505,7 +510,30 @@
   .dark .admin-workspace-theme [data-sidebar="sidebar"],
   .dark .admin-workspace-theme .bg-card,
   .dark .profile-workspace-theme .bg-card {
-    background: linear-gradient(180deg, hsl(229 48% 8% / 0.88), hsl(237 44% 7% / 0.84));
+    background: linear-gradient(180deg, hsl(229 48% 8% / 0.34), hsl(237 44% 7% / 0.24));
+  }
+
+  /* Frosted-glass treatment for the settings shell and its cards. */
+  .profile-workspace-theme .bg-card {
+    background: linear-gradient(180deg, hsl(204 70% 99% / 0.64), hsl(205 60% 95% / 0.52));
+    backdrop-filter: blur(24px) saturate(1.08);
+    -webkit-backdrop-filter: blur(24px) saturate(1.08);
+  }
+
+  .dark .profile-workspace-theme .bg-card {
+    background: linear-gradient(180deg, hsl(229 48% 8% / 0.56), hsl(237 44% 7% / 0.46));
+  }
+
+  .admin-workspace-theme .bg-card,
+  .admin-workspace-theme [data-slot="card"] {
+    background: linear-gradient(180deg, hsl(204 70% 99% / 0.5), hsl(205 60% 95% / 0.38));
+    backdrop-filter: blur(24px) saturate(1.08);
+    -webkit-backdrop-filter: blur(24px) saturate(1.08);
+  }
+
+  .dark .admin-workspace-theme .bg-card,
+  .dark .admin-workspace-theme [data-slot="card"] {
+    background: linear-gradient(180deg, hsl(229 48% 8% / 0.58), hsl(237 44% 7% / 0.48));
   }
 
   .mail-workspace-theme [data-sidebar="menu-button"][data-active="true"],
@@ -538,10 +566,10 @@
     gap: 0.25rem;
     border: 1px solid hsl(var(--border) / 0.64) !important;
     border-radius: 0.75rem;
-    background: hsl(204 70% 99% / 0.46);
+    background: hsl(204 70% 99% / 0.48);
     padding: 0.25rem;
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(24px) saturate(1.08);
+    -webkit-backdrop-filter: blur(24px) saturate(1.08);
   }
 
   .dark .profile-settings-tabs {
@@ -554,18 +582,115 @@
   }
 
   .profile-settings-tab[data-active="true"] {
-    background: linear-gradient(100deg, hsl(217 88% 54% / 0.18), hsl(253 83% 61% / 0.2)) !important;
-    box-shadow: inset 0 0 0 1px hsl(218 82% 58% / 0.3), 0 5px 16px hsl(224 70% 42% / 0.1);
+    background: linear-gradient(100deg, hsl(211 92% 90% / 0.82), hsl(226 88% 91% / 0.72)) !important;
+    color: hsl(var(--sidebar-active-foreground)) !important;
+    box-shadow: inset 0 0 0 1px hsl(218 82% 58% / 0.5), 0 4px 12px hsl(224 70% 42% / 0.14);
+  }
+
+  .profile-workspace-theme [role="group"] button[aria-pressed="true"] {
+    background: linear-gradient(100deg, hsl(204 78% 99% / 0.94), hsl(211 90% 94% / 0.88)) !important;
+    color: hsl(var(--sidebar-active-foreground)) !important;
+    box-shadow: inset 0 0 0 1px hsl(218 82% 58% / 0.42), 0 3px 10px hsl(218 60% 36% / 0.12) !important;
+  }
+
+  .profile-workspace-theme [role="group"] button[aria-pressed="false"] {
+    color: hsl(var(--muted-foreground));
+  }
+
+  .dark .profile-workspace-theme [role="group"] button[aria-pressed="true"],
+  .dark .profile-settings-tab[data-active="true"] {
+    background: linear-gradient(100deg, hsl(239 64% 34% / 0.88), hsl(253 60% 31% / 0.8)) !important;
+    color: hsl(var(--foreground)) !important;
+    box-shadow: inset 0 0 0 1px hsl(231 100% 78% / 0.52), 0 4px 14px hsl(245 75% 4% / 0.28) !important;
+  }
+
+  .profile-workspace-theme [role="tab"][aria-selected="true"] {
+    border-radius: 0.5rem;
+    background: hsl(211 90% 94% / 0.7) !important;
+    color: hsl(var(--sidebar-active-foreground)) !important;
+    box-shadow: inset 0 0 0 1px hsl(218 82% 58% / 0.34);
+  }
+
+  .dark .profile-workspace-theme [role="tab"][aria-selected="true"] {
+    background: hsl(239 64% 32% / 0.72) !important;
+    color: hsl(var(--foreground)) !important;
+    box-shadow: inset 0 0 0 1px hsl(231 100% 78% / 0.42);
+  }
+
+  .profile-page-frame {
+    min-height: calc(100dvh - 6.0625rem);
+  }
+
+  .profile-page-frame-compact-header {
+    min-height: calc(100dvh - 2.6875rem);
+  }
+
+  .profile-page-surface {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .profile-page-continuous-surface {
+    min-height: 100%;
+    overflow: hidden;
+    border: 1px solid hsl(var(--border) / 0.72);
+    border-radius: 0.875rem;
+    background: linear-gradient(145deg, hsl(204 70% 99% / 0.5), hsl(205 58% 96% / 0.38));
+    box-shadow: 0 12px 30px hsl(215 42% 28% / 0.08), inset 0 1px 0 hsl(0 0% 100% / 0.32);
+    backdrop-filter: blur(24px) saturate(1.08);
+    -webkit-backdrop-filter: blur(24px) saturate(1.08);
+  }
+
+  .profile-page-continuous-surface > * {
+    padding: 0.625rem;
+  }
+
+  .profile-page-continuous-surface .bg-card,
+  .profile-page-continuous-surface [data-slot="card"] {
+    background: linear-gradient(145deg, hsl(204 70% 99% / 0.18), hsl(205 58% 96% / 0.1));
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .dark .profile-page-continuous-surface {
+    border-color: hsl(232 50% 58% / 0.34);
+    background: linear-gradient(145deg, hsl(229 48% 8% / 0.58), hsl(237 44% 7% / 0.48));
+    box-shadow: 0 16px 42px hsl(235 80% 3% / 0.3), inset 0 1px 0 hsl(230 100% 86% / 0.08);
+  }
+
+  .dark .profile-page-continuous-surface .bg-card,
+  .dark .profile-page-continuous-surface [data-slot="card"] {
+    background: linear-gradient(145deg, hsl(229 48% 12% / 0.22), hsl(237 44% 9% / 0.14));
+  }
+
+  .profile-page-surface > .gap-6 {
+    gap: 0.75rem;
+  }
+
+  .profile-page-surface > .gap-5 {
+    gap: 0.625rem;
+  }
+
+  .profile-page-surface > .space-y-4 > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 0.625rem;
+  }
+
+  @media (max-width: 767px) {
+    .profile-page-frame,
+    .profile-page-frame-compact-header {
+      min-height: 0;
+    }
   }
 
   .profile-continuous-panel {
     overflow: hidden;
+    min-height: calc(100dvh - 6.5rem);
     border: 1px solid hsl(var(--border) / 0.72);
     border-radius: 0.875rem;
-    background: linear-gradient(145deg, hsl(204 70% 99% / 0.78), hsl(205 58% 96% / 0.66));
-    box-shadow: 0 18px 50px hsl(215 42% 28% / 0.12), inset 0 1px 0 hsl(0 0% 100% / 0.52);
-    backdrop-filter: blur(14px) saturate(1.06);
-    -webkit-backdrop-filter: blur(14px) saturate(1.06);
+    background: linear-gradient(145deg, hsl(204 70% 99% / 0.5), hsl(205 58% 96% / 0.38));
+    box-shadow: 0 12px 30px hsl(215 42% 28% / 0.08), inset 0 1px 0 hsl(0 0% 100% / 0.32);
+    backdrop-filter: blur(24px) saturate(1.08);
+    -webkit-backdrop-filter: blur(24px) saturate(1.08);
     transition: background-color 320ms ease, border-color 240ms ease, color 220ms ease, box-shadow 240ms ease;
   }
 
@@ -579,17 +704,17 @@
   }
 
   .profile-settings-section > :first-child {
-    padding-top: 0.75rem;
+    padding-top: 0.625rem;
   }
 
   .profile-settings-section > :last-child {
-    padding-bottom: 0.75rem;
+    padding-bottom: 0.625rem;
   }
 
   .dark .profile-continuous-panel {
     border-color: hsl(232 50% 58% / 0.34);
-    background: linear-gradient(145deg, hsl(229 48% 8% / 0.9), hsl(237 44% 7% / 0.82));
-    box-shadow: 0 20px 58px hsl(235 80% 3% / 0.38), inset 0 1px 0 hsl(230 100% 86% / 0.08);
+    background: linear-gradient(145deg, hsl(229 48% 8% / 0.58), hsl(237 44% 7% / 0.48));
+    box-shadow: 0 16px 42px hsl(235 80% 3% / 0.3), inset 0 1px 0 hsl(230 100% 86% / 0.08);
   }
 
   .dark .profile-settings-section {
@@ -600,10 +725,10 @@
     overflow: hidden;
     border: 1px solid hsl(var(--border) / 0.72);
     border-radius: 0.875rem;
-    background: linear-gradient(145deg, hsl(204 70% 99% / 0.78), hsl(205 58% 96% / 0.66));
-    box-shadow: 0 18px 50px hsl(215 42% 28% / 0.12), inset 0 1px 0 hsl(0 0% 100% / 0.52);
-    backdrop-filter: blur(14px) saturate(1.06);
-    -webkit-backdrop-filter: blur(14px) saturate(1.06);
+    background: linear-gradient(145deg, hsl(204 70% 99% / 0.5), hsl(205 58% 96% / 0.38));
+    box-shadow: 0 12px 30px hsl(215 42% 28% / 0.08), inset 0 1px 0 hsl(0 0% 100% / 0.32);
+    backdrop-filter: blur(24px) saturate(1.08);
+    -webkit-backdrop-filter: blur(24px) saturate(1.08);
     transition: background-color 320ms ease, border-color 240ms ease, color 220ms ease, box-shadow 240ms ease;
   }
 
@@ -622,10 +747,47 @@
     border-bottom: 0;
   }
 
+  /* Keep long settings forms scannable without oversized empty bands. */
+  .profile-account-workspace .space-y-6,
+  .admin-page .space-y-6 {
+    row-gap: 1rem;
+  }
+
+  .profile-account-workspace .space-y-5,
+  .admin-page .space-y-5 {
+    row-gap: 0.875rem;
+  }
+
+  /* Keep the same compact rhythm across every settings and admin section. */
+  .profile-workspace-theme .space-y-2 > :not([hidden]) ~ :not([hidden]),
+  .admin-page .space-y-2 > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 0.375rem;
+  }
+
+  .profile-workspace-theme .space-y-3 > :not([hidden]) ~ :not([hidden]),
+  .admin-page .space-y-3 > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 0.5rem;
+  }
+
+  .profile-workspace-theme .space-y-4 > :not([hidden]) ~ :not([hidden]),
+  .admin-page .space-y-4 > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 0.625rem;
+  }
+
+  .profile-workspace-theme .space-y-5 > :not([hidden]) ~ :not([hidden]),
+  .admin-page .space-y-5 > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 0.75rem;
+  }
+
+  .profile-workspace-theme .space-y-6 > :not([hidden]) ~ :not([hidden]),
+  .admin-page .space-y-6 > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 0.875rem;
+  }
+
   .dark .profile-account-workspace > .space-y-6 {
     border-color: hsl(232 50% 58% / 0.34);
-    background: linear-gradient(145deg, hsl(229 48% 8% / 0.9), hsl(237 44% 7% / 0.82));
-    box-shadow: 0 20px 58px hsl(235 80% 3% / 0.38), inset 0 1px 0 hsl(230 100% 86% / 0.08);
+    background: linear-gradient(145deg, hsl(229 48% 8% / 0.58), hsl(237 44% 7% / 0.48));
+    box-shadow: 0 16px 42px hsl(235 80% 3% / 0.3), inset 0 1px 0 hsl(230 100% 86% / 0.08);
   }
 
   .mail-workspace-theme .bg-popover {
@@ -773,7 +935,9 @@
 
   .mail-content-grid {
     display: grid;
-    grid-template-columns: clamp(20rem, 28vw, 24rem) minmax(0, 1fr);
+    container-type: inline-size;
+    /* Reserve enough width for sender, subject and the timestamp column. */
+    grid-template-columns: clamp(22rem, 30vw, 26rem) minmax(0, 1fr);
   }
 
   .mail-list-pane,
@@ -786,6 +950,86 @@
     border-right: 1px solid hsl(var(--border));
     width: auto;
     max-width: none;
+    container-type: inline-size;
+  }
+
+  .mail-message-date {
+    display: block;
+    min-width: 4.5rem;
+    flex: 0 0 4.5rem;
+    white-space: nowrap;
+  }
+
+  @media (max-width: 1279px) and (min-width: 768px) {
+    .mail-list-toolbar {
+      gap: 0.375rem;
+    }
+
+    .mail-list-toolbar-main {
+      gap: 0.25rem;
+    }
+
+    .mail-list-toolbar-filters {
+      gap: 0.25rem;
+    }
+
+    .mail-list-toolbar-filters button {
+      padding-left: 0.5rem;
+      padding-right: 0.5rem;
+    }
+  }
+
+  @container (max-width: 26rem) {
+    .mail-pane-toolbar {
+      gap: 0.375rem;
+      padding-left: 0.625rem;
+      padding-right: 0.625rem;
+    }
+
+    .mail-pane-toolbar > :first-child {
+      gap: 0.375rem;
+    }
+
+    .mail-pane-count {
+      display: none;
+    }
+
+    .mail-list-toolbar {
+      flex-wrap: wrap;
+      row-gap: 0.375rem;
+    }
+
+    .mail-list-toolbar > :first-child {
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+
+    .mail-list-toolbar-main {
+      min-width: 0;
+    }
+
+    .mail-list-toolbar-main h1 {
+      font-size: 1.125rem;
+    }
+
+    .mail-transfer-tools {
+      display: none;
+    }
+
+    .mail-list-toolbar-filters {
+      margin-left: auto;
+    }
+  }
+
+  @container (max-width: 20rem) {
+    .mail-list-toolbar > :first-child {
+      flex-basis: 100%;
+    }
+
+    .mail-list-toolbar-filters {
+      width: 100%;
+      justify-content: flex-end;
+    }
   }
 
   .mail-selected-row {
@@ -847,11 +1091,11 @@
   }
 
   .admin-page [data-slot="card-header"] {
-    padding: 1.25rem;
+    padding: 0.875rem 1.25rem;
   }
 
   .admin-page [data-slot="card-content"] {
-    padding: 0 1.25rem 1.25rem;
+    padding: 0 1.25rem 1rem;
   }
 
   .admin-page [data-slot="card-title"] {

@@ -142,7 +142,7 @@ export function AdminPage() {
 
   return (
     <ScrollArea className="h-[calc(100svh-3rem)] md:h-svh">
-      <main className="admin-page admin-workspace-content mx-auto w-full max-w-[1320px] px-3 pb-8 pt-3 sm:px-4 sm:pt-4">
+      <main className="admin-page admin-workspace-content min-h-[calc(100svh-3rem)] w-full px-2 pb-2 pt-2 sm:px-3 sm:pt-3 md:min-h-svh">
         <AdminPageHeader section={section} refreshing={refreshing} onRefresh={refreshAdminPage} checklist={overviewChecklist} onSectionChange={changeSection} />
 
         {sectionError && <QueryFailure error={sectionError.error} onRetry={() => { void Promise.all(sectionQueries.map((query) => query.refetch())) }} />}
@@ -188,7 +188,7 @@ type SetupChecklistItem = ReturnType<typeof setupChecklist>[number]
 function AdminPageHeader({ section, refreshing, onRefresh, checklist, onSectionChange }: { section: Section; refreshing: boolean; onRefresh: () => void; checklist?: SetupChecklistItem[]; onSectionChange: (section: Section) => void }) {
   const meta = sectionMeta[section]
   return (
-    <div className="mb-4 border-b border-border/80 pb-3">
+    <div className="mb-3 border-b border-border/80 pb-2">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <h1 className="text-[20px] font-semibold leading-7 tracking-tight">{meta.label}</h1>
@@ -1689,8 +1689,8 @@ function SystemSettingsSection({ settings, domains, initialTab }: { settings?: S
     setSettingsTab(tabs[0]?.key || "base")
   }, [settingsTab, tabs])
   return (
-    <form key={formKey} onSubmit={(event) => { event.preventDefault(); if (canUpdateSettings) save.mutate(new FormData(event.currentTarget)) }} className="space-y-6">
-      <div className="flex flex-wrap gap-2 rounded-lg border bg-card p-2">
+    <form key={formKey} onSubmit={(event) => { event.preventDefault(); if (canUpdateSettings) save.mutate(new FormData(event.currentTarget)) }} className="space-y-3">
+      <div className="flex flex-wrap gap-1.5 rounded-lg border bg-card p-1.5">
         {tabs.map((tab) => (
           <Button key={tab.key} type="button" variant={settingsTab === tab.key ? "default" : "ghost"} size="sm" onClick={() => setSettingsTab(tab.key)}>
             {tab.label}
@@ -1733,7 +1733,7 @@ function SystemSettingsSection({ settings, domains, initialTab }: { settings?: S
         </CardContent>
       </Card>}
 
-      {settingsTab === "storage" && <div className="space-y-6">
+      {settingsTab === "storage" && <div className="space-y-3">
         <Card>
           <CardHeader><CardTitle>存储设置</CardTitle></CardHeader>
           <CardContent>
@@ -1745,12 +1745,12 @@ function SystemSettingsSection({ settings, domains, initialTab }: { settings?: S
 
       {settingsTab === "mail" && <Card>
         <CardHeader><CardTitle>邮件设置</CardTitle></CardHeader>
-        <CardContent className="space-y-5">
+        <CardContent className="space-y-4">
           <SwitchRow label="无人收件" checked={catchAllEnabled} onCheckedChange={setCatchAllEnabled} />
           <Separator />
           <SwitchRow label="账号自助申请邮箱" checked={userMailboxApplyEnabled} onCheckedChange={setUserMailboxApplyEnabled} />
           {userMailboxApplyEnabled && (
-            <div className="space-y-5 border-t pt-5">
+            <div className="space-y-4 border-t pt-4">
               <div className="space-y-3">
                 <Label>开放域名</Label>
                 <div className="grid gap-2 md:grid-cols-2">
@@ -1780,7 +1780,7 @@ function SystemSettingsSection({ settings, domains, initialTab }: { settings?: S
           <Separator />
           <SwitchRow label="自动刷新" checked={mailAutoRefresh} onCheckedChange={setMailAutoRefresh} />
           {mailAutoRefresh && (
-            <div className="border-t pt-5">
+            <div className="border-t pt-4">
               <Field name="mailRefreshSeconds" label="刷新间隔秒数" type="number" min={5} defaultValue={String(settings?.mailRefreshSeconds || 30)} />
             </div>
           )}
@@ -1791,13 +1791,13 @@ function SystemSettingsSection({ settings, domains, initialTab }: { settings?: S
         <CardHeader>
           <CardTitle>外部 IMAP 接入</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-5">
+        <CardContent className="space-y-4">
           <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
             默认关闭。关闭后前台会隐藏外部 IMAP 接入，相关后端接口也会返回禁用。
           </div>
           <SwitchRow label="启用外部 IMAP" checked={externalImapEnabled} onCheckedChange={setExternalImapEnabled} />
           {externalImapEnabled && (
-            <div className="space-y-5 border-t pt-5">
+            <div className="space-y-4 border-t pt-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <Field name="externalImapSecretKey" label={settings?.externalImapSecretSet ? "密码加密密钥（留空不变）" : "密码加密密钥"} type="password" required={!settings?.externalImapSecretSet} />
                 <Field name="externalImapSyncSeconds" label="后台同步间隔秒数" type="number" min={30} defaultValue={String(settings?.externalImapSyncSeconds || 300)} />
@@ -1842,7 +1842,7 @@ function SystemSettingsSection({ settings, domains, initialTab }: { settings?: S
           <Separator />
           <SwitchRow label="Turnstile" checked={turnstileEnabled} onCheckedChange={setTurnstileEnabled} />
           {turnstileEnabled && (
-            <div className="grid gap-4 border-t pt-5 md:grid-cols-2">
+            <div className="grid gap-4 border-t pt-4 md:grid-cols-2">
               <Field name="turnstileSiteKey" label="Site Key" defaultValue={settings?.turnstileSiteKey || ""} required />
               <Field name="turnstileSecretKey" label={settings?.turnstileSecretSet ? "Secret Key（留空不变）" : "Secret Key"} type="password" required={!settings?.turnstileSecretSet} />
             </div>

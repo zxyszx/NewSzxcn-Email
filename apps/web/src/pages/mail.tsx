@@ -1885,18 +1885,18 @@ export function MailPage() {
           <div className="shrink-0 border-b p-3">
             {mailSearchControl}
           </div>
-          <div className="flex min-h-14 shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
-            <div className="flex min-w-0 items-center gap-2">
+          <div className="mail-list-toolbar flex min-h-14 shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
               <div className="flex items-center gap-1">
                 <Checkbox aria-label="选择当前页邮件" checked={compactAllSelected ? true : compactSomeSelected ? "indeterminate" : false} onCheckedChange={(value) => toggleCompactSelectAll(value === true)} />
                 <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
               </div>
-              <div className="flex min-w-0 items-center gap-2">
-                <h1 key={viewTitle} className="min-w-0 truncate text-xl font-bold leading-none text-foreground">{mailView === "label" && selectedLabel ? selectedLabel.name : viewTitle}</h1>
-                {mailTransferTools}
+              <div className="mail-list-toolbar-main flex min-w-0 flex-1 items-center gap-1.5">
+                <h1 key={viewTitle} className="shrink-0 whitespace-nowrap text-xl font-bold leading-none text-foreground">{mailView === "label" && selectedLabel ? selectedLabel.name : viewTitle}</h1>
+                <div className="mail-transfer-tools">{mailTransferTools}</div>
               </div>
             </div>
-            <div className="flex min-w-0 shrink-0 items-center gap-1.5">
+            <div className="mail-list-toolbar-filters flex min-w-0 shrink-0 items-center gap-1.5">
               <Button type="button" variant={mailFilter === "all" ? "secondary" : "outline"} size="sm" className="h-8 rounded-md px-3 text-[13px] font-normal shadow-none" onClick={() => setMailFilter("all")}>全部</Button>
               <Button type="button" variant={mailFilter === "unread" ? "secondary" : "outline"} size="sm" className="h-8 rounded-md px-3 text-[13px] font-normal shadow-none" onClick={() => setMailFilter("unread")}>未读</Button>
             </div>
@@ -3160,23 +3160,23 @@ function CompactMailView({
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
       <div className="shrink-0 border-b p-3">{search}</div>
-      <div className="flex min-h-11 shrink-0 items-center gap-3 border-b px-3 sm:px-4">
+      <div className="mail-pane-toolbar flex min-h-11 shrink-0 items-center gap-3 border-b px-3 sm:px-4">
         <div className={cn("flex min-w-0 items-center gap-2.5", selectedIds.length === 0 && "flex-1")}>
           <Checkbox aria-label="选择当前页邮件" checked={allSelected ? true : someSelected ? "indeterminate" : false} onCheckedChange={(value) => onSelectAll(value === true)} />
-          <div className="flex min-w-0 items-center gap-2 text-[15px] font-semibold">
+          <div className="mail-pane-title flex shrink-0 items-center gap-2 whitespace-nowrap text-[15px] font-semibold">
             {icon}
-            <span className="truncate">{title}</span>
+            <span>{title}</span>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="mail-pane-tools flex min-w-0 shrink items-center gap-1.5">
           {selectedIds.length > 0 ? (
             <>
-              <span className="hidden text-xs text-muted-foreground min-[380px]:inline">已选 {selectedIds.length} 封</span>
+              <span className="hidden shrink-0 text-xs text-muted-foreground min-[380px]:inline">已选 {selectedIds.length} 封</span>
               {canOrganize && <BulkActionToolbar pending={bulkPending} currentFolder={currentFolder} onAction={onBulkAction} />}
             </>
           ) : (
             <div className="flex items-center gap-1">
-              <div className="text-xs text-muted-foreground">{messages.length} / {total} 封</div>
+              <div className="mail-pane-count shrink-0 text-xs text-muted-foreground">{messages.length} / {total} 封</div>
               {tools}
             </div>
           )}
@@ -3549,7 +3549,7 @@ function CompactMessageRow({ message, active, checked, scheduled, onCheckedChang
               {!message.isRead && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-label="未读" />}
             </div>
             <div className="flex shrink-0 items-center gap-1 sm:hidden">
-              <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="min-w-[64px] whitespace-nowrap text-right text-xs font-medium tabular-nums text-foreground/65">{messageDisplayDate(message)}</time>
+              <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="mail-message-date text-right text-xs font-medium tabular-nums text-foreground/65">{messageDisplayDate(message)}</time>
               {canOrganize && <Button type="button" variant="ghost" size="icon" aria-label={message.isStarred ? "取消星标" : "添加星标"} className="h-6 w-6 text-muted-foreground hover:text-yellow-500" onClick={(event) => { event.stopPropagation(); onStar() }}>
                 <Star className={cn("h-3.5 w-3.5", message.isStarred && "fill-yellow-400 text-yellow-500")} />
               </Button>}
@@ -3566,7 +3566,7 @@ function CompactMessageRow({ message, active, checked, scheduled, onCheckedChang
           <div className={cn("mt-1 line-clamp-2 text-xs sm:hidden", message.isRead ? "text-muted-foreground" : "text-foreground/70")}>{message.snippet}</div>
         </div>
       </div>
-      <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="hidden min-w-[72px] shrink-0 whitespace-nowrap text-right text-xs font-medium tabular-nums text-foreground/65 sm:block">{messageDisplayDate(message)}</time>
+      <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="mail-message-date hidden text-right text-xs font-medium tabular-nums text-foreground/65 sm:block">{messageDisplayDate(message)}</time>
       {canOrganize && <Button type="button" variant="ghost" size="icon" aria-label={message.isStarred ? "取消星标" : "添加星标"} className="hidden h-6 w-6 text-muted-foreground hover:text-yellow-500 sm:inline-flex" onClick={(event) => { event.stopPropagation(); onStar() }}>
         <Star className={cn("h-3.5 w-3.5", message.isStarred && "fill-yellow-400 text-yellow-500")} />
       </Button>}
@@ -4074,7 +4074,7 @@ function MessageRow({
             >
               <Star className={cn("h-3.5 w-3.5", message.isStarred && "fill-yellow-400 text-yellow-500")} />
             </Button>}
-            <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="min-w-[72px] shrink-0 whitespace-nowrap text-right text-xs font-medium tabular-nums text-foreground/65">{messageDisplayDate(message)}</time>
+            <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="mail-message-date text-right text-xs font-medium tabular-nums text-foreground/65">{messageDisplayDate(message)}</time>
           </div>
         </div>
         <div className="mb-1 flex min-w-0 items-center gap-2">

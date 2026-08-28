@@ -421,9 +421,13 @@ export function ProfilePage() {
             <Button type="button" variant="ghost" size="icon" onClick={() => navigate("/")} aria-label="返回邮箱"><ArrowLeft className="h-4 w-4" /></Button>
           </header>
           <ScrollArea className="min-h-0 flex-1">
-            <main className="w-full pb-4">
+            <main className="w-full pb-2">
               {tab !== "mailboxes" && <SettingsPageHeader title={pageTitle} subtitle={pageSubtitle} action={pageAction} activeTab={tab === "profile" ? accountTab : undefined} onAccountTabChange={setAccountTab} />}
-              <div className={contentFrameClass(tab)}>{renderTab()}</div>
+              <div className={contentFrameClass(tab)}>
+                <div className={cn("profile-page-surface", tab !== "profile" && "profile-page-continuous-surface")}>
+                  {renderTab()}
+                </div>
+              </div>
             </main>
           </ScrollArea>
         </div>
@@ -431,9 +435,13 @@ export function ProfilePage() {
         <div className="flex h-full min-h-0 w-full">
           {sidebarContent}
           <section className="min-w-0 flex-1 overflow-y-auto">
-            <main className="pb-4">
+            <main className="pb-2">
               <SettingsPageHeader title={pageTitle} subtitle={pageSubtitle} action={pageAction} activeTab={tab === "profile" ? accountTab : undefined} onAccountTabChange={setAccountTab} />
-              <div className={contentFrameClass(tab)}>{renderTab()}</div>
+              <div className={contentFrameClass(tab)}>
+                <div className={cn("profile-page-surface", tab !== "profile" && "profile-page-continuous-surface")}>
+                  {renderTab()}
+                </div>
+              </div>
             </main>
           </section>
         </div>
@@ -555,13 +563,8 @@ function ProfileSectionLoading() {
 
 function contentFrameClass(tab: Tab) {
   return cn(
-    "w-full",
-    "pt-1",
-    tab === "profile" ? "mx-auto max-w-[896px]" :
-      tab === "mailboxes" ? "mx-auto max-w-5xl px-4 sm:px-6" :
-      tab === "stats" ? "px-4 sm:px-6" :
-      tab === "rules" || tab === "apiTokens" ? "mx-auto max-w-[896px] px-4 sm:px-0" :
-      "mx-auto max-w-[1024px] px-4 sm:px-0",
+    "profile-page-frame flex w-full max-w-none px-2 pb-2 pt-1 sm:px-3",
+    tab !== "profile" && "profile-page-frame-compact-header",
   )
 }
 
@@ -720,14 +723,14 @@ function SettingsCard({ title, subtitle, action, children, className, contentCla
         className,
       )}
     >
-      <div className="flex flex-col gap-2 px-5 py-3 sm:flex-row sm:items-start sm:justify-between sm:px-6">
+      <div className="flex flex-col gap-2 px-5 py-2.5 sm:flex-row sm:items-start sm:justify-between sm:px-6">
         <div className="min-w-0">
           <h2 className="break-words text-[15px] font-semibold leading-6 text-foreground [overflow-wrap:anywhere]">{title}</h2>
           {subtitle && <p className="mt-0.5 break-words text-xs leading-5 text-muted-foreground [overflow-wrap:anywhere]">{subtitle}</p>}
         </div>
         {action && <div className="w-full shrink-0 sm:w-auto sm:justify-end [&>a]:w-full [&>button]:w-full sm:[&>a]:w-auto sm:[&>button]:w-auto">{action}</div>}
       </div>
-      <div className={cn("px-5 pb-3 sm:px-6", contentClassName)}>{children}</div>
+      <div className={cn("px-5 pb-2.5 sm:px-6", contentClassName)}>{children}</div>
     </section>
   )
 }
@@ -1006,7 +1009,7 @@ function SecuritySettingsSection({ user, password, passwordFormRef, twoFactorFor
       </SettingsCard>
 
       <SettingsCard title="密码管理">
-        <form ref={passwordFormRef} className="space-y-4" onSubmit={(e) => { e.preventDefault(); password.mutate(new FormData(e.currentTarget)) }}>
+        <form ref={passwordFormRef} className="w-full max-w-[560px] space-y-3" onSubmit={(e) => { e.preventDefault(); password.mutate(new FormData(e.currentTarget)) }}>
           <Field label="当前密码"><PasswordInput name="currentPassword" required /></Field>
           <Field label="新密码"><PasswordInput name="newPassword" minLength={6} required placeholder="输入新密码" /></Field>
           <Field label="确认新密码"><PasswordInput name="confirmPassword" minLength={6} required placeholder="再次输入密码" /></Field>
@@ -1408,7 +1411,7 @@ function MailboxManagement({
   }
 
   return (
-    <div className="space-y-2">
+    <div className="profile-mailbox-sections space-y-1">
       <section className="overflow-hidden rounded-lg border bg-card">
         <MailboxViewTabs value={mailboxView} onChange={setMailboxView} pendingCount={pendingVerifiedEmailItems.length + failedVerifiedEmailItems.length} />
         {mailboxView === "mine" && (
@@ -1651,10 +1654,10 @@ function MailboxManagement({
             </div>
           </div>
 
-          <div className="space-y-3 px-4 py-3 sm:px-5">
+          <div className="space-y-2 px-4 py-2.5 sm:px-5">
             {failedVerifiedEmailItems.length > 0 && (
               <div>
-                <div className="mb-2 flex items-center gap-2">
+                <div className="mb-1.5 flex items-center gap-2">
                   <span className="h-5 w-1 rounded-full bg-destructive" />
                   <h3 className="font-semibold">发送失败</h3>
                   <Badge variant="outline">{failedVerifiedEmailItems.length}</Badge>
@@ -1669,7 +1672,7 @@ function MailboxManagement({
             )}
             {pendingVerifiedEmailItems.length > 0 && (
               <div>
-                <div className="mb-2 flex items-center gap-2">
+                <div className="mb-1.5 flex items-center gap-2">
                   <span className="h-5 w-1 rounded-full bg-amber-500" />
                   <h3 className="font-semibold">待验证邮箱</h3>
                   <Badge variant="outline">{pendingVerifiedEmailItems.length}</Badge>
@@ -1684,7 +1687,7 @@ function MailboxManagement({
             )}
 
             {completedVerifiedEmailItems.length > 0 ? <div>
-              <div className="mb-2 flex items-center gap-2">
+              <div className="mb-1.5 flex items-center gap-2">
                 <span className="h-5 w-1 rounded-full bg-emerald-500" />
                 <h3 className="font-semibold">已验证邮箱</h3>
                 <Badge variant="outline">{completedVerifiedEmailItems.length}</Badge>
