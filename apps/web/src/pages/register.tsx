@@ -79,7 +79,7 @@ export function RegisterPage() {
   if (publicSettings.isLoading) return <AuthLoading />
   if (publicSettings.isError) return <AuthError message={publicSettings.error.message} onRetry={() => { void publicSettings.refetch() }} />
   return (
-    <main data-visual-theme={visualTheme} className="space-hero relative min-h-svh overflow-x-hidden bg-[#020617] text-white" onPointerMove={handlePointerMove}>
+    <main data-visual-theme={visualTheme} className="space-hero register-page relative min-h-svh overflow-x-hidden bg-[#020617] text-white" onPointerMove={handlePointerMove}>
       <div className="space-backgrounds absolute inset-0" aria-hidden="true">
         <img src="/space-anime-hero.jpg" alt="" className="space-background space-background-night absolute inset-0 size-full object-cover" />
         <img src="/space-anime-day.jpg" alt="" className="space-background space-background-day absolute inset-0 size-full object-cover" />

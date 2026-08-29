@@ -106,7 +106,7 @@ export function LoginPage() {
     transitionTimerRef.current = window.setTimeout(() => {
       navigate("/register")
       transitionTimerRef.current = null
-    }, 420)
+    }, 240)
   }
 
   const authActive = loginOpen || !!challengeToken

@@ -31,6 +31,15 @@
   filter: brightness(0.98) saturate(1.02);
 }
 
+/* Registration uses a closer crop so the form remains visually anchored to the artwork. */
+.space-hero.register-page .space-background-night {
+  transform: translate3d(-8.5%, -6%, 0) scale(1.22);
+}
+
+.space-hero.register-page .space-background-day {
+  transform: scale(1.18);
+}
+
 .space-hero[data-visual-theme="day"] .space-background-night {
   opacity: 0;
 }
@@ -894,6 +903,14 @@
   .space-background-night {
     object-position: 60% center;
     transform: translate3d(0, -10%, 0) scale(1.08);
+  }
+
+  .space-hero.register-page .space-background-night {
+    transform: translate3d(0, -10%, 0) scale(1.14);
+  }
+
+  .space-hero.register-page .space-background-day {
+    transform: scale(1.12);
   }
 
   .space-background-day {
