@@ -771,6 +771,30 @@
   transform: none;
 }
 
+.space-auth-register-hint {
+  color: rgba(235, 232, 255, 0.72);
+}
+
+.space-auth-register-link {
+  color: rgba(220, 216, 255, 0.9);
+}
+
+.space-auth-register-link:hover {
+  color: #fff;
+}
+
+.space-hero[data-visual-theme="day"] .space-auth-register-hint {
+  color: rgba(28, 55, 101, 0.78);
+}
+
+.space-hero[data-visual-theme="day"] .space-auth-register-link {
+  color: #2458a5;
+}
+
+.space-hero[data-visual-theme="day"] .space-auth-register-link:hover {
+  color: #163e80;
+}
+
 @keyframes hero-reveal {
   from {
     opacity: 0;

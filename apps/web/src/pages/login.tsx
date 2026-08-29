@@ -270,9 +270,9 @@ function LoginArtwork({ challengeToken, leaving, loginPending, openRegistration,
           {challengeToken ? (
             <Button type="button" variant="ghost" className="w-full text-indigo-100/70 hover:bg-white/5 hover:text-white" onClick={onBackToLogin}>返回账号登录</Button>
           ) : openRegistration ? (
-            <div className="flex items-center justify-center gap-1 text-sm text-indigo-100/55">
+            <div className="space-auth-register-hint flex items-center justify-center gap-1 text-sm">
               <span>没有账号？</span>
-              <Button type="button" variant="link" className="h-auto px-1 text-sm text-indigo-200 hover:text-white" onClick={onRegister}>
+              <Button type="button" variant="link" className="space-auth-register-link h-auto px-1 text-sm" onClick={onRegister}>
                 注册账号
               </Button>
             </div>
