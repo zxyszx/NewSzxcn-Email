@@ -7,6 +7,10 @@
   overflow-y: hidden;
 }
 
+.space-hero.is-transitioning .space-background {
+  transition: none;
+}
+
 .space-serif,
 .space-editorial-title,
 .space-brand-title {
