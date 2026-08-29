@@ -127,31 +127,33 @@ export function LoginPage() {
             <BrandMark className="space-brand-mark size-10" />
             <span className="space-serif truncate text-xl font-medium text-white">NewSzxcn 邮箱</span>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="home-header-actions">
             <Button
               type="button"
               variant="outline"
               size="icon"
-              className="space-theme-button size-10 rounded-full"
+              className="home-theme-toggle space-theme-button size-9 rounded-full"
               aria-label={visualTheme === "night" ? "切换到日间模式" : "切换到夜间模式"}
               title={visualTheme === "night" ? "切换到日间模式" : "切换到夜间模式"}
               onClick={() => setVisualTheme((current) => current === "night" ? "day" : "night")}
             >
               {visualTheme === "night" ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
             </Button>
-            {!authVisualActive && publicSettings.data?.openRegistration && (
-              <Button type="button" variant="ghost" className="space-register-button hidden h-10 rounded-full px-5 sm:inline-flex" onClick={startRegisterTransition} disabled={transitionPhase !== "idle"}>
-                注册
+            <div className="auth-actions">
+              {!authVisualActive && publicSettings.data?.openRegistration && (
+                <Button type="button" variant="ghost" className="home-register-button space-register-button" onClick={startRegisterTransition} disabled={transitionPhase !== "idle"}>
+                  注册
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                className="home-login-button space-login-button"
+                disabled={transitionPhase !== "idle"}
+                onClick={authVisualActive ? startHomeTransition : startLoginTransition}
+              >
+                <span className="space-login-button-label">{authVisualActive ? "返回" : "登录"}</span>
               </Button>
-            )}
-            <Button
-              variant="outline"
-              className="space-login-button h-10 rounded-full px-5 text-white hover:text-white sm:px-6"
-              disabled={transitionPhase !== "idle"}
-              onClick={authVisualActive ? startHomeTransition : startLoginTransition}
-            >
-              <span className="space-login-button-label">{authVisualActive ? "返回" : "登录"}</span>
-            </Button>
+            </div>
           </div>
         </header>
 
