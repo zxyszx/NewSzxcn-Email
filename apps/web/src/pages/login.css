@@ -17,7 +17,8 @@
   object-position: center;
   transform: none;
   transform-origin: center;
-  transition: opacity 900ms cubic-bezier(0.22, 1, 0.36, 1), filter 900ms ease, transform 1100ms cubic-bezier(0.22, 1, 0.36, 1);
+  /* Keep the crop stable during route changes; only theme fades are animated. */
+  transition: opacity 900ms cubic-bezier(0.22, 1, 0.36, 1), filter 900ms ease;
 }
 
 .space-background-night {
