@@ -132,7 +132,7 @@ export function LoginPage() {
               type="button"
               variant="outline"
               size="icon"
-              className="home-theme-toggle space-theme-button size-9 rounded-full"
+              className="home-theme-toggle size-9 rounded-full"
               aria-label={visualTheme === "night" ? "切换到日间模式" : "切换到夜间模式"}
               title={visualTheme === "night" ? "切换到日间模式" : "切换到夜间模式"}
               onClick={() => setVisualTheme((current) => current === "night" ? "day" : "night")}
@@ -141,13 +141,13 @@ export function LoginPage() {
             </Button>
             <div className="auth-actions">
               {!authVisualActive && publicSettings.data?.openRegistration && (
-                <Button type="button" variant="ghost" className="home-register-button space-register-button" onClick={startRegisterTransition} disabled={transitionPhase !== "idle"}>
+                <Button type="button" variant="ghost" className="home-register-button" onClick={startRegisterTransition} disabled={transitionPhase !== "idle"}>
                   注册
                 </Button>
               )}
               <Button
                 variant="outline"
-                className="home-login-button space-login-button"
+                className="home-login-button"
                 disabled={transitionPhase !== "idle"}
                 onClick={authVisualActive ? startHomeTransition : startLoginTransition}
               >
