@@ -16,8 +16,7 @@ import { api, ExternalImapAccount, ListResponse, Mailbox, MailFolder, MailLabel,
 import { cn, decodeMimeHeader, formatBytes, formatDate, formatDateTime, generateLabelColor } from "@/lib/utils"
 import { applyTheme, getInitialTheme } from "@/lib/theme"
 import { useDisplayMode } from "@/lib/display-mode"
-import { Language, useLanguage } from "@/lib/language"
-import { LanguageSwitcher } from "@/components/language-switcher"
+import { Language, languageOptions, useLanguage } from "@/lib/language"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -201,7 +200,7 @@ export function MailPage() {
   const [labelsExpanded, setLabelsExpanded] = React.useState(true)
   const [externalFolder, setExternalFolder] = React.useState("INBOX")
   const [darkMode, setDarkMode] = React.useState(getInitialTheme)
-  const [language] = useLanguage()
+  const [language, setLanguage] = useLanguage()
   const [displayMode] = useDisplayMode()
   const isMobile = useIsMobile()
   const isNarrowMailViewport = useMaxViewportWidth(mailCompactBreakpoint)
@@ -1393,6 +1392,8 @@ export function MailPage() {
           email={me.data?.user.email || selectedMailbox?.address}
           darkMode={darkMode}
           onToggleTheme={() => setDarkMode((value) => !value)}
+          language={language}
+          onLanguageChange={setLanguage}
           onSettings={openSettings}
         />
         <div className={cn("relative mt-2", sidebarCollapsed && "flex justify-center")}>
@@ -3609,8 +3610,9 @@ function NewLabelButton({ collapsed, pending, onCreate, editing, onEditingChange
   )
 }
 
-function AccountHeader({ collapsed, name, email, darkMode, onToggleTheme, onSettings }: { collapsed: boolean; name: string; email?: string; darkMode: boolean; onToggleTheme: () => void; onSettings: () => void }) {
+function AccountHeader({ collapsed, name, email, darkMode, language, onToggleTheme, onLanguageChange, onSettings }: { collapsed: boolean; name: string; email?: string; darkMode: boolean; language: Language; onToggleTheme: () => void; onLanguageChange: (language: Language) => void; onSettings: () => void }) {
   const displayName = cleanAccountName(name, email)
+  const currentLanguage = languageOptions.find((item) => item.value === language) || languageOptions[0]
   if (collapsed) {
     return (
       <div className="flex justify-center">
@@ -3634,7 +3636,21 @@ function AccountHeader({ collapsed, name, email, darkMode, onToggleTheme, onSett
         <Button type="button" variant="ghost" size="icon" className="size-7 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={onToggleTheme} title={darkMode ? "切换到浅色模式" : "切换到深色模式"} aria-label={darkMode ? "切换到浅色模式" : "切换到深色模式"}>
           {darkMode ? <Sun className="h-3.5 w-3.5 text-amber-500" /> : <Moon className="h-3.5 w-3.5" />}
         </Button>
-        <LanguageSwitcher className="hover:bg-transparent hover:text-foreground" />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button type="button" variant="ghost" size="icon" className="hidden size-7 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground" aria-label="切换语言" title="切换语言">
+              <span className="text-sm font-medium leading-none">{currentLanguage.shortLabel}</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-40">
+            {languageOptions.map((item) => (
+              <DropdownMenuItem key={item.value} onSelect={() => onLanguageChange(item.value)} className="gap-2">
+                <span className="min-w-0 flex-1">{item.label}</span>
+                <Check className={cn("h-4 w-4 text-emerald-500", item.value === language ? "opacity-100" : "opacity-0")} />
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Button type="button" variant="ghost" size="icon" className="size-7 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={onSettings} title="设置" aria-label="设置">
           <Settings className="h-3.5 w-3.5" />
         </Button>

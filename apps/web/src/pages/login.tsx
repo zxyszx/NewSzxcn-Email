@@ -13,7 +13,6 @@ import { useToast } from "@/hooks/use-toast"
 import { safeReturnPath } from "@/lib/navigation"
 import { AuthError, AuthLoading } from "@/components/auth-states"
 import { BrandMark } from "@/components/brand-mark"
-import { LanguageSwitcher } from "@/components/language-switcher"
 import "./login.css"
 
 export function LoginPage() {
@@ -118,7 +117,6 @@ export function LoginPage() {
             <span className="space-serif truncate text-xl font-medium text-white">NewSzxcn 邮箱</span>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <LanguageSwitcher className="space-theme-button size-10 rounded-full text-white" variant="outline" />
             <Button
               type="button"
               variant="outline"

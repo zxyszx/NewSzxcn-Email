@@ -16,7 +16,7 @@ export const PasswordInput = React.forwardRef<HTMLInputElement, React.InputHTMLA
           size="icon"
           className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2 text-muted-foreground hover:text-foreground"
           onClick={() => setShow(!show)}
-          aria-label={show ? "隐藏密码" : "显示密码"}
+          tabIndex={-1}
         >
           {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           <span className="sr-only">{show ? "隐藏密码" : "显示密码"}</span>

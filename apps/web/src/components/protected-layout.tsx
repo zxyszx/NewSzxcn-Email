@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { SystemVersionDialog } from "@/components/system-version-dialog"
 import { BrandMark } from "@/components/brand-mark"
-import { LanguageSwitcher } from "@/components/language-switcher"
 import { hasAnyPermission } from "@/lib/permissions"
 import type { PermissionKey } from "@/lib/api-types"
 import { applyTheme, getInitialTheme } from "@/lib/theme"
@@ -95,7 +94,6 @@ function ProtectedContent() {
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
-            <LanguageSwitcher className="mt-1 size-8 rounded-full group-data-[collapsible=icon]:hidden" variant="outline" />
             <Button
               type="button"
               variant="outline"
@@ -154,7 +152,6 @@ function ProtectedContent() {
             <div className="min-w-0 flex-1 truncate text-sm font-semibold">
               {isAdminRoute ? visibleAdminSections.find((item) => item.key === adminSection)?.label || "系统管理" : "NewSzxcn 邮箱"}
             </div>
-            <LanguageSwitcher className="size-8" variant="outline" />
           </div>
           <Outlet />
         </div>
