@@ -122,38 +122,36 @@ export function LoginPage() {
       <Starfield />
 
       <div className="relative z-10 flex min-h-svh flex-col px-5 py-5 sm:px-9 sm:py-7 lg:px-14 xl:px-20">
-        <header className="flex items-center justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <BrandMark className="space-brand-mark size-10" />
-            <span className="space-serif truncate text-xl font-medium text-white">NewSzxcn 邮箱</span>
+        <header className="flex items-center justify-between gap-2 sm:gap-4">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+            <BrandMark className="space-brand-mark size-9 shrink-0 sm:size-10" />
+            <span className="space-serif truncate text-base font-medium text-white sm:text-xl">NewSzxcn 邮箱</span>
           </div>
-          <div className="home-header-actions">
+          <div className="flex shrink-0 items-center gap-2">
             <Button
               type="button"
               variant="outline"
               size="icon"
-              className="home-theme-toggle size-9 rounded-full"
+              className="space-theme-button size-9 rounded-full sm:size-10"
               aria-label={visualTheme === "night" ? "切换到日间模式" : "切换到夜间模式"}
               title={visualTheme === "night" ? "切换到日间模式" : "切换到夜间模式"}
               onClick={() => setVisualTheme((current) => current === "night" ? "day" : "night")}
             >
               {visualTheme === "night" ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
             </Button>
-            <div className="auth-actions">
-              {!authVisualActive && publicSettings.data?.openRegistration && (
-                <Button type="button" variant="ghost" className="home-register-button" onClick={startRegisterTransition} disabled={transitionPhase !== "idle"}>
-                  注册
-                </Button>
-              )}
-              <Button
-                variant="outline"
-                className="home-login-button"
-                disabled={transitionPhase !== "idle"}
-                onClick={authVisualActive ? startHomeTransition : startLoginTransition}
-              >
-                <span className="space-login-button-label">{authVisualActive ? "返回" : "登录"}</span>
+            {!authVisualActive && publicSettings.data?.openRegistration && (
+              <Button type="button" variant="ghost" className="space-register-button h-9 rounded-full px-3 sm:h-10 sm:px-5" onClick={startRegisterTransition} disabled={transitionPhase !== "idle"}>
+                注册
               </Button>
-            </div>
+            )}
+            <Button
+              variant="outline"
+              className="space-login-button h-9 rounded-full px-3 text-white hover:text-white sm:h-10 sm:px-6"
+              disabled={transitionPhase !== "idle"}
+              onClick={authVisualActive ? startHomeTransition : startLoginTransition}
+            >
+              <span className="space-login-button-label">{authVisualActive ? "返回" : "登录"}</span>
+            </Button>
           </div>
         </header>
 
