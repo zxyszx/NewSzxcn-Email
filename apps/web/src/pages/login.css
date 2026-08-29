@@ -92,6 +92,19 @@
   transform: translateY(-1px);
 }
 
+.space-register-button {
+  color: rgba(255, 255, 255, 0.82);
+  border: 1px solid transparent;
+  background: rgba(67, 53, 125, 0.08);
+  transition: color 220ms ease, border-color 220ms ease, background-color 220ms ease;
+}
+
+.space-register-button:hover {
+  color: #fff;
+  border-color: rgba(197, 177, 255, 0.28);
+  background: rgba(86, 65, 150, 0.18);
+}
+
 .space-theme-button > svg {
   width: 17px;
   height: 17px;
@@ -123,6 +136,19 @@
   background: rgba(245, 251, 255, 0.58);
   color: #142a56;
   box-shadow: 0 8px 24px rgba(67, 112, 169, 0.12), inset 0 0 14px rgba(255, 255, 255, 0.5);
+}
+
+.space-hero[data-visual-theme="day"] .space-register-button {
+  border-color: rgba(39, 76, 144, 0.2);
+  background: rgba(245, 251, 255, 0.48);
+  color: #142a56;
+  box-shadow: 0 6px 18px rgba(67, 112, 169, 0.08), inset 0 0 12px rgba(255, 255, 255, 0.42);
+}
+
+.space-hero[data-visual-theme="day"] .space-register-button:hover {
+  border-color: rgba(38, 91, 177, 0.4);
+  background: rgba(255, 255, 255, 0.72);
+  color: #102653;
 }
 
 .space-hero[data-visual-theme="day"] .space-login-button:hover,

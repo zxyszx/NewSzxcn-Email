@@ -140,7 +140,7 @@ export function LoginPage() {
               {visualTheme === "night" ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
             </Button>
             {!authVisualActive && publicSettings.data?.openRegistration && (
-              <Button type="button" variant="ghost" className="hidden h-10 text-white/75 hover:bg-white/10 hover:text-white sm:inline-flex" onClick={startRegisterTransition} disabled={transitionPhase !== "idle"}>
+              <Button type="button" variant="ghost" className="space-register-button hidden h-10 sm:inline-flex" onClick={startRegisterTransition} disabled={transitionPhase !== "idle"}>
                 注册
               </Button>
             )}
