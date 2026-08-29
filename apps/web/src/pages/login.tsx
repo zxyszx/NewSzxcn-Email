@@ -106,7 +106,7 @@ export function LoginPage() {
     transitionTimerRef.current = window.setTimeout(() => {
       navigate("/register")
       transitionTimerRef.current = null
-    }, 680)
+    }, 420)
   }
 
   const authActive = loginOpen || !!challengeToken
@@ -140,7 +140,7 @@ export function LoginPage() {
               {visualTheme === "night" ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
             </Button>
             {!authVisualActive && publicSettings.data?.openRegistration && (
-              <Button type="button" variant="ghost" className="space-register-button hidden h-10 sm:inline-flex" onClick={startRegisterTransition} disabled={transitionPhase !== "idle"}>
+              <Button type="button" variant="ghost" className="space-register-button hidden h-10 rounded-full px-5 sm:inline-flex" onClick={startRegisterTransition} disabled={transitionPhase !== "idle"}>
                 注册
               </Button>
             )}

@@ -105,6 +105,10 @@
   background: rgba(86, 65, 150, 0.18);
 }
 
+.space-register-button:active {
+  transform: scale(0.97);
+}
+
 .space-theme-button > svg {
   width: 17px;
   height: 17px;
