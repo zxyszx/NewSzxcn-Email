@@ -129,20 +129,20 @@
 .home-register-button {
   width: 64px;
   border-color: transparent;
-  background: transparent;
+  background: rgba(226, 239, 255, 0.24);
 }
 
 .home-login-button {
   width: 72px;
-  border-color: hsl(var(--primary) / 0.45);
-  background: hsl(var(--primary) / 0.88);
+  border-color: rgba(255, 255, 255, 0.32);
+  background: rgba(25, 29, 37, 0.9);
   color: #fff;
-  box-shadow: 0 4px 14px hsl(var(--primary) / 0.2);
+  box-shadow: 0 4px 14px rgba(14, 18, 26, 0.22);
 }
 
 .home-login-button:hover {
-  border-color: hsl(var(--primary) / 0.62);
-  background: hsl(var(--primary) / 0.96);
+  border-color: rgba(255, 255, 255, 0.5);
+  background: rgba(42, 47, 58, 0.96);
   color: #fff;
   transform: translateY(-1px);
 }
@@ -262,7 +262,7 @@
 
 .space-hero[data-visual-theme="day"] .home-register-button {
   border-color: transparent;
-  background: transparent;
+  background: rgba(226, 239, 255, 0.62);
   color: #142a56;
 }
 
@@ -273,8 +273,8 @@
 }
 
 .space-hero[data-visual-theme="day"] .home-login-button {
-  border-color: hsl(var(--primary) / 0.48);
-  background: hsl(var(--primary) / 0.9);
+  border-color: rgba(255, 255, 255, 0.36);
+  background: rgba(25, 29, 37, 0.9);
   color: #fff;
 }
 
