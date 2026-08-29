@@ -3372,7 +3372,7 @@ function TranslatableMailBody({ message, language }: { message: MailMessage; lan
   const translatedMessage = React.useMemo<MailMessage>(() => ({ ...message, bodyText: translatedText, bodyHtml: translatedHtml }), [message, translatedHtml, translatedText])
   const applyTranslation = React.useCallback((result: Awaited<ReturnType<typeof api.translateMessage>>, display = true) => {
     setTranslatedText(result.translatedText)
-    setTranslatedHtml(result.translatedHtml || "")
+    setTranslatedHtml(result.translatedHtml || plainTextToMailHtml(result.translatedText))
     setTruncated(result.truncated)
     setShowTranslated(display)
   }, [])
@@ -3398,7 +3398,7 @@ function TranslatableMailBody({ message, language }: { message: MailMessage; lan
     translate.reset()
     const cached = qc.getQueryData<Awaited<ReturnType<typeof api.translateMessage>>>(translationKey)
     if (cached) applyTranslation(cached, autoTranslate)
-  }, [message.id, language])
+  }, [message.id, message.externalAccountId, language, translationKey])
 
   React.useEffect(() => {
     if (!autoTranslate || !shouldShow || translate.isPending) return
@@ -3408,7 +3408,7 @@ function TranslatableMailBody({ message, language }: { message: MailMessage; lan
       return
     }
     translate.mutate({ force: false })
-  }, [autoTranslate, message.id, shouldShow, targetLanguage])
+  }, [autoTranslate, message.id, message.externalAccountId, shouldShow, targetLanguage, translationKey])
 
   const changeAutoTranslate = (checked: boolean) => {
     setAutoTranslate(checked)
@@ -3459,12 +3459,17 @@ function translationTargetLabel(language: Language) {
 }
 
 function shouldOfferMessageTranslation(text: string, language: Language) {
-  if (!text.trim()) return false
-  const cjkCount = (text.match(/[\u4e00-\u9fff]/g) || []).length
-  const latinCount = (text.match(/[a-zA-Z]/g) || []).length
-  if (language === "zh-CN" || language === "zh-TW") return latinCount > 80 && latinCount > cjkCount * 3
-  if (language === "en") return cjkCount > 20
+  const normalized = text.replace(/\s+/g, " ").trim()
+  if (normalized.length < 4) return false
+  const cjkCount = (normalized.match(/[\u3400-\u9fff]/g) || []).length
+  const latinCount = (normalized.match(/[a-zA-Z]/g) || []).length
+  if (language === "zh-CN" || language === "zh-TW") return latinCount >= 12 && latinCount > cjkCount * 1.35
+  if (language === "en") return cjkCount >= 6 && cjkCount > latinCount * 0.2
   return false
+}
+
+function plainTextToMailHtml(text: string) {
+  return `<div>${escapeHtml(text).replace(/\r?\n/g, "<br />")}</div>`
 }
 
 function MailHtmlFrame({ message }: { message: MailMessage }) {
