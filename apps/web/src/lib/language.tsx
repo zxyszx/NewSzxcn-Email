@@ -7,25 +7,17 @@ export const LANGUAGE_STORAGE_KEY = "lanqin:language"
 
 export const languageOptions: { value: Language; label: string; shortLabel: string; htmlLang: string }[] = [
   { value: "zh-CN", label: "简体中文", shortLabel: "简", htmlLang: "zh-CN" },
-  { value: "zh-TW", label: "繁體中文", shortLabel: "繁", htmlLang: "zh-TW" },
-  { value: "en", label: "English", shortLabel: "EN", htmlLang: "en" },
 ]
 
-const languageValues = new Set(languageOptions.map((item) => item.value))
-
 export function getInitialLanguage(): Language {
-  if (typeof window === "undefined") return "zh-CN"
-  const stored = window.localStorage.getItem(LANGUAGE_STORAGE_KEY)
-  if (stored && languageValues.has(stored as Language)) return stored as Language
-  const browserLanguage = window.navigator.language.toLowerCase()
-  if (browserLanguage.startsWith("zh-tw") || browserLanguage.startsWith("zh-hk") || browserLanguage.startsWith("zh-mo")) return "zh-TW"
-  if (browserLanguage.startsWith("en")) return "en"
+  // The application UI is intentionally Simplified Chinese only.
+  if (typeof window !== "undefined") window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "zh-CN")
   return "zh-CN"
 }
 
-export function setStoredLanguage(language: Language) {
-  window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language)
-  window.dispatchEvent(new CustomEvent("lanqin:language", { detail: language }))
+export function setStoredLanguage(_language: Language) {
+  window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "zh-CN")
+  window.dispatchEvent(new CustomEvent("lanqin:language", { detail: "zh-CN" }))
 }
 
 export function useLanguage() {
@@ -43,7 +35,7 @@ export function useLanguage() {
   }, [])
   const setLanguage = React.useCallback((nextLanguage: Language) => {
     setStoredLanguage(nextLanguage)
-    setLanguageState(nextLanguage)
+    setLanguageState("zh-CN")
   }, [])
   return [language, setLanguage] as const
 }

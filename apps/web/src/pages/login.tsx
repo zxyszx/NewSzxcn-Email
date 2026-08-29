@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Link, Navigate, useLocation } from "react-router-dom"
+import { Navigate, useLocation, useNavigate } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { HardDriveDownload, KeyRound, LoaderCircle, LockKeyhole, Mail, MonitorSmartphone, Moon, ShieldCheck, Sun, Tags } from "lucide-react"
 import { api } from "@/lib/api"
@@ -18,9 +18,10 @@ import "./login.css"
 export function LoginPage() {
   const me = useMe()
   const location = useLocation()
+  const navigate = useNavigate()
   const qc = useQueryClient()
   const { toast } = useToast()
-  const publicSettings = useQuery({ queryKey: ["public-settings"], queryFn: api.publicSettings })
+  const publicSettings = useQuery({ queryKey: ["public-settings"], queryFn: api.publicSettings, staleTime: 0, refetchOnMount: "always" })
   const [turnstileToken, setTurnstileToken] = React.useState("")
   const [challengeToken, setChallengeToken] = React.useState("")
   const [loginOpen, setLoginOpen] = React.useState(false)
@@ -29,7 +30,7 @@ export function LoginPage() {
     if (savedTheme === "day" || savedTheme === "night") return savedTheme
     return window.matchMedia("(prefers-color-scheme: dark)").matches ? "night" : "day"
   })
-  const [transitionPhase, setTransitionPhase] = React.useState<"idle" | "to-login" | "to-home">("idle")
+  const [transitionPhase, setTransitionPhase] = React.useState<"idle" | "to-login" | "to-home" | "to-register">("idle")
   const transitionTimerRef = React.useRef<number | null>(null)
   const heroRef = React.useRef<HTMLElement>(null)
   const login = useMutation({
@@ -98,6 +99,16 @@ export function LoginPage() {
     }, 680)
   }
 
+  const startRegisterTransition = () => {
+    if (transitionPhase !== "idle" || !publicSettings.data?.openRegistration) return
+    window.scrollTo({ top: 0, behavior: "auto" })
+    setTransitionPhase("to-register")
+    transitionTimerRef.current = window.setTimeout(() => {
+      navigate("/register")
+      transitionTimerRef.current = null
+    }, 680)
+  }
+
   const authActive = loginOpen || !!challengeToken
   const authVisualActive = authActive
 
@@ -129,8 +140,8 @@ export function LoginPage() {
               {visualTheme === "night" ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
             </Button>
             {!authVisualActive && publicSettings.data?.openRegistration && (
-              <Button asChild variant="ghost" className="hidden h-10 text-white/75 hover:bg-white/10 hover:text-white sm:inline-flex">
-                <Link to="/register">注册</Link>
+              <Button type="button" variant="ghost" className="hidden h-10 text-white/75 hover:bg-white/10 hover:text-white sm:inline-flex" onClick={startRegisterTransition} disabled={transitionPhase !== "idle"}>
+                注册
               </Button>
             )}
             <Button
@@ -147,7 +158,7 @@ export function LoginPage() {
         <section className="relative grid flex-1 items-center pb-10 pt-14 lg:pt-10 xl:grid-cols-[0.42fr_0.58fr] xl:pb-14">
           {authVisualActive ? (
             <LoginArtwork
-              leaving={transitionPhase === "to-home"}
+              leaving={transitionPhase === "to-home" || transitionPhase === "to-register"}
               challengeToken={challengeToken}
               loginPending={login.isPending}
               openRegistration={!!publicSettings.data?.openRegistration}
@@ -155,6 +166,7 @@ export function LoginPage() {
               turnstileSiteKey={publicSettings.data?.turnstileSiteKey || ""}
               onTurnstileToken={setTurnstileToken}
               onBackToLogin={() => setChallengeToken("")}
+              onRegister={startRegisterTransition}
               onSubmit={(form) => {
                 if (!challengeToken && turnstileRequired && !turnstileToken) {
                   toast({ title: "请先完成人机验证" })
@@ -164,7 +176,7 @@ export function LoginPage() {
               }}
             />
           ) : (
-            <div className={`space-home-content w-full max-w-[720px] xl:pl-3 ${transitionPhase === "to-login" ? "is-leaving" : ""}`}>
+            <div className={`space-home-content w-full max-w-[720px] xl:pl-3 ${transitionPhase === "to-login" || transitionPhase === "to-register" ? "is-leaving" : ""}`}>
               <div className="hero-reveal hero-delay-1">
                 <p className="space-kicker space-serif">属 于 你 的 通 信 空 间</p>
                 <div className="space-kicker-divider" aria-hidden="true"><span /></div>
@@ -200,7 +212,7 @@ export function LoginPage() {
   )
 }
 
-function LoginArtwork({ challengeToken, leaving, loginPending, openRegistration, turnstileRequired, turnstileSiteKey, onTurnstileToken, onBackToLogin, onSubmit }: {
+function LoginArtwork({ challengeToken, leaving, loginPending, openRegistration, turnstileRequired, turnstileSiteKey, onTurnstileToken, onBackToLogin, onRegister, onSubmit }: {
   challengeToken: string
   leaving: boolean
   loginPending: boolean
@@ -209,6 +221,7 @@ function LoginArtwork({ challengeToken, leaving, loginPending, openRegistration,
   turnstileSiteKey: string
   onTurnstileToken: (token: string) => void
   onBackToLogin: () => void
+  onRegister: () => void
   onSubmit: (form: FormData) => void
 }) {
   return (
@@ -259,8 +272,8 @@ function LoginArtwork({ challengeToken, leaving, loginPending, openRegistration,
           ) : openRegistration ? (
             <div className="flex items-center justify-center gap-1 text-sm text-indigo-100/55">
               <span>没有账号？</span>
-              <Button type="button" variant="link" className="h-auto px-1 text-sm text-indigo-200 hover:text-white" asChild>
-                <Link to="/register">注册账号</Link>
+              <Button type="button" variant="link" className="h-auto px-1 text-sm text-indigo-200 hover:text-white" onClick={onRegister}>
+                注册账号
               </Button>
             </div>
           ) : null}
