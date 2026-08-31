@@ -3577,14 +3577,14 @@ function CompactMessageRow({ message, active, checked, scheduled, onCheckedChang
               {!message.isRead && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-label="未读" />}
             </div>
             <div className="flex shrink-0 items-center gap-1 sm:hidden">
-              <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="mail-message-date whitespace-nowrap text-right text-xs font-medium tabular-nums text-foreground/65">{messageDisplayDate(message)}</time>
+              <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="mail-message-date whitespace-nowrap text-right text-[11px] font-medium tabular-nums text-foreground/70">{messageDisplayDate(message)}</time>
               {canOrganize && <Button type="button" variant="ghost" size="icon" aria-label={message.isStarred ? "取消星标" : "添加星标"} className="h-6 w-6 text-muted-foreground hover:text-yellow-500" onClick={(event) => { event.stopPropagation(); onStar() }}>
                 <Star className={cn("h-3.5 w-3.5", message.isStarred && "fill-yellow-400 text-yellow-500")} />
               </Button>}
             </div>
           </div>
           <div className="mt-1 flex min-w-0 items-center gap-2 sm:mt-0">
-            <span className="truncate font-medium">{messageSubject(message)}</span>
+            <span className="truncate font-normal text-foreground/80" title={messageSubject(message)}>{messageSubject(message)}</span>
             {scheduled && <Badge variant="secondary" className="h-5 shrink-0 rounded-md px-1.5 text-[11px] font-normal">已定时</Badge>}
             {visibleLabels.map((label) => <MailLabelBadge key={label.id} label={label} />)}
             {hiddenLabelCount > 0 && <Badge variant="outline" className="h-5 shrink-0 rounded-md px-1.5 text-[11px] font-normal text-muted-foreground">+{hiddenLabelCount}</Badge>}
@@ -3592,7 +3592,7 @@ function CompactMessageRow({ message, active, checked, scheduled, onCheckedChang
           </div>
         </div>
       </div>
-      <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="mail-message-date hidden whitespace-nowrap text-right text-xs font-medium tabular-nums text-foreground/65 sm:block">{messageDisplayDate(message)}</time>
+      <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="mail-message-date hidden whitespace-nowrap text-right text-[11px] font-medium tabular-nums text-foreground/70 sm:block">{messageDisplayDate(message)}</time>
       {canOrganize && <Button type="button" variant="ghost" size="icon" aria-label={message.isStarred ? "取消星标" : "添加星标"} className="hidden h-6 w-6 text-muted-foreground hover:text-yellow-500 sm:inline-flex" onClick={(event) => { event.stopPropagation(); onStar() }}>
         <Star className={cn("h-3.5 w-3.5", message.isStarred && "fill-yellow-400 text-yellow-500")} />
       </Button>}
@@ -3790,10 +3790,15 @@ function messageDisplayDate(message: MailMessage) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return "时间未知"
   const now = new Date()
-  const sameDay = date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate()
-  if (sameDay) return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }).format(date)
-  if (date.getFullYear() === now.getFullYear()) return formatDate(value)
-  return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }).format(date)
+  const options: Intl.DateTimeFormatOptions = {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }
+  if (date.getFullYear() !== now.getFullYear()) options.year = "2-digit"
+  return new Intl.DateTimeFormat("zh-CN", options).format(date)
 }
 
 function messageFullDate(message: MailMessage) {
@@ -4046,7 +4051,7 @@ function MessageRow({
     active && "mail-selected-row",
     checked && "mail-selected-row"
   )}>
-    <div className="flex min-w-0 gap-2.5">
+    <div className="mail-message-row flex min-w-0 gap-2.5">
       <Checkbox
         aria-label="选择邮件"
         checked={checked}
@@ -4055,12 +4060,12 @@ function MessageRow({
         className="mt-0.5 shrink-0"
       />
       <div className="min-w-0 flex-1">
-        <div className="mb-1 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+        <div className="mail-message-primary mb-1 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
           <div className="flex min-w-0 items-center gap-1.5">
             <div className="min-w-0 truncate text-[13px] font-medium" title={senderTitle(message)}>{senderName}</div>
             {!message.isRead && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-label="未读" />}
           </div>
-          <div className="flex shrink-0 items-center gap-0.5 whitespace-nowrap">
+          <div className="mail-message-meta flex shrink-0 items-center gap-0.5 whitespace-nowrap">
             {canOrganize && (
               <div className={cn("hidden shrink-0 items-center gap-0.5", quickActionsVisible ? "flex" : "group-hover:flex")}>
                 <Button type="button" variant="ghost" size="icon" aria-label={archiveLabel} title={archiveLabel} className={quickButtonClass} onClick={(event) => { event.stopPropagation(); onArchive() }}>
@@ -4084,11 +4089,11 @@ function MessageRow({
             >
               <Star className={cn("h-3.5 w-3.5", message.isStarred && "fill-yellow-400 text-yellow-500")} />
             </Button>}
-            <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="mail-message-date whitespace-nowrap text-right text-xs font-medium tabular-nums text-foreground/65">{messageDisplayDate(message)}</time>
+            <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="mail-message-date whitespace-nowrap text-right text-[11px] font-medium tabular-nums text-foreground/70">{messageDisplayDate(message)}</time>
           </div>
         </div>
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="min-w-0 truncate text-[13px] text-foreground">{messageSubject(message)}</span>
+        <div className="mail-message-subject-row flex min-w-0 items-center gap-2">
+          <span className="mail-message-subject min-w-0 truncate text-[13px] font-normal text-foreground/80" title={messageSubject(message)}>{messageSubject(message)}</span>
           {scheduled && <Badge variant="secondary" className="h-5 shrink-0 rounded-md px-1.5 text-[11px] font-normal">已定时</Badge>}
           {visibleLabels.map((label) => <MailLabelBadge key={label.id} label={label} />)}
           {hiddenLabelCount > 0 && <Badge variant="outline" className="h-5 shrink-0 rounded-md px-1.5 text-[11px] font-normal text-muted-foreground">+{hiddenLabelCount}</Badge>}

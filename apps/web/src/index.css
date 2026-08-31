@@ -259,6 +259,14 @@
     opacity: 1;
   }
 
+  .admin-workspace-theme::before,
+  .admin-workspace-theme::after,
+  .profile-workspace-theme::before,
+  .profile-workspace-theme::after {
+    inset: -12px;
+    filter: blur(5px) saturate(0.92);
+  }
+
   .mail-workspace-theme > *,
   .admin-workspace-theme > *,
   .profile-workspace-theme > * {
@@ -290,7 +298,7 @@
 
   .admin-workspace-theme .bg-background,
   .profile-workspace-theme .bg-background {
-    background-color: hsl(204 64% 98% / 0.28) !important;
+    background-color: hsl(204 64% 98% / 0.88) !important;
   }
 
   .dark .mail-workspace-theme .mail-content-grid,
@@ -305,7 +313,7 @@
 
   .dark .admin-workspace-theme .bg-background,
   .dark .profile-workspace-theme .bg-background {
-    background-color: hsl(228 52% 6% / 0.26) !important;
+    background-color: hsl(228 52% 6% / 0.88) !important;
   }
 
   .mail-workspace-theme [data-sidebar="sidebar"],
@@ -499,10 +507,9 @@
 
   .admin-workspace-theme .bg-card,
   .profile-workspace-theme .bg-card {
-    /* Keep management surfaces translucent so the shared city artwork remains visible. */
-    background: linear-gradient(180deg, hsl(204 70% 99% / 0.14), hsl(205 60% 95% / 0.07));
-    backdrop-filter: blur(18px) saturate(1.04);
-    -webkit-backdrop-filter: blur(18px) saturate(1.04);
+    background: linear-gradient(180deg, hsl(204 70% 99% / 0.9), hsl(205 60% 95% / 0.84));
+    backdrop-filter: blur(30px) saturate(1.02);
+    -webkit-backdrop-filter: blur(30px) saturate(1.02);
     transition: background-color 320ms ease, border-color 240ms ease, color 220ms ease, box-shadow 240ms ease;
   }
 
@@ -510,30 +517,30 @@
   .dark .admin-workspace-theme [data-sidebar="sidebar"],
   .dark .admin-workspace-theme .bg-card,
   .dark .profile-workspace-theme .bg-card {
-    background: linear-gradient(180deg, hsl(229 48% 8% / 0.34), hsl(237 44% 7% / 0.24));
+    background: linear-gradient(180deg, hsl(229 48% 8% / 0.9), hsl(237 44% 7% / 0.84));
   }
 
   /* Frosted-glass treatment for the settings shell and its cards. */
   .profile-workspace-theme .bg-card {
-    background: linear-gradient(180deg, hsl(204 70% 99% / 0.64), hsl(205 60% 95% / 0.52));
-    backdrop-filter: blur(24px) saturate(1.08);
-    -webkit-backdrop-filter: blur(24px) saturate(1.08);
+    background: linear-gradient(180deg, hsl(204 70% 99% / 0.9), hsl(205 60% 95% / 0.84));
+    backdrop-filter: blur(30px) saturate(1.02);
+    -webkit-backdrop-filter: blur(30px) saturate(1.02);
   }
 
   .dark .profile-workspace-theme .bg-card {
-    background: linear-gradient(180deg, hsl(229 48% 8% / 0.56), hsl(237 44% 7% / 0.46));
+    background: linear-gradient(180deg, hsl(229 48% 8% / 0.9), hsl(237 44% 7% / 0.84));
   }
 
   .admin-workspace-theme .bg-card,
   .admin-workspace-theme [data-slot="card"] {
-    background: linear-gradient(180deg, hsl(204 70% 99% / 0.5), hsl(205 60% 95% / 0.38));
-    backdrop-filter: blur(24px) saturate(1.08);
-    -webkit-backdrop-filter: blur(24px) saturate(1.08);
+    background: linear-gradient(180deg, hsl(204 70% 99% / 0.9), hsl(205 60% 95% / 0.84));
+    backdrop-filter: blur(30px) saturate(1.02);
+    -webkit-backdrop-filter: blur(30px) saturate(1.02);
   }
 
   .dark .admin-workspace-theme .bg-card,
   .dark .admin-workspace-theme [data-slot="card"] {
-    background: linear-gradient(180deg, hsl(229 48% 8% / 0.58), hsl(237 44% 7% / 0.48));
+    background: linear-gradient(180deg, hsl(229 48% 8% / 0.9), hsl(237 44% 7% / 0.84));
   }
 
   .mail-workspace-theme [data-sidebar="menu-button"][data-active="true"],
@@ -635,10 +642,10 @@
     overflow: hidden;
     border: 1px solid hsl(var(--border) / 0.72);
     border-radius: 0.875rem;
-    background: linear-gradient(145deg, hsl(204 70% 99% / 0.5), hsl(205 58% 96% / 0.38));
+    background: linear-gradient(145deg, hsl(204 70% 99% / 0.9), hsl(205 58% 96% / 0.84));
     box-shadow: 0 12px 30px hsl(215 42% 28% / 0.08), inset 0 1px 0 hsl(0 0% 100% / 0.32);
-    backdrop-filter: blur(24px) saturate(1.08);
-    -webkit-backdrop-filter: blur(24px) saturate(1.08);
+    backdrop-filter: blur(30px) saturate(1.02);
+    -webkit-backdrop-filter: blur(30px) saturate(1.02);
   }
 
   .profile-page-continuous-surface > * {
@@ -647,14 +654,14 @@
 
   .profile-page-continuous-surface .bg-card,
   .profile-page-continuous-surface [data-slot="card"] {
-    background: linear-gradient(145deg, hsl(204 70% 99% / 0.18), hsl(205 58% 96% / 0.1));
+    background: linear-gradient(145deg, hsl(204 70% 99% / 0.72), hsl(205 58% 96% / 0.62));
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
 
   .dark .profile-page-continuous-surface {
     border-color: hsl(232 50% 58% / 0.34);
-    background: linear-gradient(145deg, hsl(229 48% 8% / 0.58), hsl(237 44% 7% / 0.48));
+    background: linear-gradient(145deg, hsl(229 48% 8% / 0.9), hsl(237 44% 7% / 0.84));
     box-shadow: 0 16px 42px hsl(235 80% 3% / 0.3), inset 0 1px 0 hsl(230 100% 86% / 0.08);
   }
 
@@ -687,10 +694,10 @@
     min-height: calc(100dvh - 6.5rem);
     border: 1px solid hsl(var(--border) / 0.72);
     border-radius: 0.875rem;
-    background: linear-gradient(145deg, hsl(204 70% 99% / 0.5), hsl(205 58% 96% / 0.38));
+    background: linear-gradient(145deg, hsl(204 70% 99% / 0.9), hsl(205 58% 96% / 0.84));
     box-shadow: 0 12px 30px hsl(215 42% 28% / 0.08), inset 0 1px 0 hsl(0 0% 100% / 0.32);
-    backdrop-filter: blur(24px) saturate(1.08);
-    -webkit-backdrop-filter: blur(24px) saturate(1.08);
+    backdrop-filter: blur(30px) saturate(1.02);
+    -webkit-backdrop-filter: blur(30px) saturate(1.02);
     transition: background-color 320ms ease, border-color 240ms ease, color 220ms ease, box-shadow 240ms ease;
   }
 
@@ -713,7 +720,7 @@
 
   .dark .profile-continuous-panel {
     border-color: hsl(232 50% 58% / 0.34);
-    background: linear-gradient(145deg, hsl(229 48% 8% / 0.58), hsl(237 44% 7% / 0.48));
+    background: linear-gradient(145deg, hsl(229 48% 8% / 0.9), hsl(237 44% 7% / 0.84));
     box-shadow: 0 16px 42px hsl(235 80% 3% / 0.3), inset 0 1px 0 hsl(230 100% 86% / 0.08);
   }
 
@@ -725,10 +732,10 @@
     overflow: hidden;
     border: 1px solid hsl(var(--border) / 0.72);
     border-radius: 0.875rem;
-    background: linear-gradient(145deg, hsl(204 70% 99% / 0.5), hsl(205 58% 96% / 0.38));
+    background: linear-gradient(145deg, hsl(204 70% 99% / 0.9), hsl(205 58% 96% / 0.84));
     box-shadow: 0 12px 30px hsl(215 42% 28% / 0.08), inset 0 1px 0 hsl(0 0% 100% / 0.32);
-    backdrop-filter: blur(24px) saturate(1.08);
-    -webkit-backdrop-filter: blur(24px) saturate(1.08);
+    backdrop-filter: blur(30px) saturate(1.02);
+    -webkit-backdrop-filter: blur(30px) saturate(1.02);
     transition: background-color 320ms ease, border-color 240ms ease, color 220ms ease, box-shadow 240ms ease;
   }
 
@@ -955,9 +962,32 @@
 
   .mail-message-date {
     display: block;
-    min-width: 4.5rem;
-    flex: 0 0 4.5rem;
+    min-width: 5.75rem;
+    flex: 0 0 5.75rem;
     white-space: nowrap;
+  }
+
+  .mail-message-primary,
+  .mail-message-subject-row {
+    width: 100%;
+  }
+
+  .mail-message-subject {
+    display: block;
+  }
+
+  @container (max-width: 25rem) {
+    .mail-message-row {
+      gap: 0.5rem;
+    }
+
+    .mail-message-meta {
+      gap: 0;
+    }
+
+    .mail-message-meta button {
+      display: none;
+    }
   }
 
   @media (max-width: 1279px) and (min-width: 768px) {
