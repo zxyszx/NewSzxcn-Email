@@ -4060,12 +4060,20 @@ function MessageRow({
         className="mt-0.5 shrink-0"
       />
       <div className="min-w-0 flex-1">
-        <div className="mail-message-primary relative mb-1 min-w-0 pr-[7.5rem]">
-          <div className="flex min-w-0 items-center gap-1.5">
+        <div className="mail-message-primary mb-1 flex min-w-0 items-center gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
             <div className="min-w-0 truncate text-[13px] font-medium" title={senderTitle(message)}>{senderName}</div>
             {!message.isRead && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-label="未读" />}
           </div>
-          <div className="mail-message-meta absolute right-0 top-1/2 flex -translate-y-1/2 shrink-0 items-center gap-0.5 whitespace-nowrap">
+          <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="mail-message-date shrink-0 whitespace-nowrap text-right text-[11px] font-medium tabular-nums text-foreground/70">{messageDisplayDate(message)}</time>
+        </div>
+        <div className="mail-message-subject-row flex min-w-0 items-center gap-2">
+          <span className="mail-message-subject min-w-0 flex-1 truncate text-[13px] font-normal text-foreground/80" title={messageSubject(message)}>{messageSubject(message)}</span>
+          {scheduled && <Badge variant="secondary" className="h-5 shrink-0 rounded-md px-1.5 text-[11px] font-normal">已定时</Badge>}
+          {visibleLabels.map((label) => <MailLabelBadge key={label.id} label={label} />)}
+          {hiddenLabelCount > 0 && <Badge variant="outline" className="h-5 shrink-0 rounded-md px-1.5 text-[11px] font-normal text-muted-foreground">+{hiddenLabelCount}</Badge>}
+          {message.hasAttachments && <Paperclip className="h-3 w-3 shrink-0 text-muted-foreground" />}
+          <div className="mail-message-meta flex shrink-0 items-center gap-0.5 whitespace-nowrap">
             {canOrganize && (
               <div className={cn("hidden shrink-0 items-center gap-0.5", quickActionsVisible ? "flex" : "group-hover:flex")}>
                 <Button type="button" variant="ghost" size="icon" aria-label={archiveLabel} title={archiveLabel} className={quickButtonClass} onClick={(event) => { event.stopPropagation(); onArchive() }}>
@@ -4089,15 +4097,7 @@ function MessageRow({
             >
               <Star className={cn("h-3.5 w-3.5", message.isStarred && "fill-yellow-400 text-yellow-500")} />
             </Button>}
-            <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="mail-message-date whitespace-nowrap text-right text-[11px] font-medium tabular-nums text-foreground/70">{messageDisplayDate(message)}</time>
           </div>
-        </div>
-        <div className="mail-message-subject-row flex min-w-0 items-center gap-2">
-          <span className="mail-message-subject min-w-0 truncate text-[13px] font-normal text-foreground/80" title={messageSubject(message)}>{messageSubject(message)}</span>
-          {scheduled && <Badge variant="secondary" className="h-5 shrink-0 rounded-md px-1.5 text-[11px] font-normal">已定时</Badge>}
-          {visibleLabels.map((label) => <MailLabelBadge key={label.id} label={label} />)}
-          {hiddenLabelCount > 0 && <Badge variant="outline" className="h-5 shrink-0 rounded-md px-1.5 text-[11px] font-normal text-muted-foreground">+{hiddenLabelCount}</Badge>}
-          {message.hasAttachments && <Paperclip className="h-3 w-3 shrink-0 text-muted-foreground" />}
         </div>
       </div>
     </div>
