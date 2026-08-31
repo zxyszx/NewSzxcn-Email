@@ -4046,12 +4046,12 @@ function MessageRow({
   const quickButtonClass = "h-6 w-6 text-muted-foreground hover:bg-accent hover:text-foreground"
   const archiveLabel = message.folder === "Archive" ? "移回收件箱" : "归档"
   return <div onClick={onClick} onContextMenu={onContextMenu} className={cn(
-    "group w-full max-w-full cursor-pointer overflow-hidden border-b border-l-2 px-3 py-2.5 transition-colors",
+    "group relative w-full max-w-full cursor-pointer overflow-hidden border-b border-l-2 px-3 py-2.5 transition-colors",
     message.isRead ? "border-l-transparent hover:bg-accent/60" : "border-l-primary bg-primary/5 font-semibold hover:bg-primary/10",
     active && "mail-selected-row",
     checked && "mail-selected-row"
   )}>
-    <div className="mail-message-row flex min-w-0 gap-2.5">
+    <div className="mail-message-row flex min-w-0 gap-2.5 pr-[5.75rem]">
       <Checkbox
         aria-label="选择邮件"
         checked={checked}
@@ -4065,7 +4065,6 @@ function MessageRow({
             <div className="min-w-0 truncate text-[13px] font-medium" title={senderTitle(message)}>{senderName}</div>
             {!message.isRead && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-label="未读" />}
           </div>
-          <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="mail-message-date shrink-0 whitespace-nowrap text-right text-[11px] font-medium tabular-nums text-foreground/70">{messageDisplayDate(message)}</time>
         </div>
         <div className="mail-message-subject-row flex min-w-0 items-center gap-2">
           <span className="mail-message-subject min-w-0 flex-1 truncate text-[13px] font-normal text-foreground/80" title={messageSubject(message)}>{messageSubject(message)}</span>
@@ -4101,6 +4100,7 @@ function MessageRow({
         </div>
       </div>
     </div>
+    <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="mail-message-date absolute right-3 top-2.5 z-10 rounded bg-background/90 px-1 text-right text-[11px] font-semibold tabular-nums text-foreground">{messageDisplayDate(message)}</time>
   </div>
 }
 
