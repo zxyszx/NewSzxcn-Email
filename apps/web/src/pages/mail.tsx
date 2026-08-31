@@ -4051,7 +4051,7 @@ function MessageRow({
     active && "mail-selected-row",
     checked && "mail-selected-row"
   )}>
-    <div className="mail-message-row flex min-w-0 gap-2.5 pr-[5.75rem]">
+    <div className="mail-message-row flex min-w-0 gap-2.5">
       <Checkbox
         aria-label="选择邮件"
         checked={checked}
@@ -4061,6 +4061,7 @@ function MessageRow({
       />
       <div className="min-w-0 flex-1">
         <div className="mail-message-primary mb-1 flex min-w-0 items-center gap-2">
+          <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="mail-message-date shrink-0 rounded bg-background/90 px-1 text-left text-[11px] font-semibold tabular-nums text-foreground">{messageDisplayDate(message)}</time>
           <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
             <div className="min-w-0 truncate text-[13px] font-medium" title={senderTitle(message)}>{senderName}</div>
             {!message.isRead && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-label="未读" />}
@@ -4100,7 +4101,6 @@ function MessageRow({
         </div>
       </div>
     </div>
-    <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="mail-message-date absolute right-3 top-2.5 z-10 rounded bg-background/90 px-1 text-right text-[11px] font-semibold tabular-nums text-foreground">{messageDisplayDate(message)}</time>
   </div>
 }
 
