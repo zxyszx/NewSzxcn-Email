@@ -48,6 +48,7 @@ COPY deploy/docker-compose.yml /usr/share/newszxcn-email/deploy/docker-compose.y
 
 COPY deploy/postfix/main.cf /etc/postfix/main.cf
 COPY deploy/postfix/master.cf /etc/postfix/master.cf
+COPY deploy/postfix/header_checks /etc/postfix/header_checks
 COPY deploy/postfix/sqlite-*.cf /etc/postfix/
 COPY deploy/dovecot/dovecot.conf /etc/dovecot/dovecot.conf
 COPY deploy/dovecot/dovecot-sql.conf.ext /etc/dovecot/dovecot-sql.conf.ext

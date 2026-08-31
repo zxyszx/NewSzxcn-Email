@@ -56,6 +56,7 @@ export type AdminUser = User & { mailboxCount: number; mailboxes?: string[]; sto
 export type AdminOverview = {
   users: number; activeUsers: number; domains: number; mailboxes: number; activeMailboxes: number
   aliases: number; messages: number; unreadMessages: number; storageBytes: number
+  accountForwardingRules: number; mailboxForwardingRules: number; forwardedMailboxes: number
   todaySent: number; todayReceived: number; sendDelivered: number; sendFailed: number; queueMessages: number
 }
 export type Domain = { id: string; name: string; status: string; dkimSelector: string; dkimPublicKey?: string; dnsStatus: string; dnsCheckedAt?: string; createdAt: string }
@@ -70,7 +71,10 @@ export type MailMessage = {
   sendQueueId?: string
   sendQueueStatus?: SendQueueStatus
   externalAccountId?: string
+  forwardRecipients?: string[]
+  forwardDeliveries?: DeliveryEvent[]
 }
+export type DeliveryEvent = { id: string; externalId?: string; provider?: string; queueId?: string; messageId?: string; rfcMessageId?: string; recipient: string; status: string; reason?: string; postfixQueueId?: string; smtpCode?: string; dsn?: string; relay?: string; attempts: number; lastAttemptAt?: string; error?: string; occurredAt: string; createdAt: string }
 export type DNSRecord = { type: string; name: string; value: string; ttl: number }
 export type DNSCheckResult = { domain: string; status: string; checks: Record<string, { ok: boolean; message: string; found?: string[] }> }
 export type ListResponse<T> = { items: T[]; nextCursor?: string }
@@ -118,6 +122,7 @@ export type SendQueueAuditEvent = {
   message?: string
   error?: string
   attemptCount?: number
+  deliveryEvents?: DeliveryEvent[]
   createdAt: string
 }
 export type Contact = { id: string; name: string; email: string; note: string; createdAt: string }

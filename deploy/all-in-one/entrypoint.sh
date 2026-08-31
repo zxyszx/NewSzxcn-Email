@@ -18,7 +18,7 @@ export LANQIN_DATA_DIR LANQIN_DB_PATH LANQIN_ADDR LANQIN_SMTP_HOST LANQIN_SMTP_P
 
 addgroup --system --gid 5000 vmail 2>/dev/null || true
 adduser --system --uid 5000 --gid 5000 --home /var/mail/vhosts --no-create-home vmail 2>/dev/null || true
-mkdir -p /data /var/mail/vhosts /var/lib/rspamd/dkim /run/rspamd /var/spool/postfix /var/run/dovecot
+mkdir -p /data /data/logs /var/mail/vhosts /var/lib/rspamd/dkim /run/rspamd /var/spool/postfix /var/run/dovecot
 chown -R 5000:5000 /var/mail/vhosts
 if id _rspamd >/dev/null 2>&1; then
   chown -R _rspamd:_rspamd /run/rspamd /var/lib/rspamd 2>/dev/null || true
@@ -61,6 +61,9 @@ postconf -e "virtual_transport = lmtp:inet:127.0.0.1:24"
 postconf -e "milter_mail_macros = i {mail_addr} {client_addr} {client_name} {auth_authen}"
 postconf -e "smtpd_milters = inet:127.0.0.1:11332"
 postconf -e "non_smtpd_milters = inet:127.0.0.1:11332"
+postconf -e "maillog_file = /data/logs/postfix.log"
+postconf -e "maillog_file_prefixes = /var, /dev/stdout, /data"
+postconf -e "header_checks = regexp:/etc/postfix/header_checks"
 sed -i "s#^ssl_cert = <.*#ssl_cert = <${TLS_CERT}#" /etc/dovecot/dovecot.conf
 sed -i "s#^ssl_key = <.*#ssl_key = <${TLS_KEY}#" /etc/dovecot/dovecot.conf
 sed -i "s#^auth_policy_hash_nonce = .*#auth_policy_hash_nonce = ${AUTH_POLICY_HASH_NONCE}#" /etc/dovecot/dovecot.conf
@@ -68,7 +71,7 @@ sed -i "s#^auth_policy_hash_nonce = .*#auth_policy_hash_nonce = ${AUTH_POLICY_HA
 # Rspamd DKIM keys are exported after API seed/migrations create the SQLite DB.
 /usr/local/bin/lanqin-api >/tmp/lanqin-api-bootstrap.log 2>&1 &
 bootstrap_pid=$!
-for i in $(seq 1 60); do
+for _ in $(seq 1 60); do
   if [ -f "$LANQIN_DB_PATH" ]; then
     users_count="$(sqlite3 "$LANQIN_DB_PATH" "SELECT COALESCE(COUNT(1),0) FROM users;" 2>/dev/null || echo 0)"
     domains_count="$(sqlite3 "$LANQIN_DB_PATH" "SELECT COALESCE(COUNT(1),0) FROM domains;" 2>/dev/null || echo 0)"

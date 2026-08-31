@@ -24,7 +24,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog"
 import { useMe } from "@/hooks/use-me"
 import { useToast } from "@/hooks/use-toast"
 import { hasAnyPermission, hasPermission } from "@/lib/permissions"
-import type { BackupTransfer, PermissionKey, TelegramPairing } from "@/lib/api-types"
+import type { BackupTransfer, DeliveryEvent, PermissionKey, TelegramPairing } from "@/lib/api-types"
 
 type Section = "overview" | "users" | "permissionGroups" | "domains" | "mailboxes" | "aliases" | "messages" | "sendAudit" | "backups" | "settings"
 type SettingsTab = "base" | "smtp" | "storage" | "mail" | "notifications" | "externalImap" | "templates" | "security"
@@ -142,7 +142,7 @@ export function AdminPage() {
 
   return (
     <ScrollArea className="h-[calc(100svh-3rem)] md:h-svh">
-      <main className="admin-page admin-workspace-content min-h-[calc(100svh-3rem)] w-full px-2 pb-2 pt-2 sm:px-3 sm:pt-3 md:min-h-svh">
+      <main className="admin-page admin-workspace-content min-h-[calc(100svh-3rem)] w-[100vw] min-w-0 max-w-[100vw] overflow-x-hidden px-2 pb-2 pt-2 sm:px-3 sm:pt-3 md:min-h-svh md:w-full md:max-w-full">
         <AdminPageHeader section={section} refreshing={refreshing} onRefresh={refreshAdminPage} checklist={overviewChecklist} onSectionChange={changeSection} />
 
         {sectionError && <QueryFailure error={sectionError.error} onRetry={() => { void Promise.all(sectionQueries.map((query) => query.refetch())) }} />}
@@ -153,7 +153,7 @@ export function AdminPage() {
             <Stat icon={<UserRound />} tone="primary" label="账号" value={overview.data?.users || 0} detail={`${overview.data?.activeUsers || 0} 个活跃`} />
             <Stat icon={<Globe2 />} tone="cyan" label="邮件域名" value={overview.data?.domains || 0} detail={domainItems.some((domain) => domain.dnsStatus === "ok") ? `${domainItems.filter((domain) => domain.dnsStatus === "ok").length} 个 DNS 正常` : "待检测"} />
             <Stat icon={<Mail />} tone="sky" label="邮箱" value={overview.data?.mailboxes || 0} detail={`${overview.data?.activeMailboxes || 0} 个活跃`} />
-            <Stat icon={<Database />} tone="violet" label="存储用量" value={formatBytes(overview.data?.storageBytes || 0)} detail={`${overview.data?.unreadMessages || 0} 封未读 · ${overview.data?.aliases || 0} 个转发`} />
+            <Stat icon={<Database />} tone="violet" label="存储用量" value={formatBytes(overview.data?.storageBytes || 0)} detail={`${overview.data?.unreadMessages || 0} 封未读 · ${overview.data?.forwardedMailboxes || 0} 个邮箱转发中`} />
           </section>
         )}
 
@@ -162,7 +162,7 @@ export function AdminPage() {
         {sectionReady && section === "permissionGroups" && <PermissionGroupsSection groups={permissionGroups.data?.items || []} catalog={permissionGroups.data?.catalog || []} />}
         {sectionReady && section === "domains" && <DomainsSection domains={domainItems} />}
         {sectionReady && section === "mailboxes" && <MailboxesSection mailboxes={mailboxItems} users={userItems} domains={domainItems} />}
-        {sectionReady && section === "aliases" && <AliasesSection aliases={aliasItems} domains={domainItems} />}
+        {sectionReady && section === "aliases" && <AliasesSection aliases={aliasItems} domains={domainItems} overview={overview.data} />}
         {sectionReady && section === "messages" && <AdminMessagesSection mailboxes={mailboxItems} systemAdmin={user?.role === "admin"} />}
         {sectionReady && section === "sendAudit" && <AdminSendAuditSection mailboxes={mailboxItems} />}
         {sectionReady && section === "backups" && <BackupsSection />}
@@ -1248,7 +1248,7 @@ function MailboxesSection({ mailboxes, users, domains }: { mailboxes: MailboxTyp
   )
 }
 
-function AliasesSection({ aliases, domains }: { aliases: Alias[]; domains: Domain[] }) {
+function AliasesSection({ aliases, domains, overview }: { aliases: Alias[]; domains: Domain[]; overview?: AdminOverview }) {
   const me = useMe()
   const user = me.data?.user
   const qc = useQueryClient()
@@ -1267,7 +1267,15 @@ function AliasesSection({ aliases, domains }: { aliases: Alias[]; domains: Domai
           {canCreate && <CreateAliasDialog domains={domains} />}
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        <div className="grid gap-2 sm:grid-cols-3">
+          <InfoBox label="账号级规则" value={overview?.accountForwardingRules || 0} />
+          <InfoBox label="单邮箱规则" value={overview?.mailboxForwardingRules || 0} />
+          <InfoBox label="域名 Alias" value={overview?.aliases || 0} />
+        </div>
+        {aliases.length === 0 && (overview?.accountForwardingRules || overview?.mailboxForwardingRules) ? (
+          <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-muted-foreground">当前没有域名 Alias，但账号级和单邮箱转发仍在生效。用户转发规则请在对应账号的邮箱管理中查看。</div>
+        ) : null}
         <div className="space-y-3 md:hidden">
           {aliases.map((alias) => (
             <div key={alias.id} className="rounded-lg border p-4">
@@ -1301,7 +1309,7 @@ function AliasesSection({ aliases, domains }: { aliases: Alias[]; domains: Domai
             </TableBody>
           </Table>
         </div>
-        {aliases.length === 0 && <Empty text="暂无邮件转发" />}
+        {aliases.length === 0 && !(overview?.accountForwardingRules || overview?.mailboxForwardingRules) && <Empty text="暂无邮件转发" />}
       </CardContent>
       <ConfirmDialog open={!!pendingConfirm} title={pendingConfirm?.title || ""} description={pendingConfirm?.description} confirmText={pendingConfirm?.confirmText || "删除"} destructive pending={remove.isPending} onOpenChange={(open) => { if (!open) setPendingConfirm(null) }} onConfirm={() => pendingConfirm?.onConfirm()} />
     </Card>
@@ -1374,9 +1382,13 @@ function AdminMessagesSection({ mailboxes, systemAdmin }: { mailboxes: MailboxTy
                 <Button variant="ghost" size="sm" onClick={() => setSelectedId(message.id)}>查看</Button>
               </div>
               <div className="mt-3 space-y-2 text-sm">
-                <div className="truncate text-muted-foreground">邮箱：{message.mailboxAddress || message.recipientAddress || "-"}</div>
+                <AddressSummaryButton
+                  label="邮箱账号"
+                  entries={mailboxAccountEntries(message.mailboxAddress || message.recipientAddress, message.ownerEmail)}
+                />
                 <div className="truncate text-muted-foreground">发件人：{adminSenderDisplayName(message)}</div>
-                <div className="truncate text-muted-foreground">收件人：{message.recipientAddress || message.to?.join(", ") || ""}</div>
+                <AddressSummaryButton label="原收件人" entries={messageRecipientEntries(message)} />
+                {!!message.forwardRecipients?.length && <RecipientSummaryButton recipients={message.forwardRecipients} deliveries={message.forwardDeliveries} label="转发至" fallbackStatus="submitted" />}
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Badge variant="secondary">{folderName(message.folder)}</Badge>
@@ -1406,11 +1418,18 @@ function AdminMessagesSection({ mailboxes, systemAdmin }: { mailboxes: MailboxTy
                     <div className="truncate text-xs text-muted-foreground">{message.snippet}</div>
                   </TableCell>
                   <TableCell className="min-w-0">
-                    <div className="truncate font-medium" title={message.mailboxAddress || message.recipientAddress || "-"}>{message.mailboxAddress || message.recipientAddress || "-"}</div>
-                    {message.ownerEmail && <div className="truncate text-xs text-muted-foreground" title={message.ownerEmail}>{message.ownerEmail}</div>}
+                    <AddressSummaryButton
+                      label="邮箱账号"
+                      entries={mailboxAccountEntries(message.mailboxAddress || message.recipientAddress, message.ownerEmail)}
+                      compact
+                      hideLabel
+                    />
                   </TableCell>
                   <TableCell className="max-w-[220px] truncate" title={adminSenderTitle(message)}>{adminSenderDisplayName(message)}</TableCell>
-                  <TableCell className="max-w-[220px] truncate">{message.recipientAddress || message.to?.join(", ") || ""}</TableCell>
+                  <TableCell className="min-w-0">
+                    <AddressSummaryButton label="原收件人" entries={messageRecipientEntries(message)} compact />
+                    {!!message.forwardRecipients?.length && <RecipientSummaryButton recipients={message.forwardRecipients} deliveries={message.forwardDeliveries} label="转发至" fallbackStatus="submitted" compact />}
+                  </TableCell>
                   <TableCell><Badge variant="secondary">{folderName(message.folder)}</Badge></TableCell>
                   <TableCell className="text-muted-foreground">{formatDate(message.receivedAt)}</TableCell>
                   <TableCell><Button variant="ghost" size="sm" onClick={() => setSelectedId(message.id)}>查看</Button></TableCell>
@@ -1430,7 +1449,7 @@ function AdminMessagesSection({ mailboxes, systemAdmin }: { mailboxes: MailboxTy
           </div>
         )}
       </CardContent>
-      <AdminMessageDialog message={detail.data} loading={detail.isLoading} open={!!selectedId} onOpenChange={(open) => { if (!open) setSelectedId(null) }} />
+      <AdminMessageDialog message={detail.data} loading={detail.isLoading && !detail.data} open={!!selectedId} onOpenChange={(open) => { if (!open) setSelectedId(null) }} />
     </Card>
   )
 }
@@ -1494,12 +1513,12 @@ function AdminSendAuditSection({ mailboxes }: { mailboxes: MailboxType[] }) {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="font-medium">{sendAuditEventLabel(item.event || "")}</div>
-                  <div className="mt-1 truncate text-xs text-muted-foreground">{item.mailboxAddress || item.mailboxId || "-"}</div>
+                  <AddressSummaryButton label="邮箱账号" entries={[{ label: "邮箱账号", value: item.mailboxAddress || item.mailboxId || "-" }]} compact hideLabel />
                 </div>
-                <Badge variant={sendAuditBadgeVariant(item.event)}>{item.status || item.event || "-"}</Badge>
+                <Badge variant={sendAuditBadgeVariant(item.event)}>{sendAuditEventLabel(item.status || item.event || "")}</Badge>
               </div>
               <div className="mt-3 space-y-2 text-sm text-muted-foreground">
-                <div className="truncate">收件人：{(item.recipients || []).join(", ") || "-"}</div>
+                <RecipientSummaryButton recipients={item.recipients || []} deliveries={item.deliveryEvents} label="收件人" fallbackStatus={item.event === "delivered" ? "submitted" : item.status} />
                 <div className="truncate">Message-ID：{item.messageId || item.sentMessageId || "-"}</div>
                 {item.error && <div className="line-clamp-2 text-destructive">错误：{item.error}</div>}
               </div>
@@ -1523,8 +1542,8 @@ function AdminSendAuditSection({ mailboxes }: { mailboxes: MailboxType[] }) {
               {items.map((item) => (
                 <TableRow key={item.id}>
                   <TableCell><Badge variant={sendAuditBadgeVariant(item.event)}>{sendAuditEventLabel(item.event || "")}</Badge></TableCell>
-                  <TableCell className="max-w-[220px] truncate">{item.mailboxAddress || item.mailboxId || "-"}</TableCell>
-                  <TableCell className="max-w-[260px] truncate" title={(item.recipients || []).join(", ")}>{(item.recipients || []).join(", ") || "-"}</TableCell>
+                  <TableCell className="max-w-[220px]"><AddressSummaryButton label="邮箱账号" entries={[{ label: "邮箱账号", value: item.mailboxAddress || item.mailboxId || "-" }]} compact hideLabel /></TableCell>
+                  <TableCell className="max-w-[280px]"><RecipientSummaryButton recipients={item.recipients || []} deliveries={item.deliveryEvents} label="收件人" fallbackStatus={item.event === "delivered" ? "submitted" : item.status} compact /></TableCell>
                   <TableCell className="max-w-[240px] truncate" title={item.messageId || item.sentMessageId || ""}>{item.messageId || item.sentMessageId || "-"}</TableCell>
                   <TableCell className="max-w-[260px] truncate text-destructive" title={item.error || ""}>{item.error || "-"}</TableCell>
                   <TableCell className="whitespace-nowrap text-muted-foreground">{formatDate(item.createdAt)}</TableCell>
@@ -2051,7 +2070,8 @@ function AdminMessageDialog({ message, loading, open, onOpenChange }: { message?
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[86vh] overflow-y-auto sm:max-w-4xl">
-        <DialogHeader><DialogTitle>{loading ? "加载中..." : message?.subject || "邮件详情"}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{message?.subject || "邮件详情"}</DialogTitle></DialogHeader>
+        {loading && !message && <Empty text="加载中..." />}
         {message && (
           <div className="space-y-5">
             <div className="grid gap-3 rounded-lg border p-4 text-sm md:grid-cols-2">
@@ -2062,6 +2082,13 @@ function AdminMessageDialog({ message, loading, open, onOpenChange }: { message?
               <MessageMeta label="文件夹" value={folderName(message.folder)} />
               <MessageMeta label="时间" value={formatDate(message.receivedAt)} />
             </div>
+            {!!message.forwardRecipients?.length && (
+              <div className="rounded-lg border p-4">
+                <div className="mb-1 font-medium">转发投递记录</div>
+                <div className="mb-3 text-xs text-muted-foreground">未收到远端服务器回执时，仅表示邮件已提交到本地 Postfix 队列。</div>
+                <RecipientDeliveryList recipients={message.forwardRecipients} deliveries={message.forwardDeliveries} fallbackStatus="submitted" />
+              </div>
+            )}
             <div className="mail-html prose max-w-none rounded-lg border p-5 text-sm leading-7" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(message.bodyHtml || `<pre>${escapeHtml(message.bodyText || message.snippet || "")}</pre>`) }} />
             {message.attachments && message.attachments.length > 0 && (
               <div className="rounded-lg border p-4">
@@ -2085,6 +2112,145 @@ function AdminMessageDialog({ message, loading, open, onOpenChange }: { message?
 
 function MessageMeta({ label, value }: { label: string; value: string }) {
   return <div className="min-w-0"><div className="text-xs text-muted-foreground">{label}</div><div className="truncate font-medium">{value || "-"}</div></div>
+}
+
+type AddressEntry = { label: string; value: string }
+
+function mailboxAccountEntries(address?: string, ownerEmail?: string): AddressEntry[] {
+  return [
+    { label: "邮箱账号", value: address || "-" },
+    ...(ownerEmail && ownerEmail.toLowerCase() !== address?.toLowerCase() ? [{ label: "所属账号", value: ownerEmail }] : []),
+  ]
+}
+
+function messageRecipientEntries(message: MailMessage): AddressEntry[] {
+  const recipients = Array.from(new Set([message.recipientAddress, ...(message.to || [])].map((item) => item?.trim()).filter(Boolean) as string[]))
+  return recipients.map((value) => ({ label: "收件人", value }))
+}
+
+function AddressSummaryButton({ label, entries, compact = false, hideLabel = false }: { label: string; entries: AddressEntry[]; compact?: boolean; hideLabel?: boolean }) {
+  const cleanEntries = entries.filter((entry) => entry.value)
+  const preview = cleanEntries[0]?.value || "-"
+  const extra = Math.max(0, cleanEntries.length - 1)
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          className={cn("h-auto min-h-11 min-w-0 max-w-full justify-start gap-1 px-1 py-1 text-left font-normal hover:bg-transparent", compact ? "text-xs" : "text-sm")}
+          title={cleanEntries.map((entry) => `${entry.label}：${entry.value}`).join("\n")}
+        >
+          <span className="min-w-0 truncate">{hideLabel ? "" : `${label}：`}{preview}</span>
+          {extra > 0 && <span className="shrink-0 text-primary">另有 {extra} 项</span>}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-h-[82vh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader><DialogTitle>{label}</DialogTitle></DialogHeader>
+        <AddressEntryList entries={cleanEntries} />
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function AddressEntryList({ entries }: { entries: AddressEntry[] }) {
+  const { toast } = useToast()
+  async function copy(value: string) {
+    await navigator.clipboard.writeText(value)
+    toast({ title: "邮箱地址已复制" })
+  }
+  return (
+    <div className="overflow-hidden rounded-md border">
+      {entries.map((entry, index) => (
+        <div key={`${entry.label}-${entry.value}-${index}`} className="flex min-w-0 items-center gap-3 border-b px-3 py-2.5 last:border-b-0">
+          <div className="min-w-0 flex-1">
+            <div className="text-xs text-muted-foreground">{entry.label}</div>
+            <div className="mt-0.5 break-all text-sm font-medium">{entry.value}</div>
+          </div>
+          <Button type="button" variant="ghost" size="icon" className="h-11 w-11 shrink-0" onClick={() => copy(entry.value)} aria-label={`复制 ${entry.value}`} title="复制地址"><Copy className="h-4 w-4" /></Button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function RecipientSummaryButton({ recipients, deliveries, label, fallbackStatus, compact = false }: { recipients: string[]; deliveries?: DeliveryEvent[]; label: string; fallbackStatus?: string; compact?: boolean }) {
+  const cleanRecipients = Array.from(new Set(recipients.filter(Boolean)))
+  const preview = cleanRecipients[0]
+  const extra = Math.max(0, cleanRecipients.length - 1)
+  if (cleanRecipients.length === 0) return <span className="text-muted-foreground">{label}：-</span>
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button type="button" variant="ghost" className={cn("h-auto min-h-11 min-w-0 max-w-full justify-start px-1 py-1 text-left font-normal hover:bg-transparent", compact ? "text-xs" : "text-sm")} title={cleanRecipients.join(", ")}>
+          <span className="min-w-0 truncate">{label}：{preview}</span>{extra > 0 && <span className="ml-1 shrink-0 text-primary">另有 {extra} 个</span>}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-h-[82vh] overflow-y-auto sm:max-w-xl">
+        <DialogHeader><DialogTitle>{label}</DialogTitle></DialogHeader>
+        <RecipientDeliveryList recipients={cleanRecipients} deliveries={deliveries} fallbackStatus={fallbackStatus} />
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function RecipientDeliveryList({ recipients, deliveries, fallbackStatus }: { recipients: string[]; deliveries?: DeliveryEvent[]; fallbackStatus?: string }) {
+  const { toast } = useToast()
+  const latest = new Map<string, DeliveryEvent>()
+  for (const delivery of deliveries || []) latest.set(delivery.recipient.toLowerCase(), delivery)
+  async function copy(value: string, title: string) {
+    await navigator.clipboard.writeText(value)
+    toast({ title })
+  }
+  return (
+    <div className="space-y-2">
+      <div className="flex justify-end"><Button type="button" variant="outline" size="sm" className="min-h-11" onClick={() => copy(recipients.join(", "), "全部收件人已复制")}><Copy className="h-4 w-4" />复制全部</Button></div>
+      <div className="overflow-hidden rounded-md border">
+        {recipients.map((recipient) => {
+          const delivery = latest.get(recipient.toLowerCase())
+          const status = delivery?.status || fallbackStatus || "unknown"
+          return (
+            <div key={recipient} className="flex min-w-0 items-start gap-3 border-b px-3 py-2.5 last:border-b-0">
+              <div className="min-w-0 flex-1">
+                <div className="break-all text-sm font-medium">{recipient}</div>
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <Badge variant={deliveryStatusBadge(status)}>{deliveryStatusLabel(status)}</Badge>
+                  {delivery?.provider && <span>{delivery.provider}</span>}
+                  {delivery?.postfixQueueId && <span>Queue-ID: {delivery.postfixQueueId}</span>}
+                  {delivery?.smtpCode && <span>SMTP {delivery.smtpCode}</span>}
+                  {delivery?.dsn && <span>DSN {delivery.dsn}</span>}
+                  {(delivery?.attempts || 0) > 0 && <span>尝试 {delivery?.attempts} 次</span>}
+                  {delivery?.lastAttemptAt && <span>{formatDate(delivery.lastAttemptAt)}</span>}
+                  {delivery?.relay && <span className="basis-full break-all">Relay: {delivery.relay}</span>}
+                  {(delivery?.error || delivery?.reason) && <span className={cn("basis-full break-words", status === "delivered" ? "text-muted-foreground" : "text-destructive")}>{delivery.error || delivery.reason}</span>}
+                </div>
+              </div>
+              <Button type="button" variant="ghost" size="icon" className="h-11 w-11 shrink-0" onClick={() => copy(recipient, "地址已复制")} aria-label={`复制 ${recipient}`} title="复制地址"><Copy className="h-4 w-4" /></Button>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function deliveryStatusLabel(status: string) {
+  switch (status) {
+    case "submitted": case "delivered": return status === "submitted" ? "已提交本地队列" : "远端已接受"
+    case "queued": case "sending": return "等待远端投递"
+    case "deferred": return "延迟重试"
+    case "bounced": return "已退信"
+    case "rejected": case "failed": return "投递失败"
+    case "complained": return "收件方投诉"
+    default: return "未收到远端状态"
+  }
+}
+
+function deliveryStatusBadge(status: string): "default" | "secondary" | "destructive" | "outline" {
+  if (status === "delivered") return "default"
+  if (["bounced", "rejected", "failed", "complained"].includes(status)) return "destructive"
+  if (["queued", "sending", "deferred", "submitted"].includes(status)) return "secondary"
+  return "outline"
 }
 
 function folderName(folder: string) {
@@ -2120,7 +2286,7 @@ function sendAuditEventLabel(event: string) {
     case "accepted": return "已接受"
     case "queued": return "已入队"
     case "retry": return "重试"
-    case "delivered": return "已投递"
+    case "delivered": return "已提交本地队列"
     case "failed": return "失败"
     case "canceled": return "已取消"
     default: return event || "-"

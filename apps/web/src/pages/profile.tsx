@@ -1173,9 +1173,7 @@ function MailboxManagement({
   const [accountBindingDraft, setAccountBindingDraft] = React.useState("")
   const [forwardingTargetPreview, setForwardingTargetPreview] = React.useState<{ title: string; subtitle: string; source: string; targets: string[] } | null>(null)
   const [accountForwardTargets, setAccountForwardTargets] = React.useState<string[]>([])
-  const [addVerifiedOpen, setAddVerifiedOpen] = React.useState(false)
   const [mobileCreateOpen, setMobileCreateOpen] = React.useState(false)
-  const [verifiedEmailDraft, setVerifiedEmailDraft] = React.useState("")
   const [pendingVerifiedDelete, setPendingVerifiedDelete] = React.useState<ForwardingVerifiedEmail | null>(null)
   const [pendingExternalDelete, setPendingExternalDelete] = React.useState<ExternalImapAccount | null>(null)
   const forwarding = useQuery({ queryKey: ["forwarding-settings"], queryFn: api.forwardingSettings, enabled: mailboxes.length > 0 })
@@ -1190,7 +1188,6 @@ function MailboxManagement({
   const completedVerifiedEmailItems = React.useMemo(() => verifiedEmailItems
     .filter((item) => item.verified)
     .sort((a, b) => forwardingItemTime(b, true) - forwardingItemTime(a, true)), [verifiedEmailItems])
-  const normalizedVerifiedEmailDraft = verifiedEmailDraft.trim().toLowerCase()
   const normalizedVerifiedSearch = verifiedSearch.trim().toLowerCase()
   const matchingPendingVerifiedEmailItems = React.useMemo(() => normalizedVerifiedSearch
     ? pendingVerifiedEmailItems.filter((item) => item.email.toLowerCase().includes(normalizedVerifiedSearch))
@@ -1201,7 +1198,9 @@ function MailboxManagement({
   const matchingCompletedVerifiedEmailItems = React.useMemo(() => normalizedVerifiedSearch
     ? completedVerifiedEmailItems.filter((item) => item.email.toLowerCase().includes(normalizedVerifiedSearch))
     : completedVerifiedEmailItems, [completedVerifiedEmailItems, normalizedVerifiedSearch])
-  const verifiedEmailDraftExists = verifiedEmailItems.some((item) => item.email.toLowerCase() === normalizedVerifiedEmailDraft)
+  const verifiedMatchCount = matchingFailedVerifiedEmailItems.length + matchingPendingVerifiedEmailItems.length + matchingCompletedVerifiedEmailItems.length
+  const verifiedSearchExactItem = verifiedEmailItems.find((item) => item.email.toLowerCase() === normalizedVerifiedSearch)
+  const canAddVerifiedSearch = looksLikeEmailAddress(verifiedSearch) && !verifiedSearchExactItem
   const hasPendingVerifiedEmails = pendingVerifiedEmailItems.length > 0
   const pendingBindings = React.useMemo(() => (forwarding.data?.pendingBindings || []).filter((item) => item.status !== "active" && item.status !== "cancelled"), [forwarding.data?.pendingBindings])
   const accountPendingBindings = React.useMemo(() => pendingBindings.filter((item) => item.scope === "account"), [pendingBindings])
@@ -1249,8 +1248,7 @@ function MailboxManagement({
       refreshForwardingSettings()
       window.setTimeout(refreshForwardingSettings, 2500)
       window.setTimeout(refreshForwardingSettings, 7000)
-      setVerifiedEmailDraft("")
-      setAddVerifiedOpen(false)
+      setVerifiedSearch("")
       const item = settings.verifiedEmails.find((entry) => entry.email.toLowerCase() === email.trim().toLowerCase())
       toast({
         title: item?.deliveryStatus === "failed" ? "验证邮箱已添加，邮件发送失败" : "验证邮件已加入发送队列",
@@ -1383,10 +1381,10 @@ function MailboxManagement({
     saveMailboxForwarding.mutate({ mailboxId: forwardingMailbox.id, targetEmails: withoutForwardingTargets(forwardDraft, accountForwardTargets) })
   }
 
-  function submitVerifiedEmail(event: React.FormEvent<HTMLFormElement>) {
+  function submitVerifiedSearch(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const value = verifiedEmailDraft.trim()
-    if (!value) return
+    const value = verifiedSearch.trim().toLowerCase()
+    if (!looksLikeEmailAddress(value) || verifiedSearchExactItem) return
     addVerifiedEmail.mutate(value)
   }
 
@@ -1477,6 +1475,11 @@ function MailboxManagement({
             <Input value={mailboxSearch} onChange={(event) => setMailboxSearch(event.target.value)} className="h-[34px] pl-9 text-sm shadow-none" placeholder="搜索邮箱地址..." />
           </div>
         </div>
+        <div className="hidden grid-cols-[minmax(0,1fr)_minmax(220px,0.8fr)_100px] gap-4 border-y bg-muted/25 px-5 py-2 text-xs font-medium text-muted-foreground md:grid">
+          <span>邮箱账号</span>
+          <span>创建与转发</span>
+          <span className="text-right">操作</span>
+        </div>
         <div className="divide-y">
           {pagedMailboxes.map((mailbox) => {
             const forwardTargets = mailboxForwards[mailbox.id] || []
@@ -1486,35 +1489,35 @@ function MailboxManagement({
             const forwardingSubtitle = accountForwardTargets.length > 0 && forwardTargets.length > 0 ? "账号级目标固定生效，并追加邮箱单独目标" : accountForwardTargets.length > 0 ? "继承账号级转发" : "邮箱单独转发"
             const forwardingPrefix = accountForwardTargets.length > 0 && forwardTargets.length > 0 ? "转发：账号级+单独" : accountForwardTargets.length > 0 ? "转发：使用账号级" : "转发："
             return (
-              <div key={mailbox.id} className={cn("grid gap-2 px-4 py-2 sm:px-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center", selectedMailboxId === mailbox.id && "bg-muted/50")}>
-                <div className="flex min-w-0 items-center gap-4">
-                  <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-slate-950 text-white">
-                    <Mail className="h-5 w-5" />
+              <div key={mailbox.id} className={cn("grid gap-2 px-4 py-3 sm:px-5 md:grid-cols-[minmax(0,1fr)_minmax(220px,0.8fr)_100px] md:items-center md:gap-4", selectedMailboxId === mailbox.id && "bg-muted/50")}>
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-slate-950 text-white">
+                    <Mail className="h-4 w-4" />
                   </div>
                   <div className="min-w-0">
                     <div className="flex min-w-0 items-center gap-2">
                       <Button type="button" variant="ghost" size="sm" className="h-auto min-w-0 max-w-full truncate justify-start p-0 text-left text-sm font-semibold hover:bg-transparent hover:underline" onClick={() => { onSelect(mailbox.id); onOpen(mailbox.id) }}>{mailbox.address}</Button>
                       {selectedMailboxId === mailbox.id && <Badge variant="secondary" className="h-5 rounded-md px-1.5 text-[10px]">当前</Badge>}
                     </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                      <span>创建于 {formatDateTime(mailbox.createdAt)}</span>
-                      {effectiveForwardTargets.length > 0 && (
-                        <ForwardingTargetSummary
-                          prefix={forwardingPrefix}
-                          targets={effectiveForwardTargets}
-                          onView={() => setForwardingTargetPreview({ title: mailbox.address, subtitle: forwardingSubtitle, source: forwardingSource, targets: effectiveForwardTargets })}
-                        />
-                      )}
-                    </div>
                   </div>
                 </div>
-                <div className="flex shrink-0 flex-wrap gap-2">
+                <div className="min-w-0 space-y-1 pl-12 text-xs text-muted-foreground md:pl-0">
+                  <div className="tabular-nums">创建于 {formatDateTime(mailbox.createdAt)}</div>
+                  {effectiveForwardTargets.length > 0 ? (
+                    <ForwardingTargetSummary
+                      prefix={forwardingPrefix}
+                      targets={effectiveForwardTargets}
+                      onView={() => setForwardingTargetPreview({ title: mailbox.address, subtitle: forwardingSubtitle, source: forwardingSource, targets: effectiveForwardTargets })}
+                    />
+                  ) : <div>未设置转发</div>}
+                </div>
+                <div className="flex shrink-0 justify-end pl-12 md:pl-0">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     data-forwarding-active={forwardingActive || undefined}
-                    className="h-[34px] w-full gap-1 px-3 md:w-[80px]"
+                    className="h-11 w-full gap-1 px-3 md:h-9 md:w-[88px]"
                     onClick={() => { onSelect(mailbox.id); openMailboxForward(mailbox) }}
                   >
                     <SendHorizontal className="h-3.5 w-3.5" />
@@ -1536,26 +1539,18 @@ function MailboxManagement({
           <span className="text-xs text-muted-foreground">验证后自动绑定</span>
         </div>
         <div className="rounded-lg border bg-muted/15 p-3 sm:p-4">
-          <div className="mb-2 text-sm font-medium">全部邮箱统一转发</div>
+          <Label htmlFor="account-forwarding-email" className="mb-2 block text-sm font-medium">全部邮箱统一转发</Label>
           <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_92px]">
-            <Input type="email" inputMode="email" value={accountBindingDraft} onChange={(event) => setAccountBindingDraft(event.target.value)} placeholder="输入外部邮箱，未验证也可先绑定" className="h-10" disabled={forwardingBusy} onKeyDown={(event) => { if (event.key === "Enter") bindForwardingTarget("account") }} />
+            <Input id="account-forwarding-email" type="email" inputMode="email" value={accountBindingDraft} onChange={(event) => setAccountBindingDraft(event.target.value)} placeholder="输入外部邮箱，未验证也可先绑定" className="h-11 sm:h-10" disabled={forwardingBusy} onKeyDown={(event) => { if (event.key === "Enter") bindForwardingTarget("account") }} />
             <Button type="button" className="h-10" disabled={forwardingBusy || !accountBindingDraft.trim()} onClick={() => bindForwardingTarget("account")}>{createPendingBinding.isPending ? "处理中" : "绑定"}</Button>
           </div>
-          <p className="mt-1.5 text-xs text-muted-foreground">已验证地址立即绑定；未验证地址会发送验证邮件，车友确认后自动绑定全部邮箱。</p>
+          <p className="mt-1.5 text-xs text-muted-foreground">已验证地址立即绑定；未验证地址会发送验证邮件，对方确认后自动绑定全部邮箱。</p>
           <PendingBindingList items={accountPendingBindings} busy={forwardingBusy} onCancel={(id) => cancelPendingBinding.mutate(id)} onRetry={(id) => retryPendingBinding.mutate(id)} />
           {verifiedEmails.length > 0 && <div className="mt-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_72px] md:items-start">
             <ForwardingTargetPicker emails={verifiedEmails} selected={accountForwardTargets} onChange={setAccountForwardTargets} disabled={forwardingBusy} />
             <Button type="button" variant="outline" className="h-11 md:h-[37px]" disabled={forwardingBusy || !accountForwardingChanged} onClick={() => saveAccountForwarding.mutate(accountForwardTargets)}>{saveAccountForwarding.isPending ? "保存中" : accountForwardingChanged ? "保存" : "已保存"}</Button>
           </div>}
         </div>
-        <Button type="button" variant="outline" className="mt-3 h-auto min-h-12 w-full justify-start gap-3 px-3 py-2 text-left font-normal shadow-none" onClick={() => setMailboxView("verified")}>
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700"><MailCheck className="h-4 w-4" /></span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm font-medium">管理验证邮箱</span>
-            <span className="block truncate text-sm text-muted-foreground">已验证 {completedVerifiedEmailItems.length} 个{pendingVerifiedEmailItems.length > 0 ? `，待验证 ${pendingVerifiedEmailItems.length} 个` : ""}</span>
-          </span>
-          <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground" />
-        </Button>
         <p className="mt-2 text-xs text-muted-foreground">点击“我的邮箱”列表中的「转发」，可为单个邮箱追加独立目标。</p>
 
         <div className="mt-3 border-t pt-3">
@@ -1569,17 +1564,21 @@ function MailboxManagement({
               <Input value={singleForwardSearch} onChange={(event) => setSingleForwardSearch(event.target.value)} className="h-10 pl-9 text-sm shadow-none" placeholder="搜索单邮箱规则" aria-label="搜索单邮箱转发规则" />
             </div>
           </div>
-          <div className="mt-4 divide-y overflow-hidden rounded-lg border">
+          <div className="mt-4 overflow-hidden rounded-lg border">
+            <div className="hidden grid-cols-[minmax(0,1fr)_minmax(180px,0.7fr)_88px] gap-4 border-b bg-muted/25 px-4 py-2 text-xs font-medium text-muted-foreground sm:grid">
+              <span>邮箱账号</span>
+              <span>转发范围</span>
+              <span className="text-right">操作</span>
+            </div>
+            <div className="divide-y">
             {pagedSingleForwardMailboxes.map((mailbox) => (
-              <div key={mailbox.id} className="grid gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+              <div key={mailbox.id} className="grid gap-2 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(180px,0.7fr)_88px] sm:items-center sm:gap-4">
                 <div className="flex min-w-0 items-center gap-3">
-                  <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-slate-950 text-white"><Mail className="h-5 w-5" /></span>
-                  <div className="min-w-0">
-                    <div className="break-all text-sm font-semibold">{mailbox.address}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">单独目标 {(mailboxForwards[mailbox.id] || []).length} 个{accountForwardTargets.length > 0 ? ` · 继承账号级 ${accountForwardTargets.length} 个` : ""}</div>
-                  </div>
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-slate-950 text-white"><Mail className="h-4 w-4" /></span>
+                  <div className="min-w-0 break-all text-sm font-semibold">{mailbox.address}</div>
                 </div>
-                <Button type="button" variant="outline" className="h-11 w-full sm:h-9 sm:w-20" onClick={() => openMailboxForward(mailbox)}>管理</Button>
+                <div className="pl-12 text-xs leading-5 text-muted-foreground sm:pl-0">单独目标 {(mailboxForwards[mailbox.id] || []).length} 个{accountForwardTargets.length > 0 ? ` · 继承账号级 ${accountForwardTargets.length} 个` : ""}</div>
+                <Button type="button" variant="outline" className="h-11 w-full sm:h-9 sm:w-[88px]" onClick={() => openMailboxForward(mailbox)}>管理</Button>
               </div>
             ))}
             {singleForwardMailboxes.length === 0 && (
@@ -1587,6 +1586,7 @@ function MailboxManagement({
                 {singleForwardSearch ? "没有匹配的单邮箱转发规则" : "暂无单邮箱转发规则，请在「我的邮箱」中选择邮箱进行设置。"}
               </div>
             )}
+            </div>
           </div>
           {singleForwardMailboxes.length > 10 && <PaginationControls page={singleForwardPage} pageSize={10} total={singleForwardMailboxes.length} onPageChange={setSingleForwardPage} />}
         </div>
@@ -1645,17 +1645,25 @@ function MailboxManagement({
               <h2 className="text-lg font-semibold">验证邮箱管理</h2>
               <p className="mt-1 text-sm text-muted-foreground">待验证任务优先显示，完成后自动归入已验证列表。</p>
             </div>
-            <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-row lg:w-auto lg:shrink-0">
-              <div className="relative min-w-0 flex-1 lg:w-64 lg:flex-none">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input value={verifiedSearch} onChange={(event) => setVerifiedSearch(event.target.value)} className="h-11 pl-9 text-base shadow-none sm:h-10 sm:text-sm" placeholder="搜索已添加邮箱" aria-label="搜索验证邮箱" />
-              </div>
-              <Button type="button" className="h-11 shrink-0 sm:h-10" onClick={() => setAddVerifiedOpen(true)}>添加验证邮箱</Button>
-            </div>
+            <form className="flex w-full min-w-0 items-center rounded-md border border-input bg-background p-1 focus-within:ring-1 focus-within:ring-ring lg:w-[30rem] lg:shrink-0" role="search" onSubmit={submitVerifiedSearch}>
+              <Search className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />
+              <Input value={verifiedSearch} onChange={(event) => setVerifiedSearch(event.target.value)} type="email" inputMode="email" className="h-9 min-w-0 flex-1 border-0 bg-transparent px-2 text-base shadow-none focus-visible:ring-0 sm:text-sm" placeholder="搜索或输入邮箱地址" aria-label="搜索或添加验证邮箱" />
+              {verifiedSearch && <Button type="button" variant="ghost" size="icon" className="size-9 shrink-0 text-muted-foreground" onClick={() => setVerifiedSearch("")} aria-label="清除输入" title="清除输入"><X className="h-4 w-4" /></Button>}
+              {canAddVerifiedSearch && <Button type="submit" size="sm" className="h-9 shrink-0 px-3" disabled={addVerifiedEmail.isPending}><Plus className="h-4 w-4" />{addVerifiedEmail.isPending ? "添加中" : "添加邮箱"}</Button>}
+            </form>
           </div>
 
+          {normalizedVerifiedSearch && (
+            <div className="border-b px-4 py-2 text-xs text-muted-foreground sm:px-5" aria-live="polite">
+              {verifiedSearchExactItem ? `该邮箱已${verifiedSearchExactItem.verified ? "验证" : "添加"}，无需重复添加。` : canAddVerifiedSearch ? "该邮箱尚未添加，可点击右侧“添加邮箱”发送验证邮件。" : `找到 ${verifiedMatchCount} 个匹配邮箱`}
+            </div>
+          )}
+
           <div className="space-y-2 px-4 py-2.5 sm:px-5">
-            {failedVerifiedEmailItems.length > 0 && (
+            {normalizedVerifiedSearch && verifiedMatchCount === 0 && (
+              <div className="rounded-lg border border-dashed px-5 py-8 text-center text-sm text-muted-foreground">没有已添加的匹配邮箱</div>
+            )}
+            {matchingFailedVerifiedEmailItems.length > 0 && (
               <div>
                 <div className="mb-1.5 flex items-center gap-2">
                   <span className="h-5 w-1 rounded-full bg-destructive" />
@@ -1663,14 +1671,14 @@ function MailboxManagement({
                   <Badge variant="outline">{failedVerifiedEmailItems.length}</Badge>
                 </div>
                 <div className="overflow-hidden rounded-lg border border-destructive/20">
+                  <VerifiedEmailListHeader />
                   {matchingFailedVerifiedEmailItems.map((item) => (
                     <VerifiedEmailRow key={item.id} item={item} busy={resendVerifiedEmail.isPending || deleteVerifiedEmail.isPending} onResend={resendVerification} onRemove={() => setPendingVerifiedDelete(item)} />
                   ))}
-                  {matchingFailedVerifiedEmailItems.length === 0 && <div className="px-4 py-5 text-center text-sm text-muted-foreground">发送失败记录中没有匹配地址</div>}
                 </div>
               </div>
             )}
-            {pendingVerifiedEmailItems.length > 0 && (
+            {matchingPendingVerifiedEmailItems.length > 0 && (
               <div>
                 <div className="mb-1.5 flex items-center gap-2">
                   <span className="h-5 w-1 rounded-full bg-amber-500" />
@@ -1678,38 +1686,51 @@ function MailboxManagement({
                   <Badge variant="outline">{pendingVerifiedEmailItems.length}</Badge>
                 </div>
                 <div className="overflow-hidden rounded-lg border">
+                  <VerifiedEmailListHeader />
                   {matchingPendingVerifiedEmailItems.map((item) => (
                     <VerifiedEmailRow key={item.id} item={item} busy={resendVerifiedEmail.isPending || deleteVerifiedEmail.isPending} onResend={resendVerification} onRemove={() => setPendingVerifiedDelete(item)} />
                   ))}
-                  {matchingPendingVerifiedEmailItems.length === 0 && <div className="px-4 py-6 text-center text-sm text-muted-foreground">待验证邮箱中没有匹配地址</div>}
                 </div>
               </div>
             )}
 
-            {completedVerifiedEmailItems.length > 0 ? <div>
+            {matchingCompletedVerifiedEmailItems.length > 0 ? <div>
               <div className="mb-1.5 flex items-center gap-2">
                 <span className="h-5 w-1 rounded-full bg-emerald-500" />
                 <h3 className="font-semibold">已验证邮箱</h3>
                 <Badge variant="outline">{completedVerifiedEmailItems.length}</Badge>
               </div>
               <div className="overflow-hidden rounded-lg border">
+                <VerifiedEmailListHeader />
                 {pagedVerifiedEmailItems.map((item) => (
-                  <VerifiedEmailRow key={item.id} item={item} busy={deleteVerifiedEmail.isPending} onResend={resendVerification} onRemove={() => setPendingVerifiedDelete(item)} />
+                  <VerifiedEmailRow
+                    key={item.id}
+                    item={item}
+                    busy={deleteVerifiedEmail.isPending}
+                    mailboxCount={mailboxes.length}
+                    onResend={resendVerification}
+                    onRemove={() => setPendingVerifiedDelete(item)}
+                    onViewBindings={() => {
+                      const targets = item.globalBinding ? sortedMailboxes.map((mailbox) => mailbox.address) : sortForwardingTargets(item.mailboxBindings || [])
+                      if (targets.length === 0) return
+                      setForwardingTargetPreview({
+                        title: item.email,
+                        subtitle: item.globalBinding ? `账号级转发绑定全部 ${targets.length} 个邮箱` : `已绑定 ${targets.length} 个单邮箱转发规则`,
+                        source: item.globalBinding ? "全部邮箱" : "单邮箱",
+                        targets,
+                      })
+                    }}
+                  />
                 ))}
-                {pagedVerifiedEmailItems.length === 0 && (
-                  <div className="px-4 py-6 text-center text-sm text-muted-foreground">
-                    {normalizedVerifiedSearch ? "已验证邮箱中没有匹配地址" : "暂无已验证邮箱"}
-                  </div>
-                )}
               </div>
               <PaginationControls page={verifiedPage} pageSize={verifiedPageSize} total={matchingCompletedVerifiedEmailItems.length} onPageChange={setVerifiedPage} onPageSizeChange={setVerifiedPageSize} />
-            </div> : (
+            </div> : !normalizedVerifiedSearch && completedVerifiedEmailItems.length === 0 ? (
               <div className="rounded-lg border border-dashed px-5 py-6 text-center">
                 <MailCheck className="mx-auto h-7 w-7 text-muted-foreground" />
                 <p className="mt-3 text-sm font-medium">还没有验证邮箱</p>
                 <p className="mt-1 text-sm text-muted-foreground">添加并验证后，才能作为邮件转发目标。</p>
               </div>
-            )}
+            ) : null}
           </div>
         </section>
       )}
@@ -1761,15 +1782,15 @@ function MailboxManagement({
             />
             <div className="space-y-2">
               <Label className="text-sm font-medium">已验证的转发目标</Label>
-              <div className="grid items-start gap-2 sm:grid-cols-[minmax(0,1fr)_64px_64px]">
-                <ForwardingTargetPicker emails={verifiedEmails} selected={forwardDraft} lockedSelected={accountForwardTargets} lockedLabel="账号级" onChange={(targets) => setForwardDraft(withoutForwardingTargets(targets, accountForwardTargets))} disabled={forwardingBusy} />
-                <Button type="button" variant="outline" className="h-[37px] px-0" disabled={forwardingBusy} onClick={() => setForwardingMailbox(null)}>取消</Button>
-                <Button type="button" className="h-[37px] px-0" disabled={forwardingBusy} onClick={saveMailboxForward}>{saveMailboxForwarding.isPending ? "保存中" : "保存"}</Button>
-              </div>
+              <ForwardingTargetPicker emails={verifiedEmails} selected={forwardDraft} lockedSelected={accountForwardTargets} lockedLabel="账号级" onChange={(targets) => setForwardDraft(withoutForwardingTargets(targets, accountForwardTargets))} disabled={forwardingBusy} />
               {accountForwardTargets.length > 0 && <p className="text-xs text-muted-foreground">账号级目标已置顶锁定，不能在单个邮箱里取消；下方可追加邮箱单独目标。</p>}
             </div>
             {verifiedEmails.length === 0 && <p className="text-xs text-muted-foreground">暂无已验证地址，可直接在上方输入邮箱先绑定并发送验证。</p>}
           </div>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button type="button" variant="outline" className="h-10" disabled={forwardingBusy} onClick={() => setForwardingMailbox(null)}>取消</Button>
+            <Button type="button" className="h-10" disabled={forwardingBusy} onClick={saveMailboxForward}>{saveMailboxForwarding.isPending ? "保存中" : "保存"}</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
       )}
@@ -1814,22 +1835,6 @@ function MailboxManagement({
           />
         </SheetContent>
       </Sheet>
-
-      {isMobile ? (
-        <Sheet open={addVerifiedOpen} onOpenChange={(open) => { setAddVerifiedOpen(open); if (!open) setVerifiedEmailDraft("") }}>
-          <SheetContent side="bottom" className="mailbox-sheet-content max-h-[85dvh] overflow-y-auto rounded-t-xl pb-[calc(1rem+env(safe-area-inset-bottom))]">
-            <SheetHeader className="text-left"><SheetTitle>添加验证邮箱</SheetTitle></SheetHeader>
-            <VerifiedEmailForm value={verifiedEmailDraft} onChange={setVerifiedEmailDraft} exists={verifiedEmailDraftExists} pending={addVerifiedEmail.isPending} onSubmit={submitVerifiedEmail} />
-          </SheetContent>
-        </Sheet>
-      ) : (
-        <Dialog open={addVerifiedOpen} onOpenChange={(open) => { setAddVerifiedOpen(open); if (!open) setVerifiedEmailDraft("") }}>
-          <DialogContent className="verified-email-dialog sm:max-w-md">
-            <DialogHeader><DialogTitle>添加验证邮箱</DialogTitle></DialogHeader>
-            <VerifiedEmailForm value={verifiedEmailDraft} onChange={setVerifiedEmailDraft} exists={verifiedEmailDraftExists} pending={addVerifiedEmail.isPending} onSubmit={submitVerifiedEmail} />
-          </DialogContent>
-        </Dialog>
-      )}
 
       <ConfirmDialog
         open={!!pendingVerifiedDelete}
@@ -2024,19 +2029,6 @@ function PendingBindingList({ items, busy, onCancel, onRetry }: {
         )
       })}
     </div>
-  )
-}
-
-function VerifiedEmailForm({ value, onChange, exists, pending, onSubmit }: { value: string; onChange: (value: string) => void; exists: boolean; pending: boolean; onSubmit: (event: React.FormEvent<HTMLFormElement>) => void }) {
-  return (
-    <form className="mt-4 space-y-4" onSubmit={onSubmit}>
-      <div className="space-y-2">
-        <Label htmlFor="verified-email-address">外部邮箱地址</Label>
-        <Input id="verified-email-address" type="email" value={value} onChange={(event) => onChange(event.target.value)} className="h-11 text-base" placeholder="name@example.com" autoComplete="email" disabled={pending} autoFocus />
-      </div>
-      <p className="text-sm leading-5 text-muted-foreground">系统会发送一封验证邮件，完成验证后才能作为转发目标。</p>
-      <Button className="h-11 w-full" disabled={pending || !value.trim() || exists}>{pending ? "发送中" : exists ? "该邮箱已添加" : "发送验证邮件"}</Button>
-    </form>
   )
 }
 
@@ -2287,7 +2279,11 @@ function ForwardingTargetPicker({ emails, selected, lockedSelected = [], lockedL
   const normalizedQuery = query.trim().toLowerCase()
   const filteredLockedEmails = normalizedQuery ? lockedEmails.filter((email) => email.toLowerCase().includes(normalizedQuery)) : lockedEmails
   const filteredEmails = normalizedQuery ? regularEmails.filter((email) => email.toLowerCase().includes(normalizedQuery)) : regularEmails
-  const label = selectedEmails.length ? `调整转发目标（已选 ${selectedEmails.length} 个）` : "添加转发目标"
+  const label = selectedEmails.length ? `已选择 ${selectedEmails.length} 个转发目标` : "选择已验证邮箱"
+  const selectedSummary = selectedEmails.join("、")
+  React.useEffect(() => {
+    if (!open) setQuery("")
+  }, [open])
   function toggle(email: string, checked: boolean) {
     if (disabled) return
     const next = checked ? mergeForwardingTargets(selectedEmailsOnly, [email]) : selectedEmailsOnly.filter((item) => normalizeForwardingTarget(item) !== normalizeForwardingTarget(email))
@@ -2297,72 +2293,60 @@ function ForwardingTargetPicker({ emails, selected, lockedSelected = [], lockedL
     return <div className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">暂无已验证邮箱</div>
   }
   return (
-    <div className="relative min-w-0 space-y-2">
-      {selectedEmails.length > 0 && (
-        <div className="flex max-h-32 min-w-0 max-w-full flex-wrap gap-2 overflow-y-auto rounded-md border bg-background/55 p-2" aria-label="已选择的转发目标">
-          {selectedEmails.map((email) => {
-            const locked = lockedSet.has(normalizeForwardingTarget(email))
-            return (
-              <span key={email} className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border bg-primary/10 px-2 py-1 text-xs font-medium text-foreground">
-                <span className="min-w-0 max-w-[15rem] break-all">{email}</span>
-                {locked ? <span className="shrink-0 text-[10px] text-muted-foreground">{lockedLabel}</span> : (
-                  <Button type="button" variant="ghost" size="icon" className="size-6 shrink-0 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={`移除 ${email}`} disabled={disabled} onClick={() => toggle(email, false)}>
-                    <X className="h-3.5 w-3.5" />
-                  </Button>
-                )}
-              </span>
-            )
-          })}
-        </div>
-      )}
+    <div className="relative min-w-0">
       <Button
         type="button"
         variant="outline"
         className={cn(
-          "h-11 w-full justify-between gap-2 bg-background px-3 text-left text-sm font-normal hover:bg-accent/60 hover:text-foreground md:h-[37px]",
+          "h-auto min-h-11 w-full justify-between gap-3 bg-background px-3 py-2 text-left text-sm font-normal hover:bg-accent/60 hover:text-foreground",
           open && "border-primary/35 ring-1 ring-primary/15",
           disabled && "cursor-not-allowed opacity-60 hover:bg-background",
         )}
         disabled={disabled}
         onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
       >
-        <span className={cn("min-w-0 flex-1 truncate", selectedEmails.length ? "font-medium text-foreground" : "text-muted-foreground")}>{label}</span>
+        <span className="min-w-0 flex-1">
+          <span className={cn("block truncate", selectedEmails.length ? "font-medium text-foreground" : "text-muted-foreground")}>{label}</span>
+          {selectedEmails.length > 0 && <span className="mt-0.5 block truncate text-xs font-normal text-muted-foreground" title={selectedSummary}>{selectedSummary}</span>}
+        </span>
         <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
       </Button>
       {open && (
         <div className={cn(
-          "relative z-30 mt-2 rounded-md border bg-popover p-2 shadow-sm sm:absolute sm:left-0 sm:right-0 sm:mt-0",
+          "relative z-30 mt-2 overflow-hidden rounded-md border bg-popover shadow-md sm:absolute sm:left-0 sm:right-0 sm:mt-0",
           placement === "top" ? "sm:bottom-full sm:mb-2" : "sm:mt-2",
         )}>
-          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+          <div className="flex items-center justify-between border-b px-3 py-2">
+            <span className="text-sm font-semibold">选择已验证邮箱</span>
+            <Badge variant="secondary">已选 {selectedEmails.length}</Badge>
+          </div>
+          <div className="p-2">
             <div className="relative min-w-0">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                className="h-8 pl-8 pr-8 text-sm shadow-none"
+                className="h-11 pl-9 pr-11 text-base shadow-none sm:text-sm"
                 placeholder="搜索已验证邮箱"
                 autoFocus
               />
               {query && (
-                <Button type="button" variant="ghost" size="icon" className="absolute right-0.5 top-0.5 size-7 text-muted-foreground" aria-label="清除搜索" title="清除搜索" onClick={() => setQuery("")}>
+                <Button type="button" variant="ghost" size="icon" className="absolute right-0 top-0 size-11 text-muted-foreground" aria-label="清除搜索" title="清除搜索" onClick={() => setQuery("")}>
                   <X className="h-3.5 w-3.5" />
                 </Button>
               )}
             </div>
-            <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-xs font-normal text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => onChange([])}>
-              清空
-            </Button>
           </div>
-          <div className="mt-2 max-h-[132px] overflow-y-auto pr-1">
-            <div className="space-y-1">
+          <div className="max-h-[240px] overflow-y-auto border-t p-2">
+            <div className="space-y-1" role="listbox" aria-label="已验证邮箱账号" aria-multiselectable="true">
               {filteredLockedEmails.map((email) => (
                 <label
                   key={`locked-${email}`}
-                  className="flex min-h-[36px] cursor-not-allowed items-center gap-2 rounded-md border border-border bg-muted/70 px-2.5 py-1.5 text-sm font-semibold text-muted-foreground"
+                  className="flex min-h-11 cursor-not-allowed items-center gap-2 rounded-md border border-border bg-muted/70 px-2.5 py-2 text-sm font-semibold text-muted-foreground"
                 >
                   <Checkbox checked disabled />
-                  <span className="min-w-0 flex-1 truncate">{email}</span>
+                  <span className="min-w-0 flex-1 break-all">{email}</span>
                   <Badge variant="outline" className="h-5 shrink-0 rounded px-1.5 text-[10px]">{lockedLabel}</Badge>
                 </label>
               ))}
@@ -2372,16 +2356,23 @@ function ForwardingTargetPicker({ emails, selected, lockedSelected = [], lockedL
                   <label
                     key={email}
                     className={cn(
-                      "flex min-h-[36px] cursor-pointer items-center gap-2 rounded-md border border-transparent px-2.5 py-1.5 text-sm transition-colors hover:border-border hover:bg-muted/70",
+                      "flex min-h-11 cursor-pointer items-center gap-2 rounded-md border border-transparent px-2.5 py-2 text-sm transition-colors hover:border-border hover:bg-muted/70",
                       checked && "border-primary/30 bg-primary/10 font-semibold text-primary",
                     )}
                   >
                     <Checkbox checked={checked} disabled={disabled} onCheckedChange={(value) => toggle(email, value === true)} />
-                    <span className="min-w-0 flex-1 truncate">{email}</span>
+                    <span className="min-w-0 flex-1 break-all">{email}</span>
                   </label>
                 )
               })}
               {filteredLockedEmails.length === 0 && filteredEmails.length === 0 && <div className="px-2 py-8 text-center text-sm text-muted-foreground">没有匹配的已验证邮箱</div>}
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-3 border-t px-3 py-2">
+            <span className="text-xs text-muted-foreground">显示 {filteredLockedEmails.length + filteredEmails.length} 个邮箱</span>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="ghost" size="sm" className="h-9 px-2 text-xs text-muted-foreground" disabled={selectedEmailsOnly.length === 0} onClick={() => onChange([])}>清空选择</Button>
+              <Button type="button" size="sm" className="h-9 min-w-20" onClick={() => setOpen(false)}>完成</Button>
             </div>
           </div>
         </div>
@@ -2390,11 +2381,23 @@ function ForwardingTargetPicker({ emails, selected, lockedSelected = [], lockedL
   )
 }
 
-function VerifiedEmailRow({ item, busy, onResend, onRemove }: {
+function VerifiedEmailListHeader() {
+  return (
+    <div className="hidden grid-cols-[minmax(0,1.1fr)_minmax(220px,0.9fr)_auto] gap-4 border-b bg-muted/25 px-4 py-2 text-xs font-medium text-muted-foreground sm:grid">
+      <span>验证邮箱</span>
+      <span>状态与转发绑定</span>
+      <span className="min-w-[9rem] text-right">操作</span>
+    </div>
+  )
+}
+
+function VerifiedEmailRow({ item, busy, mailboxCount = 0, onResend, onRemove, onViewBindings }: {
   item: ForwardingVerifiedEmail
   busy: boolean
+  mailboxCount?: number
   onResend: (item: ForwardingVerifiedEmail) => void
   onRemove: (id: string, email: string) => void
+  onViewBindings?: () => void
 }) {
   const tone = forwardingEmailTone(item)
   const [clock, setClock] = React.useState(() => Date.now())
@@ -2405,22 +2408,36 @@ function VerifiedEmailRow({ item, busy, onResend, onRemove }: {
     const timer = window.setInterval(() => setClock(Date.now()), 1000)
     return () => window.clearInterval(timer)
   }, [item.verified, sentAt])
+  const mailboxBindings = sortForwardingTargets(item.mailboxBindings || [])
+  const bindingCount = item.globalBinding ? mailboxCount : mailboxBindings.length
+  const bindingLabel = item.globalBinding
+    ? `转发绑定：全部邮箱（${mailboxCount} 个）`
+    : bindingCount > 0
+      ? `转发绑定：${bindingCount} 个邮箱${bindingCount <= 2 ? ` · ${mailboxBindings.join("、")}` : ""}`
+      : "未用于邮件转发"
   return (
-    <div className="grid min-h-[72px] gap-3 border-b px-4 py-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <span className={cn("size-2 shrink-0 rounded-full", tone.dotClass)} />
-          <span className="min-w-0 break-all text-sm font-semibold" title={item.email}>{item.email}</span>
-        </div>
-        <div className={cn("mt-1 pl-4 text-xs leading-5", item.verified ? "text-muted-foreground" : tone.detailClass)}>
+    <div className="grid min-h-[68px] gap-2 border-b px-4 py-3 last:border-b-0 sm:grid-cols-[minmax(0,1.1fr)_minmax(220px,0.9fr)_auto] sm:items-center sm:gap-4">
+      <div className="flex min-w-0 items-start gap-2 sm:items-center">
+        <span className={cn("mt-1.5 size-2 shrink-0 rounded-full sm:mt-0", tone.dotClass)} />
+        <span className="min-w-0 break-all text-sm font-semibold" title={item.email}>{item.email}</span>
+      </div>
+      <div className="min-w-0 pl-4 sm:pl-0">
+        <div className={cn("text-xs leading-5 tabular-nums", item.verified ? "text-muted-foreground" : tone.detailClass)}>
           {item.verified ? `验证于 ${formatDateTime(item.verifiedAt || item.createdAt)}` : forwardingEmailStatusText(item)}
         </div>
+        {item.verified && (
+          onViewBindings && bindingCount > 0 ? (
+            <Button type="button" variant="link" className="mt-0.5 h-auto max-w-full justify-start truncate p-0 text-xs font-normal" onClick={onViewBindings} title={bindingLabel}>{bindingLabel}</Button>
+          ) : (
+            <div className="mt-0.5 text-xs text-muted-foreground/80">{bindingLabel}</div>
+          )
+        )}
       </div>
-      <div className="flex shrink-0 items-center justify-start gap-2 sm:justify-end">
+      <div className="flex min-w-[9rem] shrink-0 items-center justify-end gap-2 pl-4 sm:pl-0">
         {!item.verified && (
           <Button type="button" variant="outline" size="sm" className="h-11 min-w-[5.5rem] sm:h-9" disabled={busy || resendWaitSeconds > 0} onClick={() => onResend(item)}>{resendWaitSeconds > 0 ? `${resendWaitSeconds}s 后重发` : "重发"}</Button>
         )}
-        <Button type="button" variant="ghost" size="sm" className="h-11 text-destructive hover:bg-destructive/10 hover:text-destructive sm:h-9" disabled={busy} onClick={() => onRemove(item.id, item.email)} aria-label={`删除 ${item.email}`}>删除</Button>
+        <Button type="button" variant="ghost" size="sm" className="h-11 gap-1 text-destructive hover:bg-destructive/10 hover:text-destructive sm:h-9" disabled={busy} onClick={() => onRemove(item.id, item.email)} aria-label={`移除 ${item.email}`}><Trash2 className="h-3.5 w-3.5" />移除</Button>
       </div>
     </div>
   )

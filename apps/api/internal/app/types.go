@@ -38,17 +38,24 @@ type APIToken struct {
 }
 
 type DeliveryEvent struct {
-	ID           string    `json:"id"`
-	ExternalID   string    `json:"externalId"`
-	Provider     string    `json:"provider"`
-	QueueID      string    `json:"queueId"`
-	MessageID    string    `json:"messageId"`
-	RFCMessageID string    `json:"rfcMessageId"`
-	Recipient    string    `json:"recipient"`
-	Status       string    `json:"status"`
-	Reason       string    `json:"reason,omitempty"`
-	OccurredAt   time.Time `json:"occurredAt"`
-	CreatedAt    time.Time `json:"createdAt"`
+	ID             string     `json:"id"`
+	ExternalID     string     `json:"externalId"`
+	Provider       string     `json:"provider"`
+	QueueID        string     `json:"queueId"`
+	MessageID      string     `json:"messageId"`
+	RFCMessageID   string     `json:"rfcMessageId"`
+	Recipient      string     `json:"recipient"`
+	Status         string     `json:"status"`
+	Reason         string     `json:"reason,omitempty"`
+	PostfixQueueID string     `json:"postfixQueueId,omitempty"`
+	SMTPCode       string     `json:"smtpCode,omitempty"`
+	DSN            string     `json:"dsn,omitempty"`
+	Relay          string     `json:"relay,omitempty"`
+	Attempts       int        `json:"attempts"`
+	LastAttemptAt  *time.Time `json:"lastAttemptAt,omitempty"`
+	Error          string     `json:"error,omitempty"`
+	OccurredAt     time.Time  `json:"occurredAt"`
+	CreatedAt      time.Time  `json:"createdAt"`
 }
 
 type Domain struct {
@@ -141,6 +148,8 @@ type MailMessage struct {
 	SendQueueID       string             `json:"sendQueueId,omitempty"`
 	SendQueueStatus   string             `json:"sendQueueStatus,omitempty"`
 	ExternalAccountID string             `json:"externalAccountId,omitempty"`
+	ForwardRecipients []string           `json:"forwardRecipients,omitempty"`
+	ForwardDeliveries []DeliveryEvent    `json:"forwardDeliveries,omitempty"`
 }
 
 type MailAuthentication struct {
@@ -350,18 +359,19 @@ type SendQueueEntry struct {
 }
 
 type SendAuditEvent struct {
-	ID             string    `json:"id"`
-	QueueID        string    `json:"queueId"`
-	MailboxID      string    `json:"mailboxId"`
-	MailboxAddress string    `json:"mailboxAddress,omitempty"`
-	SentMessageID  string    `json:"sentMessageId"`
-	MessageID      string    `json:"messageId,omitempty"`
-	Source         string    `json:"source"`
-	Event          string    `json:"event"`
-	Status         string    `json:"status"`
-	MailFrom       string    `json:"mailFrom"`
-	HeaderFrom     string    `json:"headerFrom"`
-	Recipients     []string  `json:"recipients"`
-	Error          string    `json:"error,omitempty"`
-	CreatedAt      time.Time `json:"createdAt"`
+	ID             string          `json:"id"`
+	QueueID        string          `json:"queueId"`
+	MailboxID      string          `json:"mailboxId"`
+	MailboxAddress string          `json:"mailboxAddress,omitempty"`
+	SentMessageID  string          `json:"sentMessageId"`
+	MessageID      string          `json:"messageId,omitempty"`
+	Source         string          `json:"source"`
+	Event          string          `json:"event"`
+	Status         string          `json:"status"`
+	MailFrom       string          `json:"mailFrom"`
+	HeaderFrom     string          `json:"headerFrom"`
+	Recipients     []string        `json:"recipients"`
+	Error          string          `json:"error,omitempty"`
+	CreatedAt      time.Time       `json:"createdAt"`
+	DeliveryEvents []DeliveryEvent `json:"deliveryEvents,omitempty"`
 }

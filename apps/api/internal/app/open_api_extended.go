@@ -394,7 +394,7 @@ func (a *App) sendAuditEvents(r *http.Request, queueID string) ([]SendAuditEvent
 }
 
 func (a *App) deliveryEvents(r *http.Request, sentMessageID string) ([]DeliveryEvent, error) {
-	rows, err := a.db.QueryContext(r.Context(), `SELECT id,external_id,provider,queue_id,sent_message_id,rfc_message_id,recipient,status,reason,occurred_at,created_at FROM delivery_events WHERE sent_message_id=? ORDER BY occurred_at,id`, sentMessageID)
+	rows, err := a.db.QueryContext(r.Context(), `SELECT id,external_id,provider,queue_id,sent_message_id,rfc_message_id,recipient,status,reason,postfix_queue_id,smtp_code,dsn,relay,attempts,last_attempt_at,error,occurred_at,created_at FROM delivery_events WHERE sent_message_id=? ORDER BY occurred_at,created_at,id`, sentMessageID)
 	if err != nil {
 		return nil, err
 	}
@@ -402,10 +402,11 @@ func (a *App) deliveryEvents(r *http.Request, sentMessageID string) ([]DeliveryE
 	items := []DeliveryEvent{}
 	for rows.Next() {
 		var item DeliveryEvent
-		var occurredAt, createdAt string
-		if err := rows.Scan(&item.ID, &item.ExternalID, &item.Provider, &item.QueueID, &item.MessageID, &item.RFCMessageID, &item.Recipient, &item.Status, &item.Reason, &occurredAt, &createdAt); err != nil {
+		var lastAttemptAt, occurredAt, createdAt string
+		if err := rows.Scan(&item.ID, &item.ExternalID, &item.Provider, &item.QueueID, &item.MessageID, &item.RFCMessageID, &item.Recipient, &item.Status, &item.Reason, &item.PostfixQueueID, &item.SMTPCode, &item.DSN, &item.Relay, &item.Attempts, &lastAttemptAt, &item.Error, &occurredAt, &createdAt); err != nil {
 			return nil, err
 		}
+		item.LastAttemptAt = parseOptionalTime(lastAttemptAt)
 		item.OccurredAt = parseTime(occurredAt)
 		item.CreatedAt = parseTime(createdAt)
 		items = append(items, item)

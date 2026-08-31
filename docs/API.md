@@ -542,7 +542,7 @@ Current status values:
 - `accepted`: message was accepted and stored, but no SMTP queue item exists.
 - `queued`: queued for SMTP delivery.
 - `sending`: currently being delivered.
-- `relayed`: the configured upstream SMTP server accepted the message; this is not final recipient delivery.
+- `submitted`: the local Postfix queue accepted the message; this is not final recipient delivery.
 - `failed`: delivery failed and may be retried.
 - `canceled`: delivery was canceled.
 - `delivered`, `bounced`, `complained`, `rejected`, `deferred`: final per-recipient provider/DSN event.
@@ -553,7 +553,7 @@ Current status values:
 - `accepted`：邮件已被接受并存储，但没有 SMTP 队列项。
 - `queued`：已进入 SMTP 投递队列。
 - `sending`：正在投递中。
-- `relayed`：配置的上游 SMTP 已接受邮件，但这不代表最终收件成功。
+- `submitted`：本地 Postfix 队列已接受邮件，但这不代表最终收件成功。
 - `failed`：投递失败，可能会重试。
 - `canceled`：投递已取消。
 - `delivered`、`bounced`、`complained`、`rejected`、`deferred`：每个收件人的最终供应商或 DSN 事件。

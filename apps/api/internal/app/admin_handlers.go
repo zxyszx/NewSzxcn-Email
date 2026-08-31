@@ -15,20 +15,23 @@ import (
 
 func (a *App) handleAdminOverview(w http.ResponseWriter, r *http.Request) {
 	var out struct {
-		Users           int64 `json:"users"`
-		ActiveUsers     int64 `json:"activeUsers"`
-		Domains         int64 `json:"domains"`
-		Mailboxes       int64 `json:"mailboxes"`
-		ActiveMailboxes int64 `json:"activeMailboxes"`
-		Aliases         int64 `json:"aliases"`
-		Messages        int64 `json:"messages"`
-		UnreadMessages  int64 `json:"unreadMessages"`
-		StorageBytes    int64 `json:"storageBytes"`
-		TodaySent       int64 `json:"todaySent"`
-		TodayReceived   int64 `json:"todayReceived"`
-		SendDelivered   int64 `json:"sendDelivered"`
-		SendFailed      int64 `json:"sendFailed"`
-		QueueMessages   int64 `json:"queueMessages"`
+		Users                  int64 `json:"users"`
+		ActiveUsers            int64 `json:"activeUsers"`
+		Domains                int64 `json:"domains"`
+		Mailboxes              int64 `json:"mailboxes"`
+		ActiveMailboxes        int64 `json:"activeMailboxes"`
+		Aliases                int64 `json:"aliases"`
+		AccountForwardingRules int64 `json:"accountForwardingRules"`
+		MailboxForwardingRules int64 `json:"mailboxForwardingRules"`
+		ForwardedMailboxes     int64 `json:"forwardedMailboxes"`
+		Messages               int64 `json:"messages"`
+		UnreadMessages         int64 `json:"unreadMessages"`
+		StorageBytes           int64 `json:"storageBytes"`
+		TodaySent              int64 `json:"todaySent"`
+		TodayReceived          int64 `json:"todayReceived"`
+		SendDelivered          int64 `json:"sendDelivered"`
+		SendFailed             int64 `json:"sendFailed"`
+		QueueMessages          int64 `json:"queueMessages"`
 	}
 	now := a.now().UTC()
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)
@@ -43,6 +46,12 @@ func (a *App) handleAdminOverview(w http.ResponseWriter, r *http.Request) {
 		{q: `SELECT COUNT(*) FROM mailboxes`, dest: &out.Mailboxes},
 		{q: `SELECT COUNT(*) FROM mailboxes WHERE status='active'`, dest: &out.ActiveMailboxes},
 		{q: `SELECT COUNT(*) FROM aliases`, dest: &out.Aliases},
+		{q: `SELECT COUNT(*) FROM account_forwarding_settings WHERE TRIM(target_email)<>'' OR (TRIM(target_emails)<>'' AND TRIM(target_emails)<>'[]')`, dest: &out.AccountForwardingRules},
+		{q: `SELECT COUNT(*) FROM mailbox_forwarding_settings WHERE TRIM(target_email)<>'' OR (TRIM(target_emails)<>'' AND TRIM(target_emails)<>'[]')`, dest: &out.MailboxForwardingRules},
+		{q: `SELECT COUNT(*) FROM mailboxes mb WHERE mb.status='active' AND (
+			EXISTS (SELECT 1 FROM account_forwarding_settings afs WHERE afs.user_id=mb.user_id AND (TRIM(afs.target_email)<>'' OR (TRIM(afs.target_emails)<>'' AND TRIM(afs.target_emails)<>'[]')))
+			OR EXISTS (SELECT 1 FROM mailbox_forwarding_settings mfs WHERE mfs.mailbox_id=mb.id AND (TRIM(mfs.target_email)<>'' OR (TRIM(mfs.target_emails)<>'' AND TRIM(mfs.target_emails)<>'[]')))
+		)`, dest: &out.ForwardedMailboxes},
 		{q: `SELECT COUNT(*) FROM messages`, dest: &out.Messages},
 		{q: `SELECT COUNT(*) FROM messages WHERE is_read=0`, dest: &out.UnreadMessages},
 		{q: `SELECT COALESCE(SUM(size_bytes),0) FROM messages`, dest: &out.StorageBytes},
@@ -931,10 +940,22 @@ func (a *App) handleAdminMessages(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, msg)
 	}
+	if err := rows.Err(); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to load messages")
+		return
+	}
+	if err := rows.Close(); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to close message results")
+		return
+	}
 	next := ""
 	if len(items) > limit {
 		items = items[:limit]
 		next = strconv.Itoa(offset + limit)
+	}
+	if err := a.attachForwardingAudits(r.Context(), items); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to load forwarding audit")
+		return
 	}
 	respondJSON(w, http.StatusOK, map[string]any{"items": items, "nextCursor": next})
 }
@@ -959,7 +980,80 @@ func (a *App) handleAdminMessage(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "failed to load message owner")
 		return
 	}
+	if err := a.attachForwardingAudit(r.Context(), msg); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to load forwarding audit")
+		return
+	}
 	respondJSON(w, http.StatusOK, msg)
+}
+
+func (a *App) attachForwardingAudit(ctx context.Context, msg *MailMessage) error {
+	items := []MailMessage{*msg}
+	if err := a.attachForwardingAudits(ctx, items); err != nil {
+		return err
+	}
+	*msg = items[0]
+	return nil
+}
+
+func (a *App) attachForwardingAudits(ctx context.Context, messages []MailMessage) error {
+	if len(messages) == 0 {
+		return nil
+	}
+	byID := make(map[string]*MailMessage, len(messages))
+	ids := make([]any, 0, len(messages))
+	for i := range messages {
+		byID[messages[i].ID] = &messages[i]
+		ids = append(ids, messages[i].ID)
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+	forwardArgs := append([]any{sendSourceForwarding, sendSourceRuleForwarding}, ids...)
+	rows, err := a.db.QueryContext(ctx, `SELECT sent_message_id,recipients_json FROM send_queue
+		WHERE source IN (?,?) AND sent_message_id IN (`+placeholders+`) ORDER BY created_at,id`, forwardArgs...)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var messageID, recipientsJSON string
+		if err := rows.Scan(&messageID, &recipientsJSON); err != nil {
+			rows.Close()
+			return err
+		}
+		if msg := byID[messageID]; msg != nil {
+			msg.ForwardRecipients = append(msg.ForwardRecipients, jsonDecodeSlice(recipientsJSON)...)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, msg := range byID {
+		msg.ForwardRecipients = dedupeEmails(msg.ForwardRecipients)
+	}
+
+	rows, err = a.db.QueryContext(ctx, `SELECT id,external_id,provider,queue_id,sent_message_id,rfc_message_id,recipient,status,reason,postfix_queue_id,smtp_code,dsn,relay,attempts,last_attempt_at,error,occurred_at,created_at
+		FROM delivery_events WHERE sent_message_id IN (`+placeholders+`) ORDER BY occurred_at,created_at,id`, ids...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var item DeliveryEvent
+		var lastAttemptAt, occurredAt, createdAt string
+		if err := rows.Scan(&item.ID, &item.ExternalID, &item.Provider, &item.QueueID, &item.MessageID, &item.RFCMessageID, &item.Recipient, &item.Status, &item.Reason, &item.PostfixQueueID, &item.SMTPCode, &item.DSN, &item.Relay, &item.Attempts, &lastAttemptAt, &item.Error, &occurredAt, &createdAt); err != nil {
+			return err
+		}
+		item.LastAttemptAt = parseOptionalTime(lastAttemptAt)
+		item.OccurredAt = parseTime(occurredAt)
+		item.CreatedAt = parseTime(createdAt)
+		if msg := byID[item.MessageID]; msg != nil {
+			msg.ForwardDeliveries = append(msg.ForwardDeliveries, item)
+		}
+	}
+	return rows.Err()
 }
 
 func (a *App) handleAdminSendAudit(w http.ResponseWriter, r *http.Request) {
@@ -1038,12 +1132,93 @@ func (a *App) handleAdminSendAudit(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "failed to load send audit")
 		return
 	}
+	if err := rows.Close(); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to close send audit results")
+		return
+	}
+	if err := a.attachDeliveryEventsToAudits(r.Context(), items); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to load delivery events")
+		return
+	}
 	next := ""
 	if len(items) > limit {
 		items = items[:limit]
 		next = strconv.Itoa(offset + limit)
 	}
 	respondJSON(w, http.StatusOK, map[string]any{"items": items, "nextCursor": next})
+}
+
+func (a *App) deliveryEventsForAudit(ctx context.Context, queueID, sentMessageID string) ([]DeliveryEvent, error) {
+	items := []SendAuditEvent{{QueueID: queueID, SentMessageID: sentMessageID}}
+	if err := a.attachDeliveryEventsToAudits(ctx, items); err != nil {
+		return nil, err
+	}
+	return items[0].DeliveryEvents, nil
+}
+
+func (a *App) attachDeliveryEventsToAudits(ctx context.Context, audits []SendAuditEvent) error {
+	if len(audits) == 0 {
+		return nil
+	}
+	byQueue := map[string][]*SendAuditEvent{}
+	byMessage := map[string][]*SendAuditEvent{}
+	queueIDs := []any{}
+	messageIDs := []any{}
+	seenQueues := map[string]bool{}
+	seenMessages := map[string]bool{}
+	for i := range audits {
+		if id := strings.TrimSpace(audits[i].QueueID); id != "" {
+			byQueue[id] = append(byQueue[id], &audits[i])
+			if !seenQueues[id] {
+				seenQueues[id] = true
+				queueIDs = append(queueIDs, id)
+			}
+		}
+		if id := strings.TrimSpace(audits[i].SentMessageID); id != "" {
+			byMessage[id] = append(byMessage[id], &audits[i])
+			if !seenMessages[id] {
+				seenMessages[id] = true
+				messageIDs = append(messageIDs, id)
+			}
+		}
+	}
+	conditions := []string{}
+	args := []any{}
+	if len(queueIDs) > 0 {
+		conditions = append(conditions, `queue_id IN (`+strings.TrimSuffix(strings.Repeat("?,", len(queueIDs)), ",")+`)`)
+		args = append(args, queueIDs...)
+	}
+	if len(messageIDs) > 0 {
+		conditions = append(conditions, `(queue_id='' AND sent_message_id IN (`+strings.TrimSuffix(strings.Repeat("?,", len(messageIDs)), ",")+`))`)
+		args = append(args, messageIDs...)
+	}
+	if len(conditions) == 0 {
+		return nil
+	}
+	rows, err := a.db.QueryContext(ctx, `SELECT id,external_id,provider,queue_id,sent_message_id,rfc_message_id,recipient,status,reason,postfix_queue_id,smtp_code,dsn,relay,attempts,last_attempt_at,error,occurred_at,created_at
+		FROM delivery_events WHERE `+strings.Join(conditions, " OR ")+` ORDER BY occurred_at,created_at,id`, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var item DeliveryEvent
+		var lastAttemptAt, occurredAt, createdAt string
+		if err := rows.Scan(&item.ID, &item.ExternalID, &item.Provider, &item.QueueID, &item.MessageID, &item.RFCMessageID, &item.Recipient, &item.Status, &item.Reason, &item.PostfixQueueID, &item.SMTPCode, &item.DSN, &item.Relay, &item.Attempts, &lastAttemptAt, &item.Error, &occurredAt, &createdAt); err != nil {
+			return err
+		}
+		item.LastAttemptAt = parseOptionalTime(lastAttemptAt)
+		item.OccurredAt = parseTime(occurredAt)
+		item.CreatedAt = parseTime(createdAt)
+		targets := byQueue[item.QueueID]
+		if item.QueueID == "" {
+			targets = byMessage[item.MessageID]
+		}
+		for _, audit := range targets {
+			audit.DeliveryEvents = append(audit.DeliveryEvents, item)
+		}
+	}
+	return rows.Err()
 }
 
 func adminAuditTimeParam(value string, endOfDay bool) (string, error) {

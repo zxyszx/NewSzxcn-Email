@@ -233,6 +233,7 @@ export function MailPage() {
   const mailNotifyStateRef = React.useRef<Record<string, MailNotificationState>>({})
   const mailAudioContextRef = React.useRef<AudioContext | null>(null)
   const linkedMessageRef = React.useRef("")
+  const folderRefreshInFlightRef = React.useRef(false)
   const mailImportInputRef = React.useRef<HTMLInputElement | null>(null)
   const mobileReaderHistoryRef = React.useRef(false)
   const user = me.data?.user
@@ -772,7 +773,7 @@ export function MailPage() {
     if (!publicSettings.data?.mailAutoRefresh) return
     const timer = window.setInterval(() => {
       setAutoRefreshing(true)
-      Promise.all([
+      void Promise.all([
         qc.invalidateQueries({ queryKey: ["messages"] }),
         qc.invalidateQueries({ queryKey: ["admin", "unknown-messages"] }),
         qc.invalidateQueries({ queryKey: ["external-messages"] }),
@@ -783,9 +784,8 @@ export function MailPage() {
         qc.invalidateQueries({ queryKey: ["scheduled-sends"] }),
         qc.invalidateQueries({ queryKey: ["send-queue"] }),
         qc.invalidateQueries({ queryKey: ["mail-notifications"] }),
-      ]).finally(() => {
-        window.setTimeout(() => setAutoRefreshing(false), 600)
-      })
+      ]).catch(() => undefined)
+      window.setTimeout(() => setAutoRefreshing(false), 600)
     }, mailRefreshInterval || 30000)
     return () => window.clearInterval(timer)
   }, [mailRefreshInterval, publicSettings.data?.mailAutoRefresh, qc])
@@ -865,6 +865,18 @@ export function MailPage() {
       qc.invalidateQueries({ queryKey: ["scheduled-sends"] }),
       qc.invalidateQueries({ queryKey: ["send-queue"] }),
     ])
+  }
+  function refreshFolderAutomatically() {
+    if (folderRefreshInFlightRef.current || refreshing) return
+    folderRefreshInFlightRef.current = true
+    setAutoRefreshing(true)
+    void refreshMailData().catch((error) => {
+      toast({ title: "自动刷新失败", description: error instanceof Error ? error.message : "请稍后重试" })
+    })
+    window.setTimeout(() => {
+      folderRefreshInFlightRef.current = false
+      setAutoRefreshing(false)
+    }, 600)
   }
   async function runBulkAction(action: BulkAction) {
     if (!canOrganizeMail) return
@@ -1003,6 +1015,7 @@ export function MailPage() {
       setNewLabelEditing(false)
     }
     setMobileSidebarOpen(false)
+    refreshFolderAutomatically()
   }
   function openFolder(nextFolder: string) {
     setSelectedExternalAccountId("")
@@ -1012,6 +1025,7 @@ export function MailPage() {
     setSelectedId(null)
     setMailFilter("all")
     setMobileSidebarOpen(false)
+    refreshFolderAutomatically()
   }
   function openStarred() {
     setSelectedExternalAccountId("")
@@ -1020,6 +1034,7 @@ export function MailPage() {
     setSelectedId(null)
     setMailFilter("all")
     setMobileSidebarOpen(false)
+    refreshFolderAutomatically()
   }
   function openScheduled() {
     setSelectedExternalAccountId("")
@@ -1086,6 +1101,7 @@ export function MailPage() {
     setSelectedId(null)
     setMailFilter("all")
     setMobileSidebarOpen(false)
+    refreshFolderAutomatically()
   }
   function toggleExternalAccount(account: ExternalImapAccount) {
     if (sidebarCollapsed) {
@@ -1268,18 +1284,18 @@ export function MailPage() {
   function closeMessageReader() {
     setSelectedId(null)
   }
-  async function refreshMail() {
+  function refreshMail() {
     if (refreshing || autoRefreshing) return
     setRefreshing(true)
-    try {
-      await refreshMailData()
+    void refreshMailData().then(() => {
       const refreshedAt = new Date()
       toast({ title: "邮件已刷新", description: `更新于 ${refreshedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` })
-    } catch (error) {
+    }).catch((error) => {
       toast({ title: "刷新失败", description: error instanceof Error ? error.message : "请稍后重试" })
-    } finally {
+    })
+    window.setTimeout(() => {
       setRefreshing(false)
-    }
+    }, 600)
   }
   async function exportCurrentMail() {
     if (!canExportCurrentView || exportingMail) return
@@ -1712,7 +1728,13 @@ export function MailPage() {
     </Sidebar>
   )
 
-  const mailTransferTools = isTransferView ? (
+  const mailRefreshTool = (
+    <Button type="button" size="icon" variant="ghost" onClick={() => void refreshMail()} disabled={refreshing || autoRefreshing} className={cn(isMobile ? "h-11 w-11" : "h-8 w-8", "text-muted-foreground hover:text-foreground", (refreshing || autoRefreshing) && "text-primary")} title={autoRefreshing ? "自动刷新中" : "刷新当前视图"} aria-label={autoRefreshing ? "自动刷新中" : "刷新当前视图"}>
+      <RefreshCcw className={cn("h-4 w-4", (refreshing || autoRefreshing) && "animate-spin")} />
+    </Button>
+  )
+
+  const mailTransferActions = isTransferView ? (
     <div className="flex shrink-0 items-center gap-0.5">
       <Button type="button" size="icon" variant="ghost" onClick={() => void exportCurrentMail()} disabled={!canExportCurrentView || exportingMail} className="h-8 w-8 text-muted-foreground hover:text-foreground" title={selectedCountOnPage > 0 ? `下载选中的 ${selectedCountOnPage} 封邮件` : "导出当前邮箱邮件为 ZIP"} aria-label={selectedCountOnPage > 0 ? `下载选中的 ${selectedCountOnPage} 封邮件` : "导出当前邮箱邮件为 ZIP"}>
         <Download className={cn("h-4 w-4", exportingMail && "animate-pulse")} />
@@ -1722,11 +1744,15 @@ export function MailPage() {
           <Upload className={cn("h-4 w-4", importingMail && "animate-pulse")} />
         </Button>
       )}
-      <Button type="button" size="icon" variant="ghost" onClick={() => void refreshMail()} disabled={refreshing || autoRefreshing} className={cn("h-8 w-8 text-muted-foreground hover:text-foreground", (refreshing || autoRefreshing) && "text-primary")} title={autoRefreshing ? "自动刷新中" : "刷新当前视图"} aria-label="刷新当前视图">
-        <RefreshCcw className={cn("h-4 w-4", (refreshing || autoRefreshing) && "animate-spin")} />
-      </Button>
     </div>
   ) : null
+
+  const mailTransferTools = (
+    <div className="flex shrink-0 items-center gap-0.5">
+      {mailTransferActions}
+      {mailRefreshTool}
+    </div>
+  )
 
   const mailSearchControl = (
     <div className="relative">
@@ -1873,7 +1899,7 @@ export function MailPage() {
       canManageLabels={canManageLabels && mailView !== "external" && mailView !== "unknown"}
       canDownloadAttachments={canDownloadAttachments}
       language={language}
-      tools={!isMobile ? mailTransferTools : undefined}
+      tools={isMobile ? mailRefreshTool : mailTransferTools}
       search={mailSearchControl}
     />
   ) : (
@@ -1891,7 +1917,8 @@ export function MailPage() {
               </div>
               <div className="mail-list-toolbar-main flex min-w-0 flex-1 items-center gap-1.5">
                 <h1 key={viewTitle} className="shrink-0 whitespace-nowrap text-xl font-bold leading-none text-foreground">{mailView === "label" && selectedLabel ? selectedLabel.name : viewTitle}</h1>
-                <div className="mail-transfer-tools">{mailTransferTools}</div>
+                <div className="mail-transfer-tools">{mailTransferActions}</div>
+                {mailRefreshTool}
               </div>
             </div>
             <div className="mail-list-toolbar-filters flex min-w-0 shrink-0 items-center gap-1.5">
@@ -1995,9 +2022,7 @@ export function MailPage() {
                   </SheetContent>
                 </Sheet>
                 <div className="min-w-0 flex-1 text-sm font-semibold">{mailView === "label" && selectedLabel ? <Badge variant="outline" className="gap-1.5 rounded-md font-normal"><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: labelDotColor(selectedLabel) }} />{selectedLabel.name}</Badge> : viewTitle}</div>
-                {mailTransferTools}
-                  {canSendMail && <Button type="button" size="icon" onClick={() => openCompose()} disabled={!selectedComposeMailbox} aria-label="写邮件"><PencilLine className="h-4 w-4" /></Button>}
-                <div className="relative basis-full">{mailSearchControl}</div>
+                {canSendMail && <Button type="button" size="icon" onClick={() => openCompose()} disabled={!selectedComposeMailbox} aria-label="写邮件"><PencilLine className="h-4 w-4" /></Button>}
               </header>
             )}
             <section className="flex min-h-0 flex-1 flex-col">{contentView}</section>
@@ -3552,7 +3577,7 @@ function CompactMessageRow({ message, active, checked, scheduled, onCheckedChang
               {!message.isRead && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-label="未读" />}
             </div>
             <div className="flex shrink-0 items-center gap-1 sm:hidden">
-              <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="mail-message-date text-right text-xs font-medium tabular-nums text-foreground/65">{messageDisplayDate(message)}</time>
+              <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="mail-message-date whitespace-nowrap text-right text-xs font-medium tabular-nums text-foreground/65">{messageDisplayDate(message)}</time>
               {canOrganize && <Button type="button" variant="ghost" size="icon" aria-label={message.isStarred ? "取消星标" : "添加星标"} className="h-6 w-6 text-muted-foreground hover:text-yellow-500" onClick={(event) => { event.stopPropagation(); onStar() }}>
                 <Star className={cn("h-3.5 w-3.5", message.isStarred && "fill-yellow-400 text-yellow-500")} />
               </Button>}
@@ -3560,16 +3585,14 @@ function CompactMessageRow({ message, active, checked, scheduled, onCheckedChang
           </div>
           <div className="mt-1 flex min-w-0 items-center gap-2 sm:mt-0">
             <span className="truncate font-medium">{messageSubject(message)}</span>
-            <span className="hidden min-w-0 truncate text-muted-foreground sm:block">{message.snippet}</span>
             {scheduled && <Badge variant="secondary" className="h-5 shrink-0 rounded-md px-1.5 text-[11px] font-normal">已定时</Badge>}
             {visibleLabels.map((label) => <MailLabelBadge key={label.id} label={label} />)}
             {hiddenLabelCount > 0 && <Badge variant="outline" className="h-5 shrink-0 rounded-md px-1.5 text-[11px] font-normal text-muted-foreground">+{hiddenLabelCount}</Badge>}
             {message.hasAttachments && <Paperclip className="h-3 w-3 shrink-0 text-muted-foreground" />}
           </div>
-          <div className={cn("mt-1 line-clamp-2 text-xs sm:hidden", message.isRead ? "text-muted-foreground" : "text-foreground/70")}>{message.snippet}</div>
         </div>
       </div>
-      <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="mail-message-date hidden text-right text-xs font-medium tabular-nums text-foreground/65 sm:block">{messageDisplayDate(message)}</time>
+      <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="mail-message-date hidden whitespace-nowrap text-right text-xs font-medium tabular-nums text-foreground/65 sm:block">{messageDisplayDate(message)}</time>
       {canOrganize && <Button type="button" variant="ghost" size="icon" aria-label={message.isStarred ? "取消星标" : "添加星标"} className="hidden h-6 w-6 text-muted-foreground hover:text-yellow-500 sm:inline-flex" onClick={(event) => { event.stopPropagation(); onStar() }}>
         <Star className={cn("h-3.5 w-3.5", message.isStarred && "fill-yellow-400 text-yellow-500")} />
       </Button>}
@@ -4061,17 +4084,16 @@ function MessageRow({
             >
               <Star className={cn("h-3.5 w-3.5", message.isStarred && "fill-yellow-400 text-yellow-500")} />
             </Button>}
-            <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="mail-message-date text-right text-xs font-medium tabular-nums text-foreground/65">{messageDisplayDate(message)}</time>
+            <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="mail-message-date whitespace-nowrap text-right text-xs font-medium tabular-nums text-foreground/65">{messageDisplayDate(message)}</time>
           </div>
         </div>
-        <div className="mb-1 flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           <span className="min-w-0 truncate text-[13px] text-foreground">{messageSubject(message)}</span>
           {scheduled && <Badge variant="secondary" className="h-5 shrink-0 rounded-md px-1.5 text-[11px] font-normal">已定时</Badge>}
           {visibleLabels.map((label) => <MailLabelBadge key={label.id} label={label} />)}
           {hiddenLabelCount > 0 && <Badge variant="outline" className="h-5 shrink-0 rounded-md px-1.5 text-[11px] font-normal text-muted-foreground">+{hiddenLabelCount}</Badge>}
           {message.hasAttachments && <Paperclip className="h-3 w-3 shrink-0 text-muted-foreground" />}
         </div>
-        <div className={cn("line-clamp-2 text-xs leading-5", message.isRead ? "text-muted-foreground" : "text-foreground/70")}>{message.snippet}</div>
       </div>
     </div>
   </div>

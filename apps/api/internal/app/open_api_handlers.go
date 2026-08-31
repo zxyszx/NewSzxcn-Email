@@ -652,7 +652,7 @@ type openAPIRecipientStatus struct {
 func openAPISendStatusFromQueue(item SendQueueEntry, mailboxAddress string) openAPISendStatus {
 	status := item.Status
 	if status == sendQueueStatusDelivered {
-		status = "relayed"
+		status = "submitted"
 	}
 	return openAPISendStatus{
 		ID:             firstNonEmpty(item.SentMessageID, item.ID),
@@ -705,7 +705,7 @@ func (a *App) reserveOpenAPISendIdempotency(ctx context.Context, userID, key, re
 
 func (a *App) applyDeliveryStatus(ctx context.Context, status *openAPISendStatus) {
 	rows, err := a.db.QueryContext(ctx, `SELECT recipient,status,reason,provider,occurred_at FROM delivery_events
-		WHERE sent_message_id=? ORDER BY occurred_at DESC,id DESC`, status.MessageID)
+			WHERE sent_message_id=? ORDER BY occurred_at DESC,created_at DESC,id DESC`, status.MessageID)
 	if err != nil {
 		return
 	}

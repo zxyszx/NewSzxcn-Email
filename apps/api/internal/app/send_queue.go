@@ -261,7 +261,8 @@ func (a *App) processSendQueueItem(ctx context.Context, id string) {
 		}
 		return
 	}
-	if err := a.sendSMTP(item.MailFrom, item.Recipients, item.MIMEBytes); err != nil {
+	trackedMIME := addMessageHeader(item.MIMEBytes, "X-LanQin-Queue-ID", item.ID)
+	if err := a.sendSMTP(item.MailFrom, item.Recipients, trackedMIME); err != nil {
 		a.markSendQueueFailed(ctx, item, err)
 		return
 	}

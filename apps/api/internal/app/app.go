@@ -130,6 +130,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		a.startWorker(func() { a.maildirWorker(workerCtx) })
 	}
 	a.startWorker(func() { a.sendQueueWorker(workerCtx) })
+	a.startWorker(func() { a.postfixDeliveryWorker(workerCtx) })
 	a.startWorker(func() { a.externalIMAPWorker(workerCtx) })
 	a.startWorker(func() { a.smtpEventsCleanupWorker(workerCtx) })
 	a.startWorker(func() { a.statusWebhookWorker(workerCtx) })
@@ -447,6 +448,7 @@ func (a *App) migrate(ctx context.Context) error {
 			max_attempts INTEGER NOT NULL DEFAULT 5,
 			next_attempt_at TEXT NOT NULL,
 			last_error TEXT NOT NULL DEFAULT '',
+			postfix_queue_id TEXT NOT NULL DEFAULT '',
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL,
 			delivered_at TEXT
@@ -478,6 +480,13 @@ func (a *App) migrate(ctx context.Context) error {
 			recipient TEXT NOT NULL,
 			status TEXT NOT NULL,
 			reason TEXT NOT NULL DEFAULT '',
+			postfix_queue_id TEXT NOT NULL DEFAULT '',
+			smtp_code TEXT NOT NULL DEFAULT '',
+			dsn TEXT NOT NULL DEFAULT '',
+			relay TEXT NOT NULL DEFAULT '',
+			attempts INTEGER NOT NULL DEFAULT 1,
+			last_attempt_at TEXT NOT NULL DEFAULT '',
+			error TEXT NOT NULL DEFAULT '',
 			occurred_at TEXT NOT NULL,
 			created_at TEXT NOT NULL,
 			UNIQUE(provider, external_id)
@@ -752,6 +761,9 @@ func (a *App) migrate(ctx context.Context) error {
 		return err
 	}
 	if err := a.migrateSendQueueMessageID(ctx); err != nil {
+		return err
+	}
+	if err := a.migratePostfixDeliveryTracking(ctx); err != nil {
 		return err
 	}
 	if err := a.migrateIMAPMetadata(ctx); err != nil {
@@ -1127,6 +1139,53 @@ func (a *App) migrateSendQueueMessageID(ctx context.Context) error {
 		return err
 	}
 	_, err = a.db.ExecContext(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_send_queue_mailbox_source_message_id ON send_queue(mailbox_id, source, message_id) WHERE message_id <> ''`)
+	return err
+}
+
+func (a *App) migratePostfixDeliveryTracking(ctx context.Context) error {
+	for table, alterations := range map[string]map[string]string{
+		"send_queue": {
+			"postfix_queue_id": `ALTER TABLE send_queue ADD COLUMN postfix_queue_id TEXT NOT NULL DEFAULT ''`,
+		},
+		"delivery_events": {
+			"postfix_queue_id": `ALTER TABLE delivery_events ADD COLUMN postfix_queue_id TEXT NOT NULL DEFAULT ''`,
+			"smtp_code":        `ALTER TABLE delivery_events ADD COLUMN smtp_code TEXT NOT NULL DEFAULT ''`,
+			"dsn":              `ALTER TABLE delivery_events ADD COLUMN dsn TEXT NOT NULL DEFAULT ''`,
+			"relay":            `ALTER TABLE delivery_events ADD COLUMN relay TEXT NOT NULL DEFAULT ''`,
+			"attempts":         `ALTER TABLE delivery_events ADD COLUMN attempts INTEGER NOT NULL DEFAULT 1`,
+			"last_attempt_at":  `ALTER TABLE delivery_events ADD COLUMN last_attempt_at TEXT NOT NULL DEFAULT ''`,
+			"error":            `ALTER TABLE delivery_events ADD COLUMN error TEXT NOT NULL DEFAULT ''`,
+		},
+	} {
+		rows, err := a.db.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
+		if err != nil {
+			return err
+		}
+		columns := map[string]bool{}
+		for rows.Next() {
+			var cid int
+			var name, typ string
+			var notnull int
+			var dflt any
+			var pk int
+			if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+				rows.Close()
+				return err
+			}
+			columns[name] = true
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		for column, statement := range alterations {
+			if !columns[column] {
+				if _, err := a.db.ExecContext(ctx, statement); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	_, err := a.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_send_queue_postfix_queue ON send_queue(postfix_queue_id) WHERE postfix_queue_id<>''`)
 	return err
 }
 

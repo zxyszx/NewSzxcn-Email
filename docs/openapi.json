@@ -76,7 +76,7 @@
         "properties": {
           "id": { "type": "string", "description": "Stable sent message id (mail_*)." },
           "queueId": { "type": "string", "description": "Internal queue id (snd_*)." },
-          "status": { "type": "string", "enum": ["accepted", "queued", "sending", "relayed", "failed", "canceled", "delivered", "bounced", "complained", "rejected", "deferred", "partial"] },
+          "status": { "type": "string", "enum": ["accepted", "queued", "sending", "submitted", "failed", "canceled", "delivered", "bounced", "complained", "rejected", "deferred", "partial"] },
           "queueStatus": { "type": "string", "enum": ["queued", "sending", "delivered", "failed", "canceled"] },
           "messageId": { "type": "string" }, "rfcMessageId": { "type": "string" }, "mailboxId": { "type": "string" },
           "mailboxAddress": { "type": "string" }, "subject": { "type": "string" }, "recipients": { "type": "array", "items": { "type": "string" } },

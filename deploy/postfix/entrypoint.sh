@@ -20,5 +20,9 @@ postconf -e "smtpd_tls_key_file = ${TLS_KEY}"
 postconf -e "milter_mail_macros = i {mail_addr} {client_addr} {client_name} {auth_authen}"
 postconf -e "smtpd_milters = inet:rspamd:11332"
 postconf -e "non_smtpd_milters = inet:rspamd:11332"
+mkdir -p /data/logs
+postconf -e "maillog_file = /data/logs/postfix.log"
+postconf -e "maillog_file_prefixes = /var, /dev/stdout, /data"
+postconf -e "header_checks = regexp:/etc/postfix/header_checks"
 postfix check
 exec postfix start-fg

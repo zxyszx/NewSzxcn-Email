@@ -3649,7 +3649,7 @@ func TestOpenAPIV1ScopesIdempotencyAndDeliveryEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	var relayed openAPISendStatus
-	if code := readClient.do("GET", "/api/open/v1/send/"+first.ID, nil, &relayed); code != http.StatusOK || relayed.Status != "relayed" || relayed.QueueStatus != sendQueueStatusDelivered {
+	if code := readClient.do("GET", "/api/open/v1/send/"+first.ID, nil, &relayed); code != http.StatusOK || relayed.Status != "submitted" || relayed.QueueStatus != sendQueueStatusDelivered {
 		t.Fatalf("relayed status code=%d body=%+v", code, relayed)
 	}
 
@@ -4342,7 +4342,17 @@ func TestAdminSendAuditAccessAndFilters(t *testing.T) {
 	}
 	if _, err := a.db.ExecContext(ctx, `INSERT INTO send_queue(id,user_id,mailbox_id,sent_message_id,message_id,source,mail_from,header_from,recipients_json,mime_base64,status,next_attempt_at,created_at,updated_at)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		"snd_audit_one", user.ID, mb.ID, "msg_audit_one", "<audit-one@example.test>", sendSourceWebmail, mb.Address, mb.Address, jsonEncode([]string{"one@example.test"}), "", sendQueueStatusQueued, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
+		"snd_audit_one", user.ID, mb.ID, "msg_audit_one", "<audit-one@example.test>", sendSourceForwarding, mb.Address, mb.Address, jsonEncode([]string{"one@example.test"}), "", sendQueueStatusQueued, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.db.ExecContext(ctx, `INSERT INTO delivery_events(id,external_id,provider,queue_id,sent_message_id,rfc_message_id,recipient,status,reason,occurred_at,created_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?)`, "dev_audit_one", "provider-audit-one", "test-provider", "snd_audit_one", "msg_audit_one", "<audit-one@example.test>", "one@example.test", "delivered", "250 accepted", now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.db.ExecContext(ctx, `INSERT INTO account_forwarding_settings(user_id,target_email,target_emails,updated_at) VALUES(?,?,?,?)`, user.ID, "account@example.test", jsonEncode([]string{"account@example.test"}), now.Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.db.ExecContext(ctx, `INSERT INTO mailbox_forwarding_settings(mailbox_id,target_email,target_emails,updated_at) VALUES(?,?,?,?)`, otherMB.ID, "mailbox@example.test", jsonEncode([]string{"mailbox@example.test"}), now.Format(time.RFC3339Nano)); err != nil {
 		t.Fatal(err)
 	}
 	events := []struct {
@@ -4387,6 +4397,29 @@ func TestAdminSendAuditAccessAndFilters(t *testing.T) {
 	}
 	if code := admin.do("GET", "/api/admin/send-audit", nil, &all); code != http.StatusOK || len(all.Items) != 3 {
 		t.Fatalf("admin all audit code=%d items=%+v", code, all.Items)
+	}
+	foundDelivery := false
+	for _, item := range all.Items {
+		if item.QueueID == "snd_audit_one" && len(item.DeliveryEvents) == 1 && item.DeliveryEvents[0].Recipient == "one@example.test" {
+			foundDelivery = true
+		}
+	}
+	if !foundDelivery {
+		t.Fatalf("admin audit missing recipient delivery events: %+v", all.Items)
+	}
+	var adminMessages struct {
+		Items []MailMessage `json:"items"`
+	}
+	if code := admin.do("GET", "/api/admin/messages?q=audit+one", nil, &adminMessages); code != http.StatusOK || len(adminMessages.Items) != 1 || len(adminMessages.Items[0].ForwardRecipients) != 1 || adminMessages.Items[0].ForwardRecipients[0] != "one@example.test" || len(adminMessages.Items[0].ForwardDeliveries) != 1 {
+		t.Fatalf("admin forwarding audit code=%d items=%+v", code, adminMessages.Items)
+	}
+	var overview struct {
+		AccountForwardingRules int64 `json:"accountForwardingRules"`
+		MailboxForwardingRules int64 `json:"mailboxForwardingRules"`
+		ForwardedMailboxes     int64 `json:"forwardedMailboxes"`
+	}
+	if code := admin.do("GET", "/api/admin/overview", nil, &overview); code != http.StatusOK || overview.AccountForwardingRules != 1 || overview.MailboxForwardingRules != 1 || overview.ForwardedMailboxes != 2 {
+		t.Fatalf("admin forwarding overview code=%d body=%+v", code, overview)
 	}
 	var byMailbox struct {
 		Items []SendAuditEvent `json:"items"`

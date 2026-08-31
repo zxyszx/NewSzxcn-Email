@@ -13,6 +13,7 @@ import (
 	netmail "net/mail"
 	"net/smtp"
 	"net/textproto"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -247,6 +248,34 @@ func sendSMTPMessage(client *smtp.Client, auth smtp.Auth, from string, recipient
 		return err
 	}
 	return client.Quit()
+}
+
+func addMessageHeader(raw []byte, name, value string) []byte {
+	name = strings.TrimSpace(name)
+	value = strings.TrimSpace(value)
+	if name == "" || value == "" || strings.ContainsAny(name, ":\r\n") || strings.ContainsAny(value, "\r\n") {
+		return raw
+	}
+	removeExisting := regexp.MustCompile(`(?im)^` + regexp.QuoteMeta(name) + `:[^\r\n]*(?:\r?\n[ \t][^\r\n]*)*\r?\n`)
+	header := []byte(name + ": " + value + "\r\n")
+	if idx := bytes.Index(raw, []byte("\r\n\r\n")); idx >= 0 {
+		existing := removeExisting.ReplaceAll(raw[:idx+2], nil)
+		out := make([]byte, 0, len(raw)+len(header))
+		out = append(out, existing...)
+		out = append(out, header...)
+		out = append(out, raw[idx+2:]...)
+		return out
+	}
+	if idx := bytes.Index(raw, []byte("\n\n")); idx >= 0 {
+		existing := removeExisting.ReplaceAll(raw[:idx+1], nil)
+		lfHeader := []byte(name + ": " + value + "\n")
+		out := make([]byte, 0, len(raw)+len(lfHeader))
+		out = append(out, existing...)
+		out = append(out, lfHeader...)
+		out = append(out, raw[idx+1:]...)
+		return out
+	}
+	return append(header, raw...)
 }
 
 func htmlEscape(s string) string {

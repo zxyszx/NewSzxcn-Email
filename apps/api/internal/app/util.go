@@ -317,6 +317,14 @@ func parseTime(v string) time.Time {
 	return t
 }
 
+func parseOptionalTime(v string) *time.Time {
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+	t := parseTime(v)
+	return &t
+}
+
 func nullableTime(v sql.NullString) *time.Time {
 	if !v.Valid || v.String == "" {
 		return nil
