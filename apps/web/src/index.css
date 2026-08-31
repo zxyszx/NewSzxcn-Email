@@ -962,12 +962,11 @@
 
   .mail-message-date {
     display: block;
-    min-width: 5.75rem;
-    flex: 0 0 5.75rem;
+    min-width: 0;
+    flex: 0 0 auto;
     white-space: nowrap;
   }
 
-  .mail-message-primary,
   .mail-message-subject-row {
     width: 100%;
   }

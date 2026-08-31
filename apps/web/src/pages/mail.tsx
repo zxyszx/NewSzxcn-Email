@@ -3790,15 +3790,22 @@ function messageDisplayDate(message: MailMessage) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return "时间未知"
   const now = new Date()
-  const options: Intl.DateTimeFormatOptions = {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const messageDay = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+  const dayDifference = Math.round((today.getTime() - messageDay.getTime()) / 86_400_000)
+
+  if (dayDifference === 0) {
+    return new Intl.DateTimeFormat("zh-CN", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(date)
   }
-  if (date.getFullYear() !== now.getFullYear()) options.year = "2-digit"
-  return new Intl.DateTimeFormat("zh-CN", options).format(date)
+  if (dayDifference === 1) return "昨天"
+  if (date.getFullYear() === now.getFullYear()) {
+    return `${date.getMonth() + 1}月${date.getDate()}日`
+  }
+  return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`
 }
 
 function messageFullDate(message: MailMessage) {
@@ -4059,15 +4066,13 @@ function MessageRow({
         onClick={(event) => event.stopPropagation()}
         className="mt-0.5 shrink-0"
       />
-      <div className="min-w-0 flex-1">
-        <div className="mail-message-primary mb-1 flex min-w-0 items-center gap-2">
-          <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="mail-message-date shrink-0 rounded bg-background/90 px-1 text-left text-[11px] font-semibold tabular-nums text-foreground">{messageDisplayDate(message)}</time>
-          <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+      <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] gap-x-2">
+        <div className="mail-message-primary mb-1 flex min-w-0 items-center gap-1.5 overflow-hidden">
             <div className="min-w-0 truncate text-[13px] font-medium" title={senderTitle(message)}>{senderName}</div>
             {!message.isRead && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-label="未读" />}
-          </div>
         </div>
-        <div className="mail-message-subject-row flex min-w-0 items-center gap-2">
+        <time dateTime={message.receivedAt || message.sentAt} title={messageFullDate(message)} className="mail-message-date shrink-0 whitespace-nowrap text-right text-[11px] font-semibold tabular-nums text-foreground/80">{messageDisplayDate(message)}</time>
+        <div className="mail-message-subject-row col-span-2 flex min-w-0 items-center gap-2">
           <span className="mail-message-subject min-w-0 flex-1 truncate text-[13px] font-normal text-foreground/80" title={messageSubject(message)}>{messageSubject(message)}</span>
           {scheduled && <Badge variant="secondary" className="h-5 shrink-0 rounded-md px-1.5 text-[11px] font-normal">已定时</Badge>}
           {visibleLabels.map((label) => <MailLabelBadge key={label.id} label={label} />)}
