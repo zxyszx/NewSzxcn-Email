@@ -4060,12 +4060,12 @@ function MessageRow({
         className="mt-0.5 shrink-0"
       />
       <div className="min-w-0 flex-1">
-        <div className="mail-message-primary mb-1 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+        <div className="mail-message-primary relative mb-1 min-w-0 pr-[7.5rem]">
           <div className="flex min-w-0 items-center gap-1.5">
             <div className="min-w-0 truncate text-[13px] font-medium" title={senderTitle(message)}>{senderName}</div>
             {!message.isRead && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-label="未读" />}
           </div>
-          <div className="mail-message-meta flex shrink-0 items-center gap-0.5 whitespace-nowrap">
+          <div className="mail-message-meta absolute right-0 top-1/2 flex -translate-y-1/2 shrink-0 items-center gap-0.5 whitespace-nowrap">
             {canOrganize && (
               <div className={cn("hidden shrink-0 items-center gap-0.5", quickActionsVisible ? "flex" : "group-hover:flex")}>
                 <Button type="button" variant="ghost" size="icon" aria-label={archiveLabel} title={archiveLabel} className={quickButtonClass} onClick={(event) => { event.stopPropagation(); onArchive() }}>
