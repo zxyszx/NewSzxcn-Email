@@ -143,8 +143,8 @@
     --card-foreground: 220 43% 16%;
     --popover: 204 64% 98%;
     --popover-foreground: 220 43% 16%;
-    --primary: 218 88% 57%;
-    --primary-foreground: 0 0% 100%;
+    --primary: var(--appearance-primary, 218 88% 57%);
+    --primary-foreground: var(--appearance-primary-foreground, 0 0% 100%);
     --secondary: 207 45% 91%;
     --secondary-foreground: 220 43% 18%;
     --muted: 207 40% 91%;
@@ -155,19 +155,19 @@
     --destructive-foreground: 0 0% 100%;
     --border: 211 38% 75%;
     --input: 211 38% 69%;
-    --ring: 218 91% 61%;
+    --ring: var(--appearance-primary, 218 91% 61%);
     --sidebar-background: 204 64% 97%;
     --sidebar-foreground: 220 38% 22%;
-    --sidebar-primary: 218 88% 57%;
-    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-primary: var(--appearance-primary, 218 88% 57%);
+    --sidebar-primary-foreground: var(--appearance-primary-foreground, 0 0% 100%);
     --sidebar-accent: 211 65% 88%;
     --sidebar-accent-foreground: 220 43% 17%;
     --sidebar-border: 211 38% 74%;
-    --sidebar-ring: 218 91% 61%;
+    --sidebar-ring: var(--appearance-primary, 218 91% 61%);
     --sidebar-active: 213 81% 88%;
     --sidebar-active-foreground: 218 74% 31%;
     --mail-selected: 211 79% 90%;
-    --compose-send: 218 88% 57%;
+    --compose-send: var(--appearance-primary, 218 88% 57%);
     --compose-send-hover: 229 86% 62%;
     color: hsl(var(--foreground));
     color-scheme: light;
@@ -182,8 +182,8 @@
     --card-foreground: 220 33% 96%;
     --popover: 225 43% 9%;
     --popover-foreground: 220 33% 96%;
-    --primary: 244 83% 63%;
-    --primary-foreground: 0 0% 100%;
+    --primary: var(--appearance-primary, 244 83% 63%);
+    --primary-foreground: var(--appearance-primary-foreground, 0 0% 100%);
     --secondary: 226 35% 16%;
     --secondary-foreground: 220 33% 96%;
     --muted: 226 31% 15%;
@@ -194,19 +194,19 @@
     --destructive-foreground: 0 0% 100%;
     --border: 224 36% 25%;
     --input: 224 36% 30%;
-    --ring: 231 100% 76%;
+    --ring: var(--appearance-primary, 231 100% 76%);
     --sidebar-background: 229 48% 7%;
     --sidebar-foreground: 221 26% 90%;
-    --sidebar-primary: 244 83% 63%;
-    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-primary: var(--appearance-primary, 244 83% 63%);
+    --sidebar-primary-foreground: var(--appearance-primary-foreground, 0 0% 100%);
     --sidebar-accent: 239 58% 23%;
     --sidebar-accent-foreground: 220 33% 98%;
     --sidebar-border: 224 36% 20%;
-    --sidebar-ring: 231 100% 76%;
+    --sidebar-ring: var(--appearance-primary, 231 100% 76%);
     --sidebar-active: 239 58% 24%;
     --sidebar-active-foreground: 220 33% 98%;
     --mail-selected: 239 58% 20%;
-    --compose-send: 244 83% 63%;
+    --compose-send: var(--appearance-primary, 244 83% 63%);
     --compose-send-hover: 252 86% 69%;
     color-scheme: dark;
   }
@@ -253,6 +253,13 @@
     opacity: 1;
   }
 
+  .admin-workspace-theme::before {
+    background-image:
+      linear-gradient(110deg, rgba(238, 249, 255, 0.12), rgba(218, 240, 255, 0.04) 50%, rgba(203, 231, 255, 0.1)),
+      var(--workspace-wallpaper-light, url("/workspace-city-day.jpg"));
+    background-position: var(--workspace-wallpaper-position, center);
+  }
+
   .profile-workspace-theme::before {
     background-image:
       linear-gradient(110deg, rgba(238, 249, 255, 0.12), rgba(218, 240, 255, 0.04) 50%, rgba(203, 231, 255, 0.1)),
@@ -267,6 +274,13 @@
       linear-gradient(110deg, rgba(2, 6, 24, 0.2), rgba(5, 10, 36, 0.06) 48%, rgba(10, 5, 38, 0.18)),
       url("/workspace-city-night.jpg");
     opacity: 0;
+  }
+
+  .admin-workspace-theme::after {
+    background-image:
+      linear-gradient(110deg, rgba(2, 6, 24, 0.2), rgba(5, 10, 36, 0.06) 48%, rgba(10, 5, 38, 0.18)),
+      var(--workspace-wallpaper-dark, url("/workspace-city-night.jpg"));
+    background-position: var(--workspace-wallpaper-position, center);
   }
 
   .profile-workspace-theme::after {
@@ -1463,18 +1477,18 @@ vue-devtools-anchor,
   --foreground: 222 47% 11%;
   --muted-foreground: 220 12% 28%;
   --sidebar-foreground: 222 34% 16%;
-  --mail-glass-strong: rgba(248, 252, 255, 0.96);
-  --mail-glass-medium: rgba(244, 249, 253, 0.93);
-  --mail-glass-soft: rgba(239, 247, 252, 0.9);
+  --mail-glass-strong: var(--mail-glass-strong-light, rgba(248, 252, 255, 0.98));
+  --mail-glass-medium: var(--mail-glass-medium-light, rgba(244, 249, 253, 0.96));
+  --mail-glass-soft: var(--mail-glass-soft-light, rgba(239, 247, 252, 0.93));
   --mail-glass-rail-top: rgba(255, 255, 255, 0.82);
   --mail-glass-rail-bottom: rgba(242, 248, 255, 0.72);
   --mail-rail-saturation: 130%;
   --mail-rail-border: rgba(255, 255, 255, 0.5);
   --mail-rail-shadow: 0 10px 28px rgba(24, 54, 76, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.34);
-  --mail-glass-folder: rgba(244, 249, 253, 0.78);
-  --mail-glass-list: rgba(246, 250, 253, 0.9);
-  --mail-glass-reader: rgba(248, 251, 253, 0.98);
-  --mail-glass-calendar: rgba(246, 250, 253, 0.95);
+  --mail-glass-folder: var(--mail-glass-folder-light, rgba(244, 249, 253, 0.95));
+  --mail-glass-list: var(--mail-glass-list-light, rgba(246, 250, 253, 0.96));
+  --mail-glass-reader: var(--mail-glass-reader-light, rgba(248, 251, 253, 0.98));
+  --mail-glass-calendar: var(--mail-glass-calendar-light, rgba(246, 250, 253, 0.97));
   --mail-search-popover: rgba(220, 231, 239, 0.98);
   --mail-search-line: rgba(54, 68, 82, 0.38);
   --mail-glass-border: rgba(255, 255, 255, 0.62);
@@ -1496,15 +1510,15 @@ vue-devtools-anchor,
   --foreground: 220 33% 96%;
   --muted-foreground: 220 12% 75%;
   --sidebar-foreground: 220 24% 92%;
-  --mail-glass-strong: rgba(18, 23, 31, 0.94);
-  --mail-glass-medium: rgba(22, 28, 38, 0.9);
-  --mail-glass-soft: rgba(27, 34, 45, 0.82);
+  --mail-glass-strong: var(--mail-glass-strong-dark, rgba(18, 23, 31, 0.96));
+  --mail-glass-medium: var(--mail-glass-medium-dark, rgba(22, 28, 38, 0.94));
+  --mail-glass-soft: var(--mail-glass-soft-dark, rgba(27, 34, 45, 0.91));
   --mail-glass-rail-top: rgba(9, 15, 27, 0.48);
   --mail-glass-rail-bottom: rgba(9, 15, 27, 0.4);
-  --mail-glass-folder: rgba(15, 19, 27, 0.7);
-  --mail-glass-list: rgba(24, 23, 31, 0.86);
-  --mail-glass-reader: rgba(20, 22, 27, 0.97);
-  --mail-glass-calendar: rgba(24, 27, 33, 0.92);
+  --mail-glass-folder: var(--mail-glass-folder-dark, rgba(15, 19, 27, 0.94));
+  --mail-glass-list: var(--mail-glass-list-dark, rgba(24, 23, 31, 0.95));
+  --mail-glass-reader: var(--mail-glass-reader-dark, rgba(20, 22, 27, 0.97));
+  --mail-glass-calendar: var(--mail-glass-calendar-dark, rgba(24, 27, 33, 0.95));
   --mail-search-popover: rgba(13, 20, 31, 0.98);
   --mail-search-line: rgba(255, 255, 255, 0.24);
   --mail-glass-border: rgba(255, 255, 255, 0.14);
@@ -1515,22 +1529,12 @@ vue-devtools-anchor,
 
 /* Ruby Hills has a darker color field than the other wallpapers, so its main
    panes need a slightly stronger neutral tint for the same perceived density. */
-.mail-wallpaper[data-mail-theme="violet-lake"] {
-  --mail-glass-folder: rgba(244, 249, 253, 0.82);
-  --mail-glass-list: rgba(246, 250, 253, 0.92);
-}
-
 :root:not(.dark) .mail-wallpaper[data-mail-theme="violet-lake"] {
   --mail-glass-rail-top: rgba(255, 255, 255, 0.72);
   --mail-glass-rail-bottom: rgba(244, 248, 253, 0.62);
   --mail-rail-saturation: 112%;
   --mail-rail-border: rgba(255, 255, 255, 0.82);
   --mail-rail-shadow: 0 10px 26px rgba(56, 35, 61, 0.13), inset 0 1px 0 rgba(255, 255, 255, 0.82);
-}
-
-.dark .mail-wallpaper[data-mail-theme="violet-lake"] {
-  --mail-glass-folder: rgba(15, 19, 27, 0.74);
-  --mail-glass-list: rgba(24, 23, 31, 0.88);
 }
 
 .mail-wallpaper::before,
@@ -2541,9 +2545,10 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
 .app-rail .rail-button:focus { outline: none; }
 .app-rail .rail-button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .app-rail .rail-button[data-selected="true"] { border-radius: 50%; background: rgba(37, 99, 235, 0.16); color: #2563eb; }
-.app-rail .rail-button[data-selected="true"]:hover { background: rgba(37, 99, 235, 0.16); color: #2563eb; }
+.app-rail .rail-button[data-selected="true"],
+.app-rail .rail-button[data-selected="true"]:hover { background: color-mix(in srgb, var(--mail-accent-color) 18%, transparent); color: var(--mail-accent-color); }
 .dark .app-rail .rail-button[data-selected="true"],
-.dark .app-rail .rail-button[data-selected="true"]:hover { background: rgba(116, 105, 255, 0.22); color: #9ca3ff; }
+.dark .app-rail .rail-button[data-selected="true"]:hover { background: color-mix(in srgb, var(--mail-accent-color) 24%, transparent); color: color-mix(in srgb, var(--mail-accent-color) 72%, white); }
 .app-rail .rail-button--primary { border: 1px solid rgba(255, 255, 255, 0.9); border-radius: 50%; background: rgba(255, 255, 255, 0.68); box-shadow: 0 3px 10px rgba(40, 70, 105, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.9); }
 .app-rail .rail-button--primary:hover { border-color: rgba(255, 255, 255, 0.92); background: rgba(255, 255, 255, 0.78); }
 .app-rail .rail-account-button { color: #087fbd; }
@@ -2570,6 +2575,8 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
 .rail-popover-menu svg { width: 18px; height: 18px; }
 .appearance-glass-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .appearance-glass-heading output { color: hsl(var(--muted-foreground)); font-size: 12px; font-variant-numeric: tabular-nums; }
+.appearance-glass-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.appearance-glass-control { min-width: 0; padding: 12px 14px 8px; border: 1px solid hsl(var(--border) / .7); border-radius: 8px; background: color-mix(in srgb, var(--profile-glass-folder) 76%, transparent); }
 .appearance-glass-slider { width: 100%; height: 22px; margin-top: 8px; padding: 0; border: 0; outline: 0; background: transparent; box-shadow: none; appearance: none; -webkit-appearance: none; }
 .appearance-glass-slider::-webkit-slider-runnable-track { height: 4px; border-radius: 999px; background: color-mix(in srgb, var(--mail-accent-color) 42%, hsl(var(--border))); }
 .appearance-glass-slider::-webkit-slider-thumb { width: 16px; height: 16px; margin-top: -6px; border: 2px solid hsl(var(--background)); border-radius: 50%; background: var(--mail-accent-color); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.24); appearance: none; -webkit-appearance: none; }
@@ -2876,13 +2883,19 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
 
 .mailbox-search-field .mailbox-search-icon,
 .mailbox-search-field > svg:first-child {
-  color: hsl(var(--foreground) / 0.74);
-  stroke-width: 2.15;
+  width: 20px;
+  height: 20px;
+  color: hsl(var(--foreground)) !important;
+  stroke: hsl(var(--foreground)) !important;
+  stroke-width: 2.65;
+  opacity: 1 !important;
+  filter: drop-shadow(0 1px 0 hsl(var(--background) / .86));
 }
 
 .mailbox-search-field:focus-within .mailbox-search-icon,
 .mailbox-search-field:focus-within > svg:first-child {
-  color: var(--mail-accent-color);
+  color: hsl(var(--foreground)) !important;
+  stroke: hsl(var(--foreground)) !important;
 }
 
 .forwarding-target-picker,
@@ -2957,6 +2970,7 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
   .theme-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .appearance-segments { grid-template-columns: 1fr; }
   .accent-swatches { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .appearance-glass-controls { grid-template-columns: 1fr; }
 }
 
 html.pwa-standalone,
@@ -3050,14 +3064,135 @@ html.pwa-standalone .mail-window {
 .profile-workspace-theme .bg-card,
 .dark .profile-workspace-theme .bg-card {
   background: var(--profile-glass-folder);
-  backdrop-filter: blur(var(--workspace-glass-blur, 14px)) saturate(118%);
+  backdrop-filter: blur(var(--profile-glass-blur, 28px)) saturate(118%);
 }
 
 .profile-workspace-theme .profile-continuous-panel,
 .profile-workspace-theme .profile-page-continuous-surface,
 .profile-workspace-theme .profile-account-workspace > .space-y-6 {
   background: var(--profile-glass-list);
-  backdrop-filter: blur(var(--workspace-glass-blur, 14px)) saturate(116%);
+  backdrop-filter: blur(var(--profile-glass-blur, 28px)) saturate(116%);
+}
+
+/* Appearance settings drive every signed-in workspace through shared tokens. */
+.admin-workspace-theme [data-sidebar="sidebar"] {
+  background: var(--admin-glass-sidebar-light, rgba(244, 249, 253, .95));
+  backdrop-filter: blur(var(--admin-glass-blur, 28px)) saturate(118%);
+}
+
+.admin-workspace-theme .bg-card,
+.admin-workspace-theme [data-slot="card"],
+.admin-workspace-theme .admin-page > [data-slot="card"] {
+  background: var(--admin-glass-surface-light, rgba(246, 250, 253, .96));
+  backdrop-filter: blur(var(--admin-glass-blur, 28px)) saturate(116%);
+}
+
+.dark .admin-workspace-theme [data-sidebar="sidebar"] {
+  background: var(--admin-glass-sidebar-dark, rgba(15, 19, 27, .94));
+}
+
+.dark .admin-workspace-theme .bg-card,
+.dark .admin-workspace-theme [data-slot="card"],
+.dark .admin-workspace-theme .admin-page > [data-slot="card"] {
+  background: var(--admin-glass-surface-dark, rgba(24, 23, 31, .95));
+}
+
+.profile-nav-button:hover:not([data-active="true"]) {
+  background: color-mix(in srgb, var(--mail-accent-color) 8%, transparent);
+  color: hsl(var(--foreground));
+}
+
+.profile-nav-button[data-active="true"] {
+  background: color-mix(in srgb, var(--mail-accent-color) 22%, var(--profile-glass-folder));
+  color: color-mix(in srgb, var(--mail-accent-color) 62%, hsl(var(--foreground)));
+  box-shadow: inset 3px 0 0 var(--mail-accent-color);
+}
+
+.profile-nav-button[data-active="true"] > span:first-child {
+  color: var(--mail-accent-color);
+}
+
+.dark .profile-nav-button:hover:not([data-active="true"]) {
+  background: color-mix(in srgb, var(--mail-accent-color) 11%, transparent);
+}
+
+.dark .profile-nav-button[data-active="true"] {
+  background: color-mix(in srgb, var(--mail-accent-color) 27%, var(--profile-glass-folder));
+  color: color-mix(in srgb, var(--mail-accent-color) 58%, white);
+}
+
+.mail-workspace-theme [data-sidebar="menu-button"][data-active="true"],
+.admin-workspace-theme [data-sidebar="menu-button"][data-active="true"] {
+  background: color-mix(in srgb, var(--mail-accent-color) 22%, var(--mail-glass-folder, transparent));
+  color: color-mix(in srgb, var(--mail-accent-color) 62%, hsl(var(--foreground)));
+  box-shadow: inset 3px 0 0 var(--mail-accent-color);
+}
+
+.mail-workspace-theme [data-sidebar="menu-button"]:hover:not([data-active="true"]),
+.admin-workspace-theme [data-sidebar="menu-button"]:hover:not([data-active="true"]) {
+  background: color-mix(in srgb, var(--mail-accent-color) 8%, transparent);
+}
+
+.dark .mail-workspace-theme [data-sidebar="menu-button"][data-active="true"],
+.dark .admin-workspace-theme [data-sidebar="menu-button"][data-active="true"] {
+  background: color-mix(in srgb, var(--mail-accent-color) 27%, var(--mail-glass-folder, transparent));
+  color: color-mix(in srgb, var(--mail-accent-color) 58%, white);
+  box-shadow: inset 3px 0 0 var(--mail-accent-color);
+}
+
+.mail-wallpaper .app-rail .rail-button[data-selected="true"],
+.mail-wallpaper .app-rail .rail-button[data-selected="true"]:hover {
+  background: color-mix(in srgb, var(--mail-accent-color) 18%, transparent);
+  color: var(--mail-accent-color);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mail-accent-color) 24%, transparent);
+}
+
+.dark .mail-wallpaper .app-rail .rail-button[data-selected="true"],
+.dark .mail-wallpaper .app-rail .rail-button[data-selected="true"]:hover {
+  background: color-mix(in srgb, var(--mail-accent-color) 24%, transparent);
+  color: color-mix(in srgb, var(--mail-accent-color) 72%, white);
+}
+
+.profile-settings-tab[data-active="true"],
+.profile-workspace-theme [role="tab"][aria-selected="true"] {
+  background: color-mix(in srgb, var(--mail-accent-color) 18%, var(--profile-glass-folder)) !important;
+  color: color-mix(in srgb, var(--mail-accent-color) 62%, hsl(var(--foreground))) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mail-accent-color) 52%, transparent) !important;
+}
+
+.profile-workspace-theme button[data-slot="button"][data-variant="default"],
+.admin-workspace-theme button[data-slot="button"][data-variant="default"] {
+  border-color: color-mix(in srgb, var(--mail-accent-color) 42%, transparent);
+  background: var(--mail-accent-color);
+  color: hsl(var(--primary-foreground));
+  box-shadow: 0 7px 18px color-mix(in srgb, var(--mail-accent-color) 24%, transparent);
+}
+
+.profile-workspace-theme button[data-slot="button"][data-variant="default"]:hover,
+.admin-workspace-theme button[data-slot="button"][data-variant="default"]:hover {
+  background: color-mix(in srgb, var(--mail-accent-color) 88%, black);
+  color: hsl(var(--primary-foreground));
+}
+
+.profile-workspace-theme input:focus-visible,
+.profile-workspace-theme button:focus-visible,
+.admin-workspace-theme input:focus-visible,
+.admin-workspace-theme button:focus-visible {
+  --ring: var(--appearance-primary);
+}
+
+.mailbox-stat-strip,
+.mailbox-list-panel,
+.calendar-pane,
+.mail-filter-menu,
+.account-overlay,
+.appearance-dialog {
+  backdrop-filter: blur(var(--mail-glass-blur, 28px)) saturate(120%);
+}
+
+.dark .mailbox-stat-strip,
+.dark .mailbox-list-panel {
+  background: var(--mail-glass-list);
 }
 
 @media (prefers-reduced-transparency: reduce) {

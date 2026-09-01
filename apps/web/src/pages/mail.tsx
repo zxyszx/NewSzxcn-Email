@@ -755,12 +755,6 @@ export function MailPage() {
   }, [themeMode])
 
   React.useEffect(() => {
-    const stored = Number(localStorage.getItem("newszxcn-mail-glass-blur-v1") || localStorage.getItem("newszxcn-app-rail-blur-v3"))
-    const blur = Number.isFinite(stored) && stored >= 4 && stored <= 28 ? stored : 16
-    document.documentElement.style.setProperty("--mail-glass-blur", `${blur}px`)
-  }, [])
-
-  React.useEffect(() => {
     localStorage.setItem("lanqin:focused-inbox", String(focusedInbox))
   }, [focusedInbox])
 

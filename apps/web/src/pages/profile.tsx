@@ -377,13 +377,14 @@ export function ProfilePage() {
             <button
               key={key}
               type="button"
+              data-active={tab === key}
               className={cn(
-                "flex h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm transition-colors",
-                tab === key ? "bg-[hsl(var(--sidebar-active))] font-semibold text-[hsl(var(--sidebar-active-foreground))]" : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
+                "profile-nav-button flex h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm transition-colors",
+                tab === key ? "font-semibold" : "text-muted-foreground",
               )}
               onClick={() => setTab(key)}
             >
-              <span className={cn("text-muted-foreground [&>svg]:h-4 [&>svg]:w-4 [&>svg]:stroke-[1.8]", tab === key && "text-[hsl(var(--sidebar-active-foreground))]")}>{tabs[key].icon}</span>
+              <span className="[&>svg]:h-4 [&>svg]:w-4 [&>svg]:stroke-[1.8]">{tabs[key].icon}</span>
               <span className="truncate">{tabs[key].label}</span>
             </button>
           ))}
@@ -787,7 +788,7 @@ function AppearanceSettingsSection({ mode, onModeChange }: { mode: ThemeMode; on
         </div>
       </SettingsCard>
 
-      <SettingsCard title="强调色" subtitle="用于外观页的选中状态和重点提示。" surface="section">
+      <SettingsCard title="强调色" subtitle="应用于邮箱、设置与后台的选中状态、焦点和主要操作。" surface="section">
         <div className="accent-swatches" role="group" aria-label="强调色">
           {appearanceAccentOptions.map((color) => (
             <Button
@@ -806,21 +807,41 @@ function AppearanceSettingsSection({ mode, onModeChange }: { mode: ThemeMode; on
         </div>
       </SettingsCard>
 
-      <SettingsCard title="毛玻璃强度" subtitle="调整邮箱和设置面板的背景模糊程度。" surface="section">
-        <div className="appearance-glass-heading">
-          <Label htmlFor="workspace-glass-blur">模糊半径</Label>
-          <output htmlFor="workspace-glass-blur">{appearance.glassBlur}px</output>
+      <SettingsCard title="毛玻璃强度" subtitle="分别控制邮箱页面与设置、后台页面的模糊和面板遮罩。" surface="section">
+        <div className="appearance-glass-controls">
+          <div className="appearance-glass-control">
+            <div className="appearance-glass-heading">
+              <Label htmlFor="mail-glass-strength">邮箱页面</Label>
+              <output htmlFor="mail-glass-strength">{appearance.mailGlassStrength}%</output>
+            </div>
+            <Input
+              id="mail-glass-strength"
+              type="range"
+              min={0}
+              max={100}
+              step={5}
+              value={appearance.mailGlassStrength}
+              onInput={(event) => updateAppearance({ ...appearance, mailGlassStrength: Number(event.currentTarget.value) })}
+              className="appearance-glass-slider"
+            />
+          </div>
+          <div className="appearance-glass-control">
+            <div className="appearance-glass-heading">
+              <Label htmlFor="admin-glass-strength">设置与后台</Label>
+              <output htmlFor="admin-glass-strength">{appearance.adminGlassStrength}%</output>
+            </div>
+            <Input
+              id="admin-glass-strength"
+              type="range"
+              min={0}
+              max={100}
+              step={5}
+              value={appearance.adminGlassStrength}
+              onInput={(event) => updateAppearance({ ...appearance, adminGlassStrength: Number(event.currentTarget.value) })}
+              className="appearance-glass-slider"
+            />
+          </div>
         </div>
-        <Input
-          id="workspace-glass-blur"
-          type="range"
-          min={4}
-          max={28}
-          step={2}
-          value={appearance.glassBlur}
-          onInput={(event) => updateAppearance({ ...appearance, glassBlur: Number(event.currentTarget.value) })}
-          className="appearance-glass-slider"
-        />
       </SettingsCard>
     </div>
   )
