@@ -29,10 +29,10 @@ export function applyAppearanceSettings(settings = getAppearanceSettings()) {
   root.style.setProperty("--mail-glass-blur", `${settings.glassBlur}px`)
   root.style.setProperty("--appearance-accent", settings.accentColor)
   root.style.setProperty("--mail-accent-color", settings.accentColor)
-  root.style.setProperty("--profile-glass-folder-light", usesDarkerPaneGlass ? "rgba(244, 249, 253, 0.66)" : "rgba(244, 249, 253, 0.58)")
-  root.style.setProperty("--profile-glass-list-light", usesDarkerPaneGlass ? "rgba(246, 250, 253, 0.76)" : "rgba(246, 250, 253, 0.72)")
-  root.style.setProperty("--profile-glass-folder-dark", usesDarkerPaneGlass ? "rgba(15, 19, 27, 0.34)" : "rgba(15, 19, 27, 0.3)")
-  root.style.setProperty("--profile-glass-list-dark", usesDarkerPaneGlass ? "rgba(24, 23, 31, 0.72)" : "rgba(24, 23, 31, 0.68)")
+  root.style.setProperty("--profile-glass-folder-light", usesDarkerPaneGlass ? "rgba(244, 249, 253, 0.82)" : "rgba(244, 249, 253, 0.78)")
+  root.style.setProperty("--profile-glass-list-light", usesDarkerPaneGlass ? "rgba(246, 250, 253, 0.92)" : "rgba(246, 250, 253, 0.9)")
+  root.style.setProperty("--profile-glass-folder-dark", usesDarkerPaneGlass ? "rgba(15, 19, 27, 0.74)" : "rgba(15, 19, 27, 0.7)")
+  root.style.setProperty("--profile-glass-list-dark", usesDarkerPaneGlass ? "rgba(24, 23, 31, 0.88)" : "rgba(24, 23, 31, 0.86)")
 }
 
 export function saveAppearanceSettings(settings: AppearanceSettings) {

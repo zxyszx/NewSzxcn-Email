@@ -321,7 +321,6 @@
   .mail-workspace-theme .mail-detail-pane > div {
     background-color: hsl(204 64% 98% / 0.84) !important;
     backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
     transition: background-color 320ms ease, border-color 240ms ease, color 220ms ease;
   }
 
@@ -349,12 +348,17 @@
     background-color: hsl(228 52% 6% / 0.88) !important;
   }
 
-  .mail-workspace-theme [data-sidebar="sidebar"],
-  .admin-workspace-theme [data-sidebar="sidebar"],
+  .mail-workspace-theme [data-sidebar="sidebar"] {
+    backdrop-filter: blur(var(--mail-glass-blur, 14px));
+  }
+
+  .admin-workspace-theme [data-sidebar="sidebar"] {
+    backdrop-filter: blur(14px);
+  }
+
   .profile-workspace-theme > div > div:first-child,
   .profile-workspace-theme .bg-card {
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(var(--workspace-glass-blur, 14px)) saturate(118%);
   }
 
   .mail-workspace-theme [data-slot="card"],
@@ -364,7 +368,6 @@
     background: linear-gradient(145deg, hsl(204 70% 99% / 0.78), hsl(205 64% 96% / 0.7));
     box-shadow: 0 16px 38px hsl(214 52% 30% / 0.12);
     backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
   }
 
   .dark .mail-workspace-theme [data-slot="card"],
@@ -387,7 +390,6 @@
     background: linear-gradient(105deg, hsl(217 88% 54% / 0.88), hsl(253 83% 61% / 0.84));
     box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.28), 0 9px 24px hsl(224 77% 43% / 0.2);
     backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
   }
 
   .mail-workspace-theme button[data-slot="button"][data-variant="default"]:hover,
@@ -405,7 +407,6 @@
     background: hsl(204 75% 99% / 0.58);
     box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.42);
     backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
   }
 
   .mail-workspace-theme button[data-slot="button"][data-variant="outline"]:hover,
@@ -475,7 +476,6 @@
     background: hsl(204 75% 99% / 0.76);
     color: hsl(var(--foreground));
     backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
   }
 
   .dark .mail-workspace-theme input,
@@ -534,7 +534,6 @@
     background: linear-gradient(180deg, hsl(204 70% 99% / 0.62), hsl(205 60% 95% / 0.54));
     border-color: hsl(var(--sidebar-border));
     backdrop-filter: blur(24px) saturate(1.08);
-    -webkit-backdrop-filter: blur(24px) saturate(1.08);
     transition: background-color 320ms ease, border-color 240ms ease, color 220ms ease;
   }
 
@@ -542,7 +541,6 @@
   .profile-workspace-theme .bg-card {
     background: linear-gradient(180deg, hsl(204 70% 99% / 0.9), hsl(205 60% 95% / 0.84));
     backdrop-filter: blur(30px) saturate(1.02);
-    -webkit-backdrop-filter: blur(30px) saturate(1.02);
     transition: background-color 320ms ease, border-color 240ms ease, color 220ms ease, box-shadow 240ms ease;
   }
 
@@ -557,7 +555,6 @@
   .profile-workspace-theme .bg-card {
     background: linear-gradient(180deg, hsl(204 70% 99% / 0.9), hsl(205 60% 95% / 0.84));
     backdrop-filter: blur(30px) saturate(1.02);
-    -webkit-backdrop-filter: blur(30px) saturate(1.02);
   }
 
   .dark .profile-workspace-theme .bg-card {
@@ -568,7 +565,6 @@
   .admin-workspace-theme [data-slot="card"] {
     background: linear-gradient(180deg, hsl(204 70% 99% / 0.9), hsl(205 60% 95% / 0.84));
     backdrop-filter: blur(30px) saturate(1.02);
-    -webkit-backdrop-filter: blur(30px) saturate(1.02);
   }
 
   .dark .admin-workspace-theme .bg-card,
@@ -609,7 +605,6 @@
     background: hsl(204 70% 99% / 0.48);
     padding: 0.25rem;
     backdrop-filter: blur(24px) saturate(1.08);
-    -webkit-backdrop-filter: blur(24px) saturate(1.08);
   }
 
   .dark .profile-settings-tabs {
@@ -678,7 +673,6 @@
     background: linear-gradient(145deg, hsl(204 70% 99% / 0.9), hsl(205 58% 96% / 0.84));
     box-shadow: 0 12px 30px hsl(215 42% 28% / 0.08), inset 0 1px 0 hsl(0 0% 100% / 0.32);
     backdrop-filter: blur(30px) saturate(1.02);
-    -webkit-backdrop-filter: blur(30px) saturate(1.02);
   }
 
   .profile-page-continuous-surface > * {
@@ -689,7 +683,6 @@
   .profile-page-continuous-surface [data-slot="card"] {
     background: linear-gradient(145deg, hsl(204 70% 99% / 0.72), hsl(205 58% 96% / 0.62));
     backdrop-filter: none;
-    -webkit-backdrop-filter: none;
   }
 
   .dark .profile-page-continuous-surface {
@@ -730,7 +723,6 @@
     background: linear-gradient(145deg, hsl(204 70% 99% / 0.9), hsl(205 58% 96% / 0.84));
     box-shadow: 0 12px 30px hsl(215 42% 28% / 0.08), inset 0 1px 0 hsl(0 0% 100% / 0.32);
     backdrop-filter: blur(30px) saturate(1.02);
-    -webkit-backdrop-filter: blur(30px) saturate(1.02);
     transition: background-color 320ms ease, border-color 240ms ease, color 220ms ease, box-shadow 240ms ease;
   }
 
@@ -768,7 +760,6 @@
     background: linear-gradient(145deg, hsl(204 70% 99% / 0.9), hsl(205 58% 96% / 0.84));
     box-shadow: 0 12px 30px hsl(215 42% 28% / 0.08), inset 0 1px 0 hsl(0 0% 100% / 0.32);
     backdrop-filter: blur(30px) saturate(1.02);
-    -webkit-backdrop-filter: blur(30px) saturate(1.02);
     transition: background-color 320ms ease, border-color 240ms ease, color 220ms ease, box-shadow 240ms ease;
   }
 
@@ -835,7 +826,6 @@
     background: hsl(204 70% 99% / 0.9);
     box-shadow: 0 18px 48px hsl(218 47% 18% / 0.2), inset 0 1px 0 hsl(0 0% 100% / 0.42);
     backdrop-filter: blur(14px) saturate(1.06);
-    -webkit-backdrop-filter: blur(14px) saturate(1.06);
   }
 
   .dark .mail-workspace-theme .bg-popover {
@@ -848,7 +838,6 @@
   html.workspace-ui [data-slot="sheet-overlay"] {
     background: hsl(222 47% 8% / 0.34);
     backdrop-filter: blur(2px);
-    -webkit-backdrop-filter: blur(2px);
   }
 
   html.workspace-ui [data-slot="dialog-content"],
@@ -860,7 +849,6 @@
     background: hsl(204 70% 99% / 0.82);
     box-shadow: 0 20px 60px hsl(218 47% 18% / 0.2), inset 0 1px 0 hsl(0 0% 100% / 0.42);
     backdrop-filter: blur(16px) saturate(1.08);
-    -webkit-backdrop-filter: blur(16px) saturate(1.08);
   }
 
   html.dark.workspace-ui [data-slot="dialog-content"],
@@ -889,7 +877,6 @@
   html.workspace-ui [data-slot="dialog-content"].forwarding-dialog {
     background: hsl(204 70% 99% / 0.96);
     backdrop-filter: blur(12px) saturate(1.04);
-    -webkit-backdrop-filter: blur(12px) saturate(1.04);
   }
 
   html.dark.workspace-ui [data-slot="dialog-content"].verified-email-dialog,
@@ -922,7 +909,6 @@
     border-color: hsl(212 52% 62% / 0.54);
     background: hsl(204 70% 99% / 0.66);
     backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
   }
 
   html.dark.workspace-ui [data-slot="dialog-content"] input,
@@ -1216,7 +1202,6 @@
 .compose-dialog-overlay {
   background: hsl(216 36% 14% / 0.34) !important;
   backdrop-filter: blur(7px) saturate(0.92);
-  -webkit-backdrop-filter: blur(7px) saturate(0.92);
 }
 
 .dark .compose-dialog-overlay {
@@ -1230,7 +1215,6 @@
   background: linear-gradient(145deg, hsl(204 72% 99% / 0.94), hsl(212 58% 95% / 0.9)) !important;
   box-shadow: 0 28px 80px hsl(216 55% 18% / 0.28), inset 0 1px 0 hsl(0 0% 100% / 0.9) !important;
   backdrop-filter: blur(20px) saturate(1.08);
-  -webkit-backdrop-filter: blur(20px) saturate(1.08);
 }
 
 .dark .compose-dialog {
@@ -1466,17 +1450,17 @@ vue-devtools-anchor,
   --foreground: 222 47% 11%;
   --muted-foreground: 220 12% 28%;
   --sidebar-foreground: 222 34% 16%;
-  --mail-glass-strong: rgba(248, 252, 255, 0.92);
-  --mail-glass-medium: rgba(244, 249, 253, 0.88);
-  --mail-glass-soft: rgba(239, 247, 252, 0.84);
-  --mail-glass-rail-top: rgba(255, 255, 255, 0.64);
-  --mail-glass-rail-bottom: rgba(242, 248, 255, 0.54);
+  --mail-glass-strong: rgba(248, 252, 255, 0.96);
+  --mail-glass-medium: rgba(244, 249, 253, 0.93);
+  --mail-glass-soft: rgba(239, 247, 252, 0.9);
+  --mail-glass-rail-top: rgba(255, 255, 255, 0.82);
+  --mail-glass-rail-bottom: rgba(242, 248, 255, 0.72);
   --mail-rail-saturation: 130%;
   --mail-rail-border: rgba(255, 255, 255, 0.5);
   --mail-rail-shadow: 0 10px 28px rgba(24, 54, 76, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.34);
-  --mail-glass-folder: rgba(244, 249, 253, 0.58);
-  --mail-glass-list: rgba(246, 250, 253, 0.72);
-  --mail-glass-reader: rgba(248, 251, 253, 0.97);
+  --mail-glass-folder: rgba(244, 249, 253, 0.78);
+  --mail-glass-list: rgba(246, 250, 253, 0.9);
+  --mail-glass-reader: rgba(248, 251, 253, 0.98);
   --mail-glass-calendar: rgba(246, 250, 253, 0.95);
   --mail-search-popover: rgba(220, 231, 239, 0.98);
   --mail-search-line: rgba(54, 68, 82, 0.38);
@@ -1493,21 +1477,20 @@ vue-devtools-anchor,
   background-repeat: no-repeat;
   filter: none;
   backdrop-filter: none;
-  -webkit-backdrop-filter: none;
 }
 
 .dark .mail-wallpaper {
   --foreground: 220 33% 96%;
   --muted-foreground: 220 12% 75%;
   --sidebar-foreground: 220 24% 92%;
-  --mail-glass-strong: rgba(18, 23, 31, 0.88);
-  --mail-glass-medium: rgba(22, 28, 38, 0.8);
-  --mail-glass-soft: rgba(27, 34, 45, 0.68);
-  --mail-glass-rail-top: rgba(9, 15, 27, 0.12);
-  --mail-glass-rail-bottom: rgba(9, 15, 27, 0.12);
-  --mail-glass-folder: rgba(15, 19, 27, 0.3);
-  --mail-glass-list: rgba(24, 23, 31, 0.68);
-  --mail-glass-reader: rgba(20, 22, 27, 0.94);
+  --mail-glass-strong: rgba(18, 23, 31, 0.94);
+  --mail-glass-medium: rgba(22, 28, 38, 0.9);
+  --mail-glass-soft: rgba(27, 34, 45, 0.82);
+  --mail-glass-rail-top: rgba(9, 15, 27, 0.48);
+  --mail-glass-rail-bottom: rgba(9, 15, 27, 0.4);
+  --mail-glass-folder: rgba(15, 19, 27, 0.7);
+  --mail-glass-list: rgba(24, 23, 31, 0.86);
+  --mail-glass-reader: rgba(20, 22, 27, 0.97);
   --mail-glass-calendar: rgba(24, 27, 33, 0.92);
   --mail-search-popover: rgba(13, 20, 31, 0.98);
   --mail-search-line: rgba(255, 255, 255, 0.24);
@@ -1520,8 +1503,8 @@ vue-devtools-anchor,
 /* Ruby Hills has a darker color field than the other wallpapers, so its main
    panes need a slightly stronger neutral tint for the same perceived density. */
 .mail-wallpaper[data-mail-theme="violet-lake"] {
-  --mail-glass-folder: rgba(244, 249, 253, 0.66);
-  --mail-glass-list: rgba(246, 250, 253, 0.76);
+  --mail-glass-folder: rgba(244, 249, 253, 0.82);
+  --mail-glass-list: rgba(246, 250, 253, 0.92);
 }
 
 :root:not(.dark) .mail-wallpaper[data-mail-theme="violet-lake"] {
@@ -1533,8 +1516,8 @@ vue-devtools-anchor,
 }
 
 .dark .mail-wallpaper[data-mail-theme="violet-lake"] {
-  --mail-glass-folder: rgba(15, 19, 27, 0.34);
-  --mail-glass-list: rgba(24, 23, 31, 0.72);
+  --mail-glass-folder: rgba(15, 19, 27, 0.74);
+  --mail-glass-list: rgba(24, 23, 31, 0.88);
 }
 
 .mail-wallpaper::before,
@@ -1561,7 +1544,6 @@ vue-devtools-anchor,
   box-shadow: none;
   filter: none;
   backdrop-filter: none;
-  -webkit-backdrop-filter: none;
 }
 .mail-window.forwarding-window,
 .mail-window.utility-window { grid-template-rows: minmax(0, 1fr); }
@@ -1579,7 +1561,6 @@ vue-devtools-anchor,
   border: 0;
   background: transparent;
   backdrop-filter: none;
-  -webkit-backdrop-filter: none;
 }
 
 .desktop-commandbar-leading,
@@ -1615,7 +1596,6 @@ vue-devtools-anchor,
   font-weight: 500;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.26), 0 2px 8px rgba(15, 28, 46, 0.06);
   backdrop-filter: blur(14px) saturate(120%);
-  -webkit-backdrop-filter: blur(14px) saturate(120%);
 }
 
 .compose-command:hover { border-color: color-mix(in srgb, var(--mail-accent-color) 36%, var(--mail-glass-border)); background: color-mix(in srgb, var(--mail-glass-strong) 96%, transparent); color: hsl(var(--foreground)); }
@@ -1624,7 +1604,6 @@ vue-devtools-anchor,
 .desktop-commandbar .mail-icon-button {
   background: transparent;
   backdrop-filter: none;
-  -webkit-backdrop-filter: none;
 }
 .desktop-commandbar .desktop-command:hover,
 .desktop-commandbar .mail-icon-button:hover { background: color-mix(in srgb, var(--mail-glass-soft) 30%, transparent); }
@@ -1662,7 +1641,6 @@ vue-devtools-anchor,
   background: rgba(158, 176, 187, 0.66);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 1px 5px rgba(15, 28, 46, 0.08);
   backdrop-filter: blur(18px) saturate(112%);
-  -webkit-backdrop-filter: blur(18px) saturate(112%);
   transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
 }
 
@@ -1683,7 +1661,7 @@ vue-devtools-anchor,
 .desktop-search-filter.is-active { color: var(--mail-accent-color); background: color-mix(in srgb, var(--mail-accent-color) 13%, transparent); }
 .desktop-search-filter > svg { width: 17px; height: 17px; }
 .desktop-search-filter > span { position: absolute; top: -3px; right: -3px; display: grid; min-width: 16px; height: 16px; place-items: center; padding: 0 4px; border: 2px solid color-mix(in srgb, var(--mail-glass-strong) 92%, transparent); border-radius: 999px; background: var(--mail-accent-color); color: white; font-size: 9px; font-weight: 700; line-height: 1; }
-.desktop-search-panel .advanced-search-panel { left: -1px; right: -1px; width: auto; max-width: none; box-sizing: border-box; margin-top: -1px; border-top: 0; border-radius: 0 0 10px 10px; border-color: var(--mail-glass-border); background: var(--mail-search-popover); box-shadow: 0 18px 40px rgba(10, 24, 42, 0.28); backdrop-filter: blur(34px) saturate(118%); -webkit-backdrop-filter: blur(34px) saturate(118%); }
+.desktop-search-panel .advanced-search-panel { left: -1px; right: -1px; width: auto; max-width: none; box-sizing: border-box; margin-top: -1px; border-top: 0; border-radius: 0 0 10px 10px; border-color: var(--mail-glass-border); background: var(--mail-search-popover); box-shadow: 0 18px 40px rgba(10, 24, 42, 0.28); backdrop-filter: blur(34px) saturate(118%); }
 
 .advanced-search-panel {
   padding: 14px 24px 12px;
@@ -1836,7 +1814,6 @@ vue-devtools-anchor,
   background: var(--mail-glass-list);
   box-shadow: 0 8px 22px rgba(24, 61, 92, 0.08);
   backdrop-filter: blur(24px) saturate(125%);
-  -webkit-backdrop-filter: blur(24px) saturate(125%);
 }
 .dark .mailbox-stat-strip,
 .dark .mailbox-list-panel {
@@ -1901,8 +1878,8 @@ vue-devtools-anchor,
 .mailbox-list-pagination > div { display: flex; gap: 3px; }
 .mailbox-list-pagination button { width: 32px; height: 32px; border-radius: 7px; font-size: 12px; }
 
-.mailbox-create-overlay { background: rgba(10, 18, 28, .16) !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
-.mailbox-create-sheet { border-color: var(--mail-glass-border); background: rgba(247, 251, 255, .94); color: hsl(var(--foreground)); box-shadow: -18px 0 46px rgba(15, 23, 42, .16); backdrop-filter: blur(24px) saturate(125%); -webkit-backdrop-filter: blur(24px) saturate(125%); }
+.mailbox-create-overlay { background: rgba(10, 18, 28, .16) !important; backdrop-filter: none !important; }
+.mailbox-create-sheet { border-color: var(--mail-glass-border); background: rgba(247, 251, 255, .94); color: hsl(var(--foreground)); box-shadow: -18px 0 46px rgba(15, 23, 42, .16); backdrop-filter: blur(24px) saturate(125%); }
 .dark .mailbox-create-sheet { background: rgba(13, 19, 29, .94); box-shadow: -20px 0 54px rgba(0, 0, 0, .4); }
 .mailbox-create-form { display: flex; height: 100%; min-height: 0; flex-direction: column; }
 .mailbox-create-form > header { display: flex; align-items: center; gap: 11px; padding: 22px 20px 18px; border-bottom: 1px solid hsl(var(--border) / .7); }
@@ -1968,14 +1945,13 @@ vue-devtools-anchor,
   background: transparent;
   box-shadow: none;
   backdrop-filter: none;
-  -webkit-backdrop-filter: none;
 }
 .dark .forwarding-toolbar { border-color: transparent; background: transparent; box-shadow: none; }
 .forwarding-toolbar svg,
 .forwarding-tabs svg,
 .forwarding-verification-actions svg { width: 20px; height: 20px; flex: none; }
 .forwarding-toolbar-actions { display: flex; flex: none; align-items: center; gap: 4px; }
-.forwarding-toolbar-actions [data-slot="button"] { width: 36px; height: 36px; border: 1px solid rgba(255,255,255,.5); border-radius: 50%; background: rgba(244,249,255,.46); box-shadow: inset 0 1px 0 rgba(255,255,255,.34); backdrop-filter: blur(14px) saturate(125%); -webkit-backdrop-filter: blur(14px) saturate(125%); }
+.forwarding-toolbar-actions [data-slot="button"] { width: 36px; height: 36px; border: 1px solid rgba(255,255,255,.5); border-radius: 50%; background: rgba(244,249,255,.46); box-shadow: inset 0 1px 0 rgba(255,255,255,.34); backdrop-filter: blur(14px) saturate(125%); }
 .forwarding-toolbar-actions [data-slot="button"]:hover { background: rgba(244,249,255,.68); }
 .dark .forwarding-toolbar-actions [data-slot="button"] { border-color: rgba(255,255,255,.13); background: rgba(15,22,36,.48); box-shadow: inset 0 1px 0 rgba(255,255,255,.06); }
 .dark .forwarding-toolbar-actions [data-slot="button"]:hover { background: rgba(15,22,36,.72); }
@@ -1998,7 +1974,6 @@ vue-devtools-anchor,
   background: rgba(244,249,255,.46);
   box-shadow: inset 0 1px 0 rgba(255,255,255,.34);
   backdrop-filter: blur(14px) saturate(125%);
-  -webkit-backdrop-filter: blur(14px) saturate(125%);
   color: hsl(var(--muted-foreground));
   font-size: 14px;
   font-weight: 550;
@@ -2029,7 +2004,6 @@ vue-devtools-anchor,
   background: rgba(244, 249, 255, 0.64);
   box-shadow: 0 8px 26px rgba(24, 61, 92, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.22);
   backdrop-filter: blur(18px) saturate(130%);
-  -webkit-backdrop-filter: blur(18px) saturate(130%);
 }
 .dark .forwarding-glass-card,
 .dark .forwarding-stat-card { border-color: rgba(255, 255, 255, 0.12); background: rgba(15, 22, 36, 0.76); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.05); }
@@ -2143,7 +2117,7 @@ html.dark.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-
 html.dark.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot="button"][data-variant="default"]:hover { background: #628aff; }
 .forwarding-workspace [data-slot="button"]:disabled,
 html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot="button"]:disabled { opacity: 0.45; cursor: not-allowed; }
-.forwarding-dialog-overlay { background: rgba(8, 15, 28, 0.18) !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+.forwarding-dialog-overlay { background: rgba(8, 15, 28, 0.18) !important; backdrop-filter: none !important; }
 
 .forwarding-pagination { display: flex; min-height: 56px; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; border-top: 1px solid hsl(var(--border) / 0.56); background: color-mix(in srgb, var(--mail-glass-strong) 36%, transparent); color: hsl(var(--muted-foreground)); font-size: 12px; font-variant-numeric: tabular-nums; }
 .forwarding-pagination > div { display: flex; align-items: center; gap: 3px; }
@@ -2155,8 +2129,8 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
 .forwarding-loading-global { display: grid; flex: 0 0 140px; align-content: center; gap: 10px; padding: 20px; }
 .forwarding-loading-list { padding-top: 2px; }
 
-.forwarding-manage-overlay { background: rgba(8, 15, 28, 0.22) !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
-.forwarding-manage-sheet { top: 56px !important; bottom: 12px !important; display: flex !important; width: min(420px, calc(100vw - 72px)) !important; height: auto !important; max-width: none !important; min-height: 0; flex-direction: column; gap: 0 !important; overflow: hidden; padding: 0 !important; border: 1px solid var(--mail-glass-border) !important; border-radius: 10px 0 0 10px; background: rgba(238, 247, 255, 0.9) !important; box-shadow: -14px 0 36px rgba(24, 61, 92, 0.18); backdrop-filter: blur(20px) saturate(135%); -webkit-backdrop-filter: blur(20px) saturate(135%); }
+.forwarding-manage-overlay { background: rgba(8, 15, 28, 0.22) !important; backdrop-filter: none !important; }
+.forwarding-manage-sheet { top: 56px !important; bottom: 12px !important; display: flex !important; width: min(420px, calc(100vw - 72px)) !important; height: auto !important; max-width: none !important; min-height: 0; flex-direction: column; gap: 0 !important; overflow: hidden; padding: 0 !important; border: 1px solid var(--mail-glass-border) !important; border-radius: 10px 0 0 10px; background: rgba(238, 247, 255, 0.9) !important; box-shadow: -14px 0 36px rgba(24, 61, 92, 0.18); backdrop-filter: blur(20px) saturate(135%); }
 .dark .forwarding-manage-sheet { background: rgba(12, 24, 42, 0.92) !important; box-shadow: -16px 0 40px rgba(0, 0, 0, 0.34); }
 .forwarding-manage-header { flex: 0 0 auto; gap: 5px; padding: 20px 22px 16px; border-bottom: 1px solid hsl(var(--border) / 0.64); text-align: left; }
 .forwarding-manage-title-row { display: flex; align-items: center; justify-content: space-between; gap: 34px; padding-right: 24px; }
@@ -2192,7 +2166,7 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
 
 .forwarding-confirm-page { display: grid; min-height: 100dvh; place-items: center; padding: 24px; background-color: #dceef9; background-image: url("/themes/star-lake/light.webp"); background-position: center; background-size: cover; color: #111827; }
 .dark .forwarding-confirm-page { background-color: #071a2d; background-image: url("/themes/star-lake/dark.webp"); color: #f8fafc; }
-.forwarding-confirm-card { display: grid; width: min(100%, 480px); justify-items: center; gap: 13px; padding: 28px; border: 1px solid rgba(255,255,255,.7); border-radius: 8px; background: rgba(244,249,255,.9); box-shadow: 0 18px 50px rgba(24,61,92,.16); backdrop-filter: blur(22px) saturate(130%); -webkit-backdrop-filter: blur(22px) saturate(130%); text-align: center; }
+.forwarding-confirm-card { display: grid; width: min(100%, 480px); justify-items: center; gap: 13px; padding: 28px; border: 1px solid rgba(255,255,255,.7); border-radius: 8px; background: rgba(244,249,255,.9); box-shadow: 0 18px 50px rgba(24,61,92,.16); backdrop-filter: blur(22px) saturate(130%); text-align: center; }
 .dark .forwarding-confirm-card { border-color: rgba(255,255,255,.15); background: rgba(12,24,42,.9); box-shadow: 0 20px 54px rgba(0,0,0,.34); }
 .forwarding-confirm-brand { display: flex; width: 100%; align-items: center; gap: 11px; padding-bottom: 18px; border-bottom: 1px solid hsl(var(--border) / .64); text-align: left; }
 .forwarding-confirm-brand > span { display: grid; gap: 2px; }
@@ -2218,7 +2192,7 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
 .dark .forwarding-confirm-relations { border-color: rgba(110,231,183,.2); background: rgba(16,185,129,.1); }
 .dark .forwarding-confirm-relations > strong { color: #6ee7b7; }
 
-.mailbox-forwarding-sheet { background: rgba(248,251,255,.96); color: hsl(var(--foreground)); box-shadow: -18px 0 46px rgba(15,23,42,.16); backdrop-filter: blur(24px) saturate(125%); -webkit-backdrop-filter: blur(24px) saturate(125%); }
+.mailbox-forwarding-sheet { background: rgba(248,251,255,.96); color: hsl(var(--foreground)); box-shadow: -18px 0 46px rgba(15,23,42,.16); backdrop-filter: blur(24px) saturate(125%); }
 .dark .mailbox-forwarding-sheet { border-color: rgba(255,255,255,.12); background: rgba(15,18,27,.96); box-shadow: -20px 0 54px rgba(0,0,0,.38); }
 .mailbox-forwarding-section { padding-bottom: 20px; border-bottom: 1px solid hsl(var(--border) / .72); }
 .mailbox-forwarding-section:last-child { padding-bottom: 0; border-bottom: 0; }
@@ -2329,7 +2303,7 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
 .forwarding-target-search > svg { position: absolute; z-index: 1; left: 12px; top: 50%; width: 18px; height: 18px; transform: translateY(-50%); color: hsl(var(--muted-foreground)); }
 .forwarding-target-search input { height: 38px; padding-left: 40px; }
 .forwarding-target-search-wrap:has(.forwarding-target-results) .forwarding-target-search input { border-radius: 7px 7px 0 0; }
-.forwarding-target-results { position: absolute; top: 100%; right: 0; left: 0; z-index: 40; display: grid; max-height: 286px; overflow-x: hidden; overflow-y: auto; border: 1px solid rgba(255,255,255,.72); border-top: 0; border-radius: 0 0 7px 7px; background: rgba(244,249,255,.96); box-shadow: 0 14px 34px rgba(24,61,92,.2); backdrop-filter: blur(22px) saturate(130%); -webkit-backdrop-filter: blur(22px) saturate(130%); }
+.forwarding-target-results { position: absolute; top: 100%; right: 0; left: 0; z-index: 40; display: grid; max-height: 286px; overflow-x: hidden; overflow-y: auto; border: 1px solid rgba(255,255,255,.72); border-top: 0; border-radius: 0 0 7px 7px; background: rgba(244,249,255,.96); box-shadow: 0 14px 34px rgba(24,61,92,.2); backdrop-filter: blur(22px) saturate(130%); }
 .dark .forwarding-target-results { border-color: rgba(255,255,255,.14); background: rgba(12,22,38,.96); box-shadow: 0 16px 38px rgba(0,0,0,.38); }
 .forwarding-target-results button { display: flex; min-height: 52px; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 11px; border: 0; border-bottom: 1px solid hsl(var(--border) / .52); background: color-mix(in srgb, var(--mail-glass-strong) 48%, transparent); color: hsl(var(--foreground)); text-align: left; }
 .forwarding-target-results button:last-child { border-bottom: 0; }
@@ -2356,8 +2330,8 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
 .forwarding-verification-page .forwarding-verification-card { min-height: 0; flex: 1 1 auto; }
 .forwarding-verification-page .forwarding-verification-card.is-empty { flex: 0 0 auto; }
 .forwarding-verification-card.is-empty .forwarding-verification-list { min-height: 168px; flex: 0 0 168px; }
-.forwarding-verification-sheet { top: 12px !important; bottom: 12px !important; width: min(440px, calc(100vw - 72px)) !important; height: auto !important; max-width: none !important; overflow-y: auto; border-radius: 10px 0 0 10px; background: rgba(244,249,255,.94) !important; backdrop-filter: blur(22px) saturate(128%); -webkit-backdrop-filter: blur(22px) saturate(128%); }
-.forwarding-drawer-overlay { background: rgba(8,15,28,.12) !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+.forwarding-verification-sheet { top: 12px !important; bottom: 12px !important; width: min(440px, calc(100vw - 72px)) !important; height: auto !important; max-width: none !important; overflow-y: auto; border-radius: 10px 0 0 10px; background: rgba(244,249,255,.94) !important; backdrop-filter: blur(22px) saturate(128%); }
+.forwarding-drawer-overlay { background: rgba(8,15,28,.12) !important; backdrop-filter: none !important; }
 .dark .forwarding-verification-sheet { background: rgba(12,22,38,.95) !important; }
 .forwarding-verification-form { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; gap: 20px; padding-top: 18px; }
 .forwarding-verification-form > div { display: grid; gap: 8px; }
@@ -2495,7 +2469,6 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
 .account-overlay,
 .appearance-dialog {
   backdrop-filter: blur(22px) saturate(128%);
-  -webkit-backdrop-filter: blur(22px) saturate(128%);
 }
 
 .app-rail {
@@ -2514,7 +2487,6 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
   border-radius: var(--rail-radius);
   background: linear-gradient(180deg, var(--mail-glass-rail-top) 0%, color-mix(in srgb, var(--mail-glass-rail-top) 58%, var(--mail-glass-rail-bottom)) 46%, var(--mail-glass-rail-bottom) 100%);
   backdrop-filter: blur(var(--app-rail-blur)) saturate(var(--mail-rail-saturation));
-  -webkit-backdrop-filter: blur(var(--app-rail-blur)) saturate(var(--mail-rail-saturation));
   transform: translateZ(0);
   backface-visibility: hidden;
   contain: paint;
@@ -2615,7 +2587,7 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
 }
 
 .mail-folder-stack { position: relative; overflow: hidden; }
-.mail-folder-pane { isolation: isolate; border-radius: 14px 0 0 14px; background: var(--mail-glass-folder); background-clip: padding-box; color: hsl(var(--foreground)); backdrop-filter: blur(var(--mail-glass-blur)) saturate(118%); -webkit-backdrop-filter: blur(var(--mail-glass-blur)) saturate(118%); text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
+.mail-folder-pane { isolation: isolate; border-radius: 14px 0 0 14px; background: var(--mail-glass-folder); background-clip: padding-box; color: hsl(var(--foreground)); backdrop-filter: blur(var(--mail-glass-blur)) saturate(118%); text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
 .mail-folder-pane > div { border-right: 0 !important; background: transparent !important; }
 .mail-folder-pane [data-sidebar="sidebar"] { background: transparent !important; }
 .mail-folder-pane [data-sidebar="menu-button"] { border-radius: 9px; }
@@ -2657,14 +2629,14 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
 .mail-window .mail-list-pane,
 .mail-window .mail-detail-pane { min-height: 0; overflow: hidden; border: 0; }
 .mail-window .mail-list-pane { width: var(--mail-list-pane-width); max-width: var(--mail-list-pane-width); }
-.mail-window .mail-list-pane > div { height: 100%; min-height: 0; overflow: hidden; border-radius: 0; background: var(--mail-glass-list); background-clip: padding-box; backdrop-filter: blur(var(--mail-glass-blur)) saturate(116%); -webkit-backdrop-filter: blur(var(--mail-glass-blur)) saturate(116%); }
-.mail-window .mail-detail-pane > div { height: 100%; min-height: 0; overflow: hidden; border-left: 0; border-radius: 0 14px 14px 0; background: var(--mail-glass-reader); backdrop-filter: blur(var(--mail-glass-blur)) saturate(116%); -webkit-backdrop-filter: blur(var(--mail-glass-blur)) saturate(116%); }
-.mail-window .mail-detail-pane.is-empty > div { border: 0; background: transparent !important; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.mail-window .mail-list-pane > div { height: 100%; min-height: 0; overflow: hidden; border-radius: 0; background: var(--mail-glass-list); background-clip: padding-box; backdrop-filter: blur(var(--mail-glass-blur)) saturate(116%); }
+.mail-window .mail-detail-pane > div { height: 100%; min-height: 0; overflow: hidden; border-left: 0; border-radius: 0 14px 14px 0; background: var(--mail-glass-reader); backdrop-filter: blur(var(--mail-glass-blur)) saturate(116%); }
+.mail-window .mail-detail-pane.is-empty > div { border: 0; background: transparent !important; box-shadow: none; backdrop-filter: none; }
 .mail-window .bg-background { background-color: transparent; }
 .mail-date-group { position: sticky; top: 0; z-index: 2; padding: 6px 12px; border-bottom: 1px solid hsl(var(--border) / 0.62); background: color-mix(in srgb, var(--mail-glass-strong) 96%, transparent); color: hsl(var(--muted-foreground)); font-size: 11px; font-weight: 600; }
 .mail-window .mail-selected-row { background: color-mix(in srgb, var(--mail-accent-color) 16%, transparent); }
 
-.calendar-pane { min-width: 0; min-height: 0; overflow: hidden; border-radius: 16px; background: var(--mail-glass-calendar); color: hsl(var(--foreground)); backdrop-filter: blur(18px) saturate(120%); -webkit-backdrop-filter: blur(18px) saturate(120%); }
+.calendar-pane { min-width: 0; min-height: 0; overflow: hidden; border-radius: 16px; background: var(--mail-glass-calendar); color: hsl(var(--foreground)); backdrop-filter: blur(18px) saturate(120%); }
 
 .mail-reading-actions { display: flex; flex: none; align-items: center; gap: 2px; }
 .mail-reading-actions [data-slot="button"] { width: 34px; height: 34px; border-radius: 9px; color: hsl(var(--muted-foreground)); }
@@ -2697,7 +2669,7 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
 .mail-filter-menu [role="menuitemcheckbox"] svg { width: 15px; height: 15px; }
 .account-overlay-backdrop { position: absolute; inset: 0; z-index: 30; background: transparent; }
 .account-overlay-backdrop::before { content: ""; position: absolute; left: 52px; top: 20px; width: 8px; height: 16px; clip-path: polygon(100% 0, 0 50%, 100% 100%); background: var(--mail-glass-border); filter: drop-shadow(-2px 1px 2px rgba(0, 0, 0, 0.12)); }
-.account-overlay { position: absolute; left: calc(6px + var(--app-rail-width) + 2px); top: 26px; display: flex; width: 320px; max-height: min(620px, calc(100% - 39px)); min-height: 0; flex-direction: column; overflow: hidden; border-radius: 12px; background: rgba(248, 251, 254, 0.92); box-shadow: 0 18px 44px rgba(5, 18, 32, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.72); backdrop-filter: blur(24px) saturate(122%); -webkit-backdrop-filter: blur(24px) saturate(122%); }
+.account-overlay { position: absolute; left: calc(6px + var(--app-rail-width) + 2px); top: 26px; display: flex; width: 320px; max-height: min(620px, calc(100% - 39px)); min-height: 0; flex-direction: column; overflow: hidden; border-radius: 12px; background: rgba(248, 251, 254, 0.92); box-shadow: 0 18px 44px rgba(5, 18, 32, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.72); backdrop-filter: blur(24px) saturate(122%); }
 .dark .account-overlay { background: rgba(17, 19, 26, 0.92); box-shadow: 0 20px 48px rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.1); }
 .account-search { display: grid; height: 44px; grid-template-columns: 20px minmax(0, 1fr); align-items: center; gap: 8px; margin: 8px 8px 4px; padding: 0 12px; border: 1px solid hsl(var(--border) / 0.92); border-radius: 10px; background: hsl(var(--background) / 0.84); color: hsl(var(--muted-foreground)); box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04); }
 .account-search:focus-within { border-color: color-mix(in srgb, var(--mail-accent-color) 64%, hsl(var(--border))); box-shadow: 0 0 0 2px color-mix(in srgb, var(--mail-accent-color) 18%, transparent); }
@@ -2732,7 +2704,6 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
   color: hsl(var(--foreground));
   box-shadow: 0 18px 48px rgba(36,47,75,.18);
   backdrop-filter: blur(28px) saturate(130%);
-  -webkit-backdrop-filter: blur(28px) saturate(130%);
 }
 .dark .anchored-popover { border-color: rgba(255,255,255,.16); background: rgba(24,23,34,.86); box-shadow: 0 18px 48px rgba(0,0,0,.34); }
 .anchored-popover-arrow { position: absolute; z-index: 1; width: 12px; height: 18px; border: 0; background: inherit; pointer-events: none; filter: drop-shadow(-1px 0 rgba(255,255,255,.6)); }
@@ -2763,8 +2734,8 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
 .desktop-workspace.contacts-is-open .contacts-shell-pane { grid-column: 1; }
 .contacts-shell-pane { min-width: 0; min-height: 0; overflow: hidden; }
 .contacts-workspace { display: grid; width: 100%; height: 100%; min-height: 0; grid-template-columns: 280px minmax(0,1fr); gap: 8px; overflow: hidden; }
-.contacts-nav-pane, .contacts-main-pane { min-width: 0; min-height: 0; overflow: hidden; border: 1px solid rgba(255,255,255,.62); border-radius: var(--panel-radius); background: rgba(245,249,255,.72); color: #172033; backdrop-filter: blur(22px) saturate(145%); -webkit-backdrop-filter: blur(22px) saturate(145%); }
-.dark .contacts-nav-pane, .dark .contacts-main-pane { border-color: rgba(255,255,255,.14); background: rgba(12,18,34,.70); color: rgba(255,255,255,.92); backdrop-filter: blur(22px) saturate(135%); -webkit-backdrop-filter: blur(22px) saturate(135%); }
+.contacts-nav-pane, .contacts-main-pane { min-width: 0; min-height: 0; overflow: hidden; border: 1px solid rgba(255,255,255,.62); border-radius: var(--panel-radius); background: rgba(245,249,255,.72); color: #172033; backdrop-filter: blur(22px) saturate(145%); }
+.dark .contacts-nav-pane, .dark .contacts-main-pane { border-color: rgba(255,255,255,.14); background: rgba(12,18,34,.70); color: rgba(255,255,255,.92); backdrop-filter: blur(22px) saturate(135%); }
 .contacts-main-pane { display: flex; flex-direction: column; }
 .contacts-nav-pane > header { display: flex; align-items: center; gap: 10px; padding: 18px 16px 14px; }
 .contacts-nav-pane > header > svg { width: 22px; height: 22px; color: var(--mail-accent-color); }
@@ -2814,8 +2785,8 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
 .contacts-empty-list strong, .contact-detail-empty strong { color: hsl(var(--foreground)); font-size: 14px; }
 .contacts-empty-list span, .contact-detail-empty span { font-size: 12px; }
 
-.contact-create-overlay { background: rgba(10,18,28,.16) !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
-.contact-create-sheet { border-color: var(--mail-glass-border); background: rgba(247,251,255,.94); box-shadow: -18px 0 46px rgba(15,23,42,.16); backdrop-filter: blur(24px) saturate(125%); -webkit-backdrop-filter: blur(24px) saturate(125%); }
+.contact-create-overlay { background: rgba(10,18,28,.16) !important; backdrop-filter: none !important; }
+.contact-create-sheet { border-color: var(--mail-glass-border); background: rgba(247,251,255,.94); box-shadow: -18px 0 46px rgba(15,23,42,.16); backdrop-filter: blur(24px) saturate(125%); }
 .dark .contact-create-sheet { background: rgba(13,19,29,.94); box-shadow: -20px 0 54px rgba(0,0,0,.4); }
 .contact-create-sheet form { display: flex; height: 100%; min-height: 0; flex-direction: column; }
 .contact-create-sheet form > header { display: flex; align-items: center; gap: 11px; padding: 22px 20px 18px; border-bottom: 1px solid hsl(var(--border) / .7); }
@@ -2831,10 +2802,10 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
 .contact-create-sheet form > footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: auto; padding: 14px 20px; border-top: 1px solid hsl(var(--border) / .7); }
 
 /* Forwarding tabs are one continuous Outlook-style segmented control. */
-.forwarding-tabs { display: grid; width: min(100%, 288px); height: 40px; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; overflow: hidden; padding: 2px; border: 1px solid rgba(255,255,255,.62); border-radius: 20px; background: rgba(245,249,255,.72); backdrop-filter: blur(22px) saturate(145%); -webkit-backdrop-filter: blur(22px) saturate(145%); }
-.forwarding-tabs button { width: 100%; min-width: 0; min-height: 34px; justify-content: center; padding: 0 12px; border: 0; border-radius: 17px; background: transparent; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.forwarding-tabs { display: grid; width: min(100%, 288px); height: 40px; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; overflow: hidden; padding: 2px; border: 1px solid rgba(255,255,255,.62); border-radius: 20px; background: rgba(245,249,255,.72); backdrop-filter: blur(22px) saturate(145%); }
+.forwarding-tabs button { width: 100%; min-width: 0; min-height: 34px; justify-content: center; padding: 0 12px; border: 0; border-radius: 17px; background: transparent; box-shadow: none; backdrop-filter: none; }
 .forwarding-tabs button[aria-selected="true"] { background: color-mix(in srgb, var(--mail-accent-color) 13%, rgba(255,255,255,.64)); }
-.dark .forwarding-tabs { border-color: rgba(255,255,255,.14); background: rgba(12,18,34,.70); backdrop-filter: blur(22px) saturate(135%); -webkit-backdrop-filter: blur(22px) saturate(135%); }
+.dark .forwarding-tabs { border-color: rgba(255,255,255,.14); background: rgba(12,18,34,.70); backdrop-filter: blur(22px) saturate(135%); }
 .dark .forwarding-tabs button { border: 0; background: transparent; box-shadow: none; }
 .dark .forwarding-tabs button[aria-selected="true"] { background: color-mix(in srgb, var(--mail-accent-color) 20%, rgba(15,22,36,.72)); }
 .forwarding-tab-content > * { animation: forwarding-tab-enter 150ms ease both; }
@@ -2856,7 +2827,7 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
   .contact-create-sheet { inset: 0 !important; width: 100vw !important; max-width: none !important; height: 100dvh !important; border: 0 !important; border-radius: 0; }
 }
 
-.appearance-dialog { max-height: 88vh; overflow-y: auto; border-radius: 16px; background: rgba(247, 249, 252, 0.97); box-shadow: 0 24px 64px rgba(22, 35, 52, 0.24); backdrop-filter: blur(28px) saturate(116%); -webkit-backdrop-filter: blur(28px) saturate(116%); }
+.appearance-dialog { max-height: 88vh; overflow-y: auto; border-radius: 16px; background: rgba(247, 249, 252, 0.97); box-shadow: 0 24px 64px rgba(22, 35, 52, 0.24); backdrop-filter: blur(28px) saturate(116%); }
 .dark .appearance-dialog { background: rgba(23, 25, 32, 0.97); box-shadow: 0 28px 72px rgba(0, 0, 0, 0.48); }
 .appearance-dialog section { display: grid; gap: 12px; }
 .appearance-dialog h3 { font-size: 14px; font-weight: 650; letter-spacing: 0; }
@@ -2927,7 +2898,6 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
   .mail-wallpaper .mail-detail-pane > div {
     background: var(--mail-glass-strong);
     backdrop-filter: blur(14px) saturate(118%);
-    -webkit-backdrop-filter: blur(14px) saturate(118%);
   }
   .theme-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .appearance-segments { grid-template-columns: 1fr; }
@@ -3008,25 +2978,24 @@ html.pwa-standalone .mail-window {
 @media (prefers-reduced-transparency: reduce) {
   .mail-wallpaper, .mail-wallpaper[data-mail-theme] { --mail-glass-strong: rgba(248, 252, 255, 0.97); --mail-glass-medium: rgba(244, 249, 253, 0.96); --mail-glass-soft: rgba(239, 247, 252, 0.94); --mail-glass-rail-top: rgba(239, 247, 252, 0.96); --mail-glass-rail-bottom: rgba(239, 247, 252, 0.94); --mail-glass-folder: rgba(244, 249, 253, 0.97); --mail-glass-list: rgba(242, 248, 252, 0.97); --mail-glass-reader: rgba(248, 251, 253, 0.98); --mail-glass-calendar: rgba(246, 250, 253, 0.98); }
   .dark .mail-wallpaper, .dark .mail-wallpaper[data-mail-theme] { --mail-glass-strong: rgba(18, 23, 31, 0.98); --mail-glass-medium: rgba(22, 28, 38, 0.97); --mail-glass-soft: rgba(27, 34, 45, 0.95); --mail-glass-rail-top: rgba(20, 30, 49, 0.96); --mail-glass-rail-bottom: rgba(20, 30, 49, 0.94); --mail-glass-folder: rgba(20, 27, 42, 0.97); --mail-glass-list: rgba(31, 28, 39, 0.97); --mail-glass-reader: rgba(22, 24, 28, 0.98); --mail-glass-calendar: rgba(24, 27, 33, 0.98); }
-  .app-rail, .mail-folder-pane, .calendar-pane, .mail-window .mail-list-pane > div, .mail-window .mail-detail-pane > div, .mail-filter-menu, .account-overlay, .appearance-dialog { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .app-rail, .mail-folder-pane, .calendar-pane, .mail-window .mail-list-pane > div, .mail-window .mail-detail-pane > div, .mail-filter-menu, .account-overlay, .appearance-dialog { backdrop-filter: none; }
 }
 
 /* Settings keep the v1.2.71 geometry while sharing the mail workspace glass. */
 .profile-workspace-theme {
-  --profile-glass-folder: var(--profile-glass-folder-light, rgba(244, 249, 253, 0.58));
-  --profile-glass-list: var(--profile-glass-list-light, rgba(246, 250, 253, 0.72));
+  --profile-glass-folder: var(--profile-glass-folder-light, rgba(244, 249, 253, 0.78));
+  --profile-glass-list: var(--profile-glass-list-light, rgba(246, 250, 253, 0.9));
 }
 
 .dark .profile-workspace-theme {
-  --profile-glass-folder: var(--profile-glass-folder-dark, rgba(15, 19, 27, 0.3));
-  --profile-glass-list: var(--profile-glass-list-dark, rgba(24, 23, 31, 0.68));
+  --profile-glass-folder: var(--profile-glass-folder-dark, rgba(15, 19, 27, 0.7));
+  --profile-glass-list: var(--profile-glass-list-dark, rgba(24, 23, 31, 0.86));
 }
 
 .profile-workspace-theme .bg-card,
 .dark .profile-workspace-theme .bg-card {
   background: var(--profile-glass-folder);
   backdrop-filter: blur(var(--workspace-glass-blur, 14px)) saturate(118%);
-  -webkit-backdrop-filter: blur(var(--workspace-glass-blur, 14px)) saturate(118%);
 }
 
 .profile-workspace-theme .profile-continuous-panel,
@@ -3034,7 +3003,6 @@ html.pwa-standalone .mail-window {
 .profile-workspace-theme .profile-account-workspace > .space-y-6 {
   background: var(--profile-glass-list);
   backdrop-filter: blur(var(--workspace-glass-blur, 14px)) saturate(116%);
-  -webkit-backdrop-filter: blur(var(--workspace-glass-blur, 14px)) saturate(116%);
 }
 
 @media (prefers-reduced-transparency: reduce) {
@@ -3053,6 +3021,5 @@ html.pwa-standalone .mail-window {
   .profile-workspace-theme .profile-page-continuous-surface,
   .profile-workspace-theme .profile-account-workspace > .space-y-6 {
     backdrop-filter: none;
-    -webkit-backdrop-filter: none;
   }
 }
