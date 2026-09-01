@@ -2885,17 +2885,23 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
 .mailbox-search-field > svg:first-child {
   width: 20px;
   height: 20px;
-  color: hsl(var(--foreground)) !important;
-  stroke: hsl(var(--foreground)) !important;
+  color: #334155 !important;
+  stroke: #334155 !important;
   stroke-width: 2.65;
   opacity: 1 !important;
-  filter: drop-shadow(0 1px 0 hsl(var(--background) / .86));
+  filter: none;
+}
+
+.dark .mailbox-search-field .mailbox-search-icon,
+.dark .mailbox-search-field > svg:first-child {
+  color: #e2e8f0 !important;
+  stroke: #e2e8f0 !important;
 }
 
 .mailbox-search-field:focus-within .mailbox-search-icon,
 .mailbox-search-field:focus-within > svg:first-child {
-  color: hsl(var(--foreground)) !important;
-  stroke: hsl(var(--foreground)) !important;
+  color: var(--mail-accent-color) !important;
+  stroke: var(--mail-accent-color) !important;
 }
 
 .forwarding-target-picker,
