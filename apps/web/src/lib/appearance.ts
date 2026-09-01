@@ -26,6 +26,7 @@ export function applyAppearanceSettings(settings = getAppearanceSettings()) {
   root.style.setProperty("--workspace-wallpaper-dark", `url("${theme.dark}")`)
   root.style.setProperty("--workspace-wallpaper-position", theme.backgroundPosition)
   root.style.setProperty("--workspace-glass-blur", `${settings.glassBlur}px`)
+  root.style.setProperty("--mail-glass-blur", `${settings.glassBlur}px`)
   root.style.setProperty("--appearance-accent", settings.accentColor)
   root.style.setProperty("--mail-accent-color", settings.accentColor)
   root.style.setProperty("--profile-glass-folder-light", usesDarkerPaneGlass ? "rgba(244, 249, 253, 0.66)" : "rgba(244, 249, 253, 0.58)")

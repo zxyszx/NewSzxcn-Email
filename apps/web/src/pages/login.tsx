@@ -60,7 +60,9 @@ export function LoginPage() {
     window.localStorage.setItem("newszxcn:landing-theme", visualTheme)
   }, [visualTheme])
 
-  if (me.data?.user) return <Navigate to={returnPath} replace />
+  // Do not redirect with stale cached user data after the session has expired.
+  // Otherwise the login page and AuthGuard can continuously redirect each other.
+  if (me.isSuccess && me.data?.user) return <Navigate to={returnPath} replace />
   if (publicSettings.isLoading) return <AuthLoading />
   if (publicSettings.isError) return <AuthError message={publicSettings.error.message} onRetry={() => { void publicSettings.refetch() }} />
 

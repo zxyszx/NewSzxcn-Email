@@ -289,11 +289,15 @@
   }
 
   .admin-workspace-theme::before,
-  .admin-workspace-theme::after,
-  .profile-workspace-theme::before,
-  .profile-workspace-theme::after {
+  .admin-workspace-theme::after {
     inset: -12px;
     filter: blur(5px) saturate(0.92);
+  }
+
+  .profile-workspace-theme::before,
+  .profile-workspace-theme::after {
+    inset: 0;
+    filter: none;
   }
 
   .mail-workspace-theme > *,
