@@ -1982,6 +1982,69 @@ func TestAdministratorPrimaryEmailPersistsAcrossRestart(t *testing.T) {
 	}
 }
 
+func TestLoopbackPreviewReconcilesConfiguredAdminPassword(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Config{
+		Addr:                      "127.0.0.1:0",
+		DBPath:                    filepath.Join(dir, "lanqin.db"),
+		DataDir:                   filepath.Join(dir, "data"),
+		CookieName:                "lanqin_test",
+		SessionTTLHours:           24,
+		AdminEmail:                "admin@lanqin.local",
+		AdminPassword:             "OriginalPassword123!",
+		PublicHostname:            "mail.example.test",
+		PublicBaseURL:             "http://127.0.0.1:5173",
+		AllowInsecureHTTP:         true,
+		ResetAdminPasswordOnStart: true,
+	}
+	a, err := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg.AdminPassword = "FixedPreviewPassword123!"
+	restarted, err := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = restarted.Close() })
+
+	var userHash, mailboxHash string
+	if err := restarted.db.QueryRow(`SELECT password_hash FROM users WHERE role='admin'`).Scan(&userHash); err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.db.QueryRow(`SELECT password_hash FROM mailboxes WHERE user_id=(SELECT id FROM users WHERE role='admin') ORDER BY created_at LIMIT 1`).Scan(&mailboxHash); err != nil {
+		t.Fatal(err)
+	}
+	for name, hash := range map[string]string{"user": userHash, "mailbox": mailboxHash} {
+		if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(cfg.AdminPassword)); err != nil {
+			t.Fatalf("%s password was not reconciled: %v", name, err)
+		}
+		if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte("OriginalPassword123!")); err == nil {
+			t.Fatalf("%s still accepts the previous password", name)
+		}
+	}
+}
+
+func TestAdminPasswordReconciliationRejectsNonLoopbackAddress(t *testing.T) {
+	dir := t.TempDir()
+	_, err := New(Config{
+		Addr:                      "0.0.0.0:8080",
+		DBPath:                    filepath.Join(dir, "lanqin.db"),
+		DataDir:                   filepath.Join(dir, "data"),
+		AdminEmail:                "admin@lanqin.local",
+		AdminPassword:             "PreviewPassword123!",
+		AllowInsecureHTTP:         true,
+		ResetAdminPasswordOnStart: true,
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err == nil || !strings.Contains(err.Error(), "restricted to insecure loopback previews") {
+		t.Fatalf("New() error = %v, want loopback restriction", err)
+	}
+}
+
 func TestLegacyAdminIdentityMigrationKeepsEarliestAdminAndRecordsResult(t *testing.T) {
 	a := newTestApp(t)
 	ctx := context.Background()

@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +19,7 @@ type Config struct {
 	AdminEmail                      string
 	MailDomain                      string
 	AdminPassword                   string
+	ResetAdminPasswordOnStart       bool
 	PublicHostname                  string
 	PublicBaseURL                   string
 	SMTPHost                        string
@@ -84,6 +86,7 @@ func LoadConfig() Config {
 		AdminEmail:                      strings.ToLower(getenv("LANQIN_ADMIN_EMAIL", "")),
 		MailDomain:                      normalizeDomain(getenv("LANQIN_MAIL_DOMAIN", "")),
 		AdminPassword:                   getenv("LANQIN_ADMIN_PASSWORD", ""),
+		ResetAdminPasswordOnStart:       getenvBool("LANQIN_RESET_ADMIN_PASSWORD_ON_START", false),
 		PublicHostname:                  getenv("LANQIN_PUBLIC_HOSTNAME", "mail.lanqin.local"),
 		PublicBaseURL:                   getenv("LANQIN_PUBLIC_BASE_URL", "http://localhost:5173"),
 		SMTPHost:                        getenv("LANQIN_SMTP_HOST", ""),
@@ -136,6 +139,19 @@ func LoadConfig() Config {
 		BackupSourceDir:                 getenv("LANQIN_BACKUP_SOURCE_DIR", "/usr/share/newszxcn-email/deploy"),
 		BackupDir:                       getenv("LANQIN_BACKUP_DIR", filepath.Join(dataDir, "disaster-backups")),
 	}
+}
+
+func isLoopbackListenAddress(addr string) bool {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(addr))
+	if err != nil {
+		return false
+	}
+	host = strings.Trim(host, "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func getenv(key, fallback string) string {

@@ -10,11 +10,16 @@ import ImageExtension from "@tiptap/extension-image"
 import TextAlign from "@tiptap/extension-text-align"
 import Placeholder from "@tiptap/extension-placeholder"
 import { BackgroundColor, Color, FontFamily, FontSize, TextStyle } from "@tiptap/extension-text-style"
-import { useNavigate, useSearchParams } from "react-router-dom"
-import { AlignCenter, AlignLeft, AlignRight, Archive, ArrowLeft, Ban, Bell, Bold, Bot, Briefcase, Calendar, Check, ChevronDown, Clock3, Code2, Copy, Download, Ellipsis, Eraser, Eye, FileText, Folder, Forward, GraduationCap, Heart, Highlighter, History, Image, Inbox, IndentDecrease, IndentIncrease, Italic, Link, List, ListOrdered, Mail, Mailbox as MailboxIcon, MailCheck, MailQuestion, Moon, PanelLeftOpen, Paperclip, PencilLine, Plane, Plus, Quote, Receipt, Redo2, RefreshCcw, Reply, RotateCcw, Search, Send, Settings, ShieldCheck, ShoppingBag, Signature, SlidersHorizontal, Smile, Sparkles, Star, Strikethrough, Sun, Tag, Trash2, Type, Underline, Undo2, Upload, Users, X } from "lucide-react"
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom"
+import { AlignCenter, AlignLeft, AlignRight, Archive, ArrowLeft, ArrowRight, AtSign, Ban, Bell, Bold, Bot, Briefcase, Calendar, Check, ChevronDown, Clock3, Code2, Copy, Download, Ellipsis, Eraser, Eye, FileText, Filter, Flag, Folder, Forward, GraduationCap, Heart, Highlighter, History, Image, Inbox, IndentDecrease, IndentIncrease, Italic, Link, List, ListOrdered, Mail, Mailbox as MailboxIcon, MailCheck, MailQuestion, Menu, Moon, PanelLeftOpen, Paperclip, PencilLine, Plane, Plus, Quote, Receipt, Redo2, RefreshCcw, Reply, ReplyAll, RotateCcw, Search, Send, Settings, ShieldCheck, ShoppingBag, Signature, SlidersHorizontal, Smile, Sparkles, Star, Strikethrough, Sun, Tag, Trash2, Type, Underline, Undo2, Upload, UserRound, Users, X } from "lucide-react"
+import {
+  ContactCard20Regular,
+  PersonAdd20Regular,
+} from "@fluentui/react-icons"
 import { api, ExternalImapAccount, ListResponse, Mailbox, MailFolder, MailLabel, MailMessage, MailSearchParams, SendPayload, DraftPayload, ScheduledSend, SendQueueItem, SendQueueAuditEvent, SendQueueStatus, PermissionLimits } from "@/lib/api"
 import { cn, decodeMimeHeader, formatBytes, formatDate, formatDateTime, generateLabelColor } from "@/lib/utils"
-import { applyTheme, getInitialTheme } from "@/lib/theme"
+import { applyThemeMode, getThemeMode, resolveThemeMode, subscribeToSystemTheme, type ThemeMode } from "@/lib/theme"
+import { defaultMailTheme, mailThemes } from "@/lib/mail-themes"
 import { useDisplayMode } from "@/lib/display-mode"
 import { Language, useLanguage } from "@/lib/language"
 import { Button } from "@/components/ui/button"
@@ -24,14 +29,19 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { Label } from "@/components/ui/label"
-import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { ConfirmDialog } from "@/components/confirm-dialog"
+import { ForwardingWorkspace } from "@/components/forwarding-workspace"
+import { MailboxCreateSheet, MailboxWorkspace } from "@/components/mailbox-workspace"
+import { AnchoredPopover } from "@/components/anchored-popover"
+import { ContactsWorkspace } from "@/components/contacts-workspace"
 import {
   Sidebar,
   SidebarContent,
@@ -120,6 +130,8 @@ const folderLabels: Record<string, string> = {
 
 type ComposeDraft = { key: string; id?: string; mailboxId?: string; to?: string; cc?: string; bcc?: string; subject?: string; text?: string; html?: string; files?: File[]; isDraft?: boolean }
 type MailFilter = "all" | "unread" | "starred" | "attachments" | "recent7"
+type MailSort = "date-desc" | "date-asc" | "sender" | "flagged" | "size-desc" | "importance" | "subject" | "category"
+type MailConstraint = "all" | "recipient" | "mentioned" | "category"
 type MailView = "folder" | "starred" | "label" | "scheduled" | "sendQueue" | "external" | "unknown"
 type MailListResponse = { items?: MailMessage[]; nextCursor?: string }
 type PendingConfirm = { title: string; description?: string; confirmText: string; onConfirm: () => void }
@@ -144,6 +156,20 @@ const mailImportBatchBytes = 32 * 1024 * 1024
 const mailImportBatchFiles = 20
 const mailCompactBreakpoint = 1024
 const mailDetailBreakpoint = 768
+
+function messageDateGroup(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return "更早"
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const startOfMessage = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+  const days = Math.floor((startOfToday.getTime() - startOfMessage.getTime()) / 86_400_000)
+  if (days <= 0) return "今天"
+  if (days === 1) return "昨天"
+  if (days < 7) return "本周"
+  if (date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth()) return "本月"
+  return "更早"
+}
 
 function buildMailImportBatches(files: File[]) {
   const batches: File[][] = []
@@ -174,10 +200,16 @@ function useMaxViewportWidth(maxWidth: number) {
   return matches
 }
 
+function isStandalonePwa() {
+  const navigatorWithStandalone = window.navigator as Navigator & { standalone?: boolean }
+  return window.matchMedia("(display-mode: standalone)").matches || navigatorWithStandalone.standalone === true
+}
+
 export function MailPage() {
   const qc = useQueryClient()
   const { toast } = useToast()
   const navigate = useNavigate()
+  const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const me = useMe()
   const [folder, setFolder] = React.useState("Inbox")
@@ -193,20 +225,49 @@ export function MailPage() {
   const [composeDraft, setComposeDraft] = React.useState<ComposeDraft | undefined>()
   const sidebarCollapsed = false
   const [mailFilter, setMailFilter] = React.useState<MailFilter>("all")
-  const [selectedMailboxId, setSelectedMailboxId] = React.useState("all")
+  const [selectedMailboxId, setSelectedMailboxId] = React.useState(() => localStorage.getItem("lanqin:selected-mailbox") || "all")
   const [selectedExternalAccountId, setSelectedExternalAccountId] = React.useState("")
   const [expandedExternalAccountIds, setExpandedExternalAccountIds] = React.useState<string[]>([])
   const [foldersExpanded, setFoldersExpanded] = React.useState(true)
   const [labelsExpanded, setLabelsExpanded] = React.useState(true)
   const [externalFolder, setExternalFolder] = React.useState("INBOX")
-  const [darkMode, setDarkMode] = React.useState(getInitialTheme)
+  const [themeMode, setThemeMode] = React.useState<ThemeMode>(getThemeMode)
+  const [darkMode, setDarkMode] = React.useState(() => resolveThemeMode(getThemeMode()))
+  const [contactMenuOpen, setContactMenuOpen] = React.useState(false)
+  const [contactCreateOpen, setContactCreateOpen] = React.useState(false)
+  const contactCreateButtonRef = React.useRef<HTMLButtonElement>(null)
+  const [focusedInbox, setFocusedInbox] = React.useState(() => localStorage.getItem("lanqin:focused-inbox") === "true")
+  const [mailSort, setMailSort] = React.useState<MailSort>("date-desc")
+  const [mailConstraint, setMailConstraint] = React.useState<MailConstraint>("all")
+  const accentColor = localStorage.getItem("lanqin:mail-accent") || defaultMailTheme.accentColor
+  const selectedThemeId = localStorage.getItem("lanqin:mail-wallpaper") || defaultMailTheme.id
+  const selectedMailTheme = React.useMemo(() => mailThemes.find((theme) => theme.id === selectedThemeId), [selectedThemeId])
   const [language] = useLanguage()
   const [displayMode] = useDisplayMode()
   const isMobile = useIsMobile()
   const isNarrowMailViewport = useMaxViewportWidth(mailCompactBreakpoint)
   const isTwoPaneMailViewport = useMaxViewportWidth(mailDetailBreakpoint)
+  const forwardingWorkspaceOpen = location.pathname.startsWith("/mail/forwarding")
+  const mailboxWorkspaceOpen = location.pathname.startsWith("/mail/mailboxes")
+  const contactsWorkspaceOpen = location.pathname.startsWith("/mail/contacts")
+  const utilityWorkspaceOpen = forwardingWorkspaceOpen || mailboxWorkspaceOpen || contactsWorkspaceOpen
+  const forwardingWorkspaceTab = new URLSearchParams(location.search).get("tab") === "verification" ? "verification" : "settings"
+  const navigateForwardingTab = React.useCallback((tab: "settings" | "verification") => {
+    const nextParams = new URLSearchParams(location.search)
+    nextParams.set("tab", tab)
+    nextParams.delete("page")
+    nextParams.delete("scope")
+    nextParams.delete("q")
+    nextParams.delete("drawer")
+    const search = nextParams.toString()
+    navigate({
+      pathname: "/mail/forwarding",
+      search: search ? `?${search}` : "",
+    })
+  }, [location.search, navigate])
   const compactMailLayout = isMobile || isNarrowMailViewport || displayMode === "compact"
   const [refreshing, setRefreshing] = React.useState(false)
+  const [mailboxCreateOpen, setMailboxCreateOpen] = React.useState(false)
   const [autoRefreshing, setAutoRefreshing] = React.useState(false)
   const [exportingMail, setExportingMail] = React.useState(false)
   const [importingMail, setImportingMail] = React.useState(false)
@@ -226,6 +287,13 @@ export function MailPage() {
   const [messageContextMenu, setMessageContextMenu] = React.useState<MessageContextMenuState | null>(null)
   const [sidebarContextMenu, setSidebarContextMenu] = React.useState<SidebarContextMenuState | null>(null)
   const [folderDialogOpen, setFolderDialogOpen] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!location.pathname.startsWith("/mail/forwarding/") || location.pathname.endsWith("/verification/confirm")) return
+    const nextParams = new URLSearchParams(location.search)
+    nextParams.set("tab", location.pathname.includes("/verification") ? "verification" : "settings")
+    navigate(`/mail/forwarding?${nextParams.toString()}`, { replace: true })
+  }, [location.pathname, location.search, navigate])
   const [renamingFolder, setRenamingFolder] = React.useState<Extract<MailMenuItem, { type: "folder" }> | null>(null)
   const [draggingFolderId, setDraggingFolderId] = React.useState("")
   const [folderDropTarget, setFolderDropTarget] = React.useState<FolderDropTarget | null>(null)
@@ -246,7 +314,9 @@ export function MailPage() {
   const canManageLabels = hasPermission(user, "mail.labels.manage")
   const canDownloadAttachments = hasPermission(user, "mail.attachments.download")
   const canManageSignatures = hasPermission(user, "mail.signatures.manage")
+  const canManageContacts = hasPermission(user, "mail.contacts.manage")
   const canViewUnknownMail = user?.role === "admin"
+  const canApplyMailbox = hasPermission(user, "mail.mailboxes.apply")
   const publicSettings = useQuery({ queryKey: ["public-settings"], queryFn: api.publicSettings })
   const externalImapEnabled = publicSettings.data?.externalImapEnabled ?? false
 
@@ -664,9 +734,8 @@ export function MailPage() {
   }, [mailboxList.isSuccess, mailboxList.data?.items, selectedMailboxId])
 
   React.useEffect(() => {
-    localStorage.removeItem("lanqin:selected-mailbox")
-    localStorage.removeItem("lanqin:selected-mailbox-version")
-  }, [])
+    if (selectedMailboxId) localStorage.setItem("lanqin:selected-mailbox", selectedMailboxId)
+  }, [selectedMailboxId])
 
   React.useEffect(() => {
     setSelectedId(null)
@@ -678,9 +747,33 @@ export function MailPage() {
   }, [selectedMailboxId, mailView, folder, selectedLabelId, query, advancedSearch, displayMode])
 
   React.useEffect(() => {
-    applyTheme(darkMode, themeMountedRef.current)
+    applyThemeMode(themeMode, themeMountedRef.current)
+    setDarkMode(resolveThemeMode(themeMode))
     themeMountedRef.current = true
-  }, [darkMode])
+    if (themeMode !== "system") return
+    return subscribeToSystemTheme((nextDark) => setDarkMode(nextDark))
+  }, [themeMode])
+
+  React.useEffect(() => {
+    const stored = Number(localStorage.getItem("newszxcn-mail-glass-blur-v1") || localStorage.getItem("newszxcn-app-rail-blur-v3"))
+    const blur = Number.isFinite(stored) && stored >= 4 && stored <= 28 ? stored : 16
+    document.documentElement.style.setProperty("--mail-glass-blur", `${blur}px`)
+  }, [])
+
+  React.useEffect(() => {
+    localStorage.setItem("lanqin:focused-inbox", String(focusedInbox))
+  }, [focusedInbox])
+
+  React.useEffect(() => {
+    const media = window.matchMedia("(display-mode: standalone)")
+    const sync = () => document.documentElement.classList.toggle("pwa-standalone", isStandalonePwa())
+    sync()
+    media.addEventListener("change", sync)
+    return () => {
+      media.removeEventListener("change", sync)
+      document.documentElement.classList.remove("pwa-standalone")
+    }
+  }, [])
   React.useEffect(() => {
     document.documentElement.classList.add("workspace-ui")
     return () => document.documentElement.classList.remove("workspace-ui")
@@ -794,6 +887,10 @@ export function MailPage() {
   const allMessages = (mailView === "external" ? externalMessages.data?.pages : mailView === "unknown" ? unknownMessages.data?.pages : messages.data?.pages)?.flatMap((page) => page.items || []) || []
   const visibleMessages = allMessages.filter((message) => {
     if (!messageMatchesAdvancedSearch(message, advancedSearch)) return false
+    if (focusedInbox && mailView === "folder" && folder === "Inbox" && message.isRead && !message.isStarred) return false
+    if (mailConstraint === "recipient" && user?.email && !(message.to || []).some((recipient) => recipient.toLowerCase().includes(user.email.toLowerCase()))) return false
+    if (mailConstraint === "mentioned" && !`${message.subject} ${message.snippet}`.includes("@")) return false
+    if (mailConstraint === "category" && !(message.labels || []).length) return false
     if (mailFilter === "unread") return !message.isRead
     if (mailFilter === "starred") return message.isStarred
     if (mailFilter === "attachments") return message.hasAttachments
@@ -802,6 +899,14 @@ export function MailPage() {
       return Number.isFinite(receivedAt) && receivedAt >= Date.now() - 7 * 24 * 60 * 60 * 1000
     }
     return true
+  }).sort((a, b) => {
+    if (mailSort === "date-asc") return new Date(a.receivedAt).getTime() - new Date(b.receivedAt).getTime()
+    if (mailSort === "sender") return senderDisplayName(a).localeCompare(senderDisplayName(b), "zh-CN")
+    if (mailSort === "flagged" || mailSort === "importance") return Number(b.isStarred) - Number(a.isStarred) || new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime()
+    if (mailSort === "size-desc") return (b.sizeBytes || 0) - (a.sizeBytes || 0)
+    if (mailSort === "subject") return messageSubject(a).localeCompare(messageSubject(b), "zh-CN")
+    if (mailSort === "category") return (a.labels?.[0]?.name || "").localeCompare(b.labels?.[0]?.name || "", "zh-CN")
+    return new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime()
   })
   const unreadCount = allMessages.filter((message) => !message.isRead).length
   const mailboxUnreadCount = (folders.data?.items || []).find((item) => item.name === "Inbox")?.unreadCount ?? unreadCount
@@ -970,6 +1075,13 @@ export function MailPage() {
   function openReply(message: MailMessage) {
     if (!canSendMail) return
     openCompose({ key: `reply-${message.id}-${Date.now()}`, mailboxId: message.mailboxId, to: message.from, subject: withPrefix(messageSubject(message), "Re:"), text: quoteMessage(message) })
+  }
+  function openReplyAll(message: MailMessage) {
+    if (!canSendMail) return
+    const ownAddresses = new Set([selectedMailbox?.address, message.mailboxAddress, message.recipientAddress].filter(Boolean).map((address) => address!.toLowerCase()))
+    const sender = message.from
+    const copies = Array.from(new Set([...message.to, ...message.cc].filter((address) => !ownAddresses.has(address.toLowerCase()) && address.toLowerCase() !== sender.toLowerCase())))
+    openCompose({ key: `reply-all-${message.id}-${Date.now()}`, mailboxId: message.mailboxId, to: sender, cc: copies.join(", "), subject: withPrefix(messageSubject(message), "Re:"), text: quoteMessage(message) })
   }
   function openForward(message: MailMessage) {
     if (!canSendMail) return
@@ -1168,7 +1280,7 @@ export function MailPage() {
     setPendingConfirm({
       title: `删除文件夹“${item.label}”？`,
       description: isAllMailboxSelected
-        ? "所有邮箱中的同名文件夹都会删除，文件夹内邮件会移回各自的收件箱。"
+        ? "全部邮箱中的同名文件夹都会删除，文件夹内邮件会移回各自的收件箱。"
         : "文件夹内的邮件会移回收件箱，不会被删除。",
       confirmText: "删除文件夹",
       onConfirm: () => deleteFolder.mutate(item),
@@ -1387,9 +1499,6 @@ export function MailPage() {
     })
     setAdvancedSearchOpen(false)
   }
-  function clearAdvancedSearch() {
-    updateAdvancedSearch(emptyAdvancedSearch)
-  }
   function handleSearchKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
     if (event.key !== "Enter") return
     const parsed = parseSmartSearchQuery(query)
@@ -1402,46 +1511,48 @@ export function MailPage() {
   const sidebarContent = (
     <Sidebar collapsible="none" className="h-full min-h-0 w-full overflow-hidden border-r border-border bg-sidebar text-sidebar-foreground">
       <SidebarHeader className={cn("shrink-0 pb-2 pt-3", sidebarCollapsed ? "px-2" : "px-3")}>
-        <AccountHeader
-          collapsed={sidebarCollapsed}
-          name={me.data?.user.displayName || selectedMailbox?.address || "NewSzxcn"}
-          email={me.data?.user.email || selectedMailbox?.address}
-          darkMode={darkMode}
-          onToggleTheme={() => setDarkMode((value) => !value)}
-          onSettings={openSettings}
-        />
-        <div className={cn("relative mt-2", sidebarCollapsed && "flex justify-center")}>
-          <MailboxSwitcher
-            collapsed={sidebarCollapsed}
-            mailboxes={mailboxList.data?.items || []}
-            loading={mailboxList.isLoading}
-            selectedMailboxId={selectedMailboxId}
-            selectedMailbox={selectedMailbox}
-            unreadCount={mailboxUnreadCount}
-            hasCopyAction={showMailboxCopy}
-            onSelect={switchMailbox}
-          />
-          {!sidebarCollapsed && showMailboxCopy && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="absolute right-1 top-1 h-6 w-6 rounded-sm text-muted-foreground shadow-none hover:bg-accent hover:text-foreground"
-              onClick={copyCurrentMailbox}
-              disabled={!selectedMailbox}
-              aria-label="复制邮箱地址"
-              title="复制邮箱地址"
-            >
-              <Copy className="h-3.5 w-3.5" />
-            </Button>
-          )}
-        </div>
-        {canSendMail && (
-          <Button className={cn("workspace-compose-button mt-4 h-9 w-full rounded-md text-[13px] font-semibold", sidebarCollapsed && "px-0")} size={sidebarCollapsed ? "icon" : "default"} onClick={() => openCompose()} disabled={!selectedComposeMailbox}>
-            <PencilLine className="h-4 w-4" />
-            {!sidebarCollapsed && <span>写邮件</span>}
-          </Button>
-        )}
+        <>
+            <AccountHeader
+              collapsed={sidebarCollapsed}
+              name={me.data?.user.displayName || selectedMailbox?.address || "NewSzxcn"}
+              email={me.data?.user.email || selectedMailbox?.address}
+              darkMode={darkMode}
+              onToggleTheme={() => setThemeMode(darkMode ? "light" : "dark")}
+              onSettings={openSettings}
+            />
+            <div className={cn("relative mt-2", sidebarCollapsed && "flex justify-center")}>
+              <MailboxSwitcher
+                collapsed={sidebarCollapsed}
+                mailboxes={mailboxList.data?.items || []}
+                loading={mailboxList.isLoading}
+                selectedMailboxId={selectedMailboxId}
+                selectedMailbox={selectedMailbox}
+                unreadCount={mailboxUnreadCount}
+                hasCopyAction={showMailboxCopy}
+                onSelect={switchMailbox}
+              />
+              {!sidebarCollapsed && showMailboxCopy && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-1 top-1 h-6 w-6 rounded-sm text-muted-foreground shadow-none hover:bg-accent hover:text-foreground"
+                  onClick={copyCurrentMailbox}
+                  disabled={!selectedMailbox}
+                  aria-label="复制邮箱地址"
+                  title="复制邮箱地址"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
+            {canSendMail && (
+              <Button className={cn("workspace-compose-button mt-4 h-9 w-full rounded-md text-[13px] font-semibold", sidebarCollapsed && "px-0")} size={sidebarCollapsed ? "icon" : "default"} onClick={() => openCompose()} disabled={!selectedComposeMailbox}>
+                <PencilLine className="h-4 w-4" />
+                {!sidebarCollapsed && <span>写邮件</span>}
+              </Button>
+            )}
+        </>
       </SidebarHeader>
       <SidebarContent className="min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain px-1 pb-4">
         {!sidebarCollapsed && publicSettings.isError && <SidebarQueryFailure label="邮箱设置读取失败" onRetry={() => { void publicSettings.refetch() }} />}
@@ -1794,10 +1905,11 @@ export function MailPage() {
       </Button>
       {advancedSearchOpen && (
         <AdvancedSearchPanel
+          query={query}
           draft={advancedSearchDraft}
+          onQueryChange={setQuery}
           onDraftChange={setAdvancedSearchDraft}
           onSubmit={applyAdvancedSearch}
-          onClear={clearAdvancedSearch}
         />
       )}
     </div>
@@ -1906,8 +2018,20 @@ export function MailPage() {
     <div className={cn("mail-content-grid min-h-0 flex-1 bg-background", selectedId && "is-reading")}>
       <div className={cn("mail-list-pane min-w-0", selectedId && "max-[767px]:hidden")}>
         <div className="flex h-full min-h-0 flex-col bg-background">
-          <div className="shrink-0 border-b p-3">
-            {mailSearchControl}
+          <div className="mail-list-search">
+            <DesktopMailSearch
+              query={query}
+              advancedOpen={advancedSearchOpen}
+              advancedActive={advancedSearchActive}
+              activeFilterCount={advancedSearchChips.length}
+              draft={advancedSearchDraft}
+              onQueryChange={setQuery}
+              onKeyDown={handleSearchKeyDown}
+              onAdvancedToggle={toggleAdvancedSearch}
+              onAdvancedClose={() => setAdvancedSearchOpen(false)}
+              onDraftChange={setAdvancedSearchDraft}
+              onSubmit={applyAdvancedSearch}
+            />
           </div>
           <div className="mail-list-toolbar flex min-h-14 shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
             <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -1921,9 +2045,18 @@ export function MailPage() {
                 {mailRefreshTool}
               </div>
             </div>
-            <div className="mail-list-toolbar-filters flex min-w-0 shrink-0 items-center gap-1.5">
-              <Button type="button" variant={mailFilter === "all" ? "secondary" : "outline"} size="sm" className="h-8 rounded-md px-3 text-[13px] font-normal shadow-none" onClick={() => setMailFilter("all")}>全部</Button>
-              <Button type="button" variant={mailFilter === "unread" ? "secondary" : "outline"} size="sm" className="h-8 rounded-md px-3 text-[13px] font-normal shadow-none" onClick={() => setMailFilter("unread")}>未读</Button>
+            <div className="flex min-w-0 shrink-0 items-center gap-1.5">
+              <MailFilterMenu
+                focused={focusedInbox}
+                onFocusedChange={setFocusedInbox}
+                filter={mailFilter}
+                onFilterChange={setMailFilter}
+                constraint={mailConstraint}
+                onConstraintChange={setMailConstraint}
+                sort={mailSort}
+                onSortChange={setMailSort}
+                onSettings={openSettings}
+              />
             </div>
           </div>
           {selectedCountOnPage > 0 && canOrganizeMail && mailView !== "unknown" && (
@@ -1934,7 +2067,11 @@ export function MailPage() {
           )}
           <ScrollArea className="min-h-0 flex-1 overflow-x-hidden">
             {mailMessagesLoading && <MessageSkeleton />}
-            {visibleMessages.map((m) => <MessageRow key={m.id} message={m} active={selectedId === m.id} checked={compactSelectedIds.includes(m.id)} scheduled={scheduledDraftIds.has(m.id)} onCheckedChange={(checked) => toggleCompactSelect(m.id, checked)} onClick={() => openMessage(m.id)} onContextMenu={(event) => openMessageContextMenu(event, m)} onStar={() => star.mutate({ id: m.id, starred: !m.isStarred })} onArchive={() => move.mutate({ id: m.id, folder: m.folder === "Archive" ? "Inbox" : "Archive" })} onTrash={() => m.folder === "Trash" ? confirmDeleteMessage(m) : move.mutate({ id: m.id, folder: "Trash" })} onToggleRead={() => markRead.mutate({ id: m.id, read: !m.isRead })} canOrganize={canOrganizeMail && mailView !== "unknown"} />)}
+            {visibleMessages.map((m, index) => {
+              const group = messageDateGroup(m.receivedAt)
+              const previousGroup = index > 0 ? messageDateGroup(visibleMessages[index - 1].receivedAt) : ""
+              return <React.Fragment key={m.id}>{group !== previousGroup && <div className="mail-date-group">{group}</div>}<MessageRow message={m} active={selectedId === m.id} checked={compactSelectedIds.includes(m.id)} scheduled={scheduledDraftIds.has(m.id)} onCheckedChange={(checked) => toggleCompactSelect(m.id, checked)} onClick={() => openMessage(m.id)} onContextMenu={(event) => openMessageContextMenu(event, m)} onStar={() => star.mutate({ id: m.id, starred: !m.isStarred })} onArchive={() => move.mutate({ id: m.id, folder: m.folder === "Archive" ? "Inbox" : "Archive" })} onTrash={() => m.folder === "Trash" ? confirmDeleteMessage(m) : move.mutate({ id: m.id, folder: "Trash" })} onToggleRead={() => markRead.mutate({ id: m.id, read: !m.isRead })} canOrganize={canOrganizeMail && mailView !== "unknown"} /></React.Fragment>
+            })}
             {!mailMessagesLoading && visibleMessages.length === 0 && <div className="grid min-h-[170px] place-items-center px-8 py-12 text-center text-base text-muted-foreground">{emptyMessage}</div>}
             {!mailMessagesLoading && hasMoreMessages && (
               <div className="border-b p-4 text-center">
@@ -1947,16 +2084,9 @@ export function MailPage() {
         </div>
       </div>
 
-      <section className={cn("mail-detail-pane min-w-0", !selectedId && "max-[767px]:hidden")}>
+      <section className={cn("mail-detail-pane min-w-0", !selectedId && "is-empty max-[767px]:hidden")}>
         <div className="h-full min-h-0 bg-background">
-          {!selectedId && (
-            <div className="grid h-full place-items-center text-muted-foreground">
-              <div className="flex flex-col items-center gap-4 text-center">
-                <Mail className="h-12 w-12 stroke-[1.6] text-muted-foreground/60" />
-                <div className="text-base">选择一封邮件以查看详情</div>
-              </div>
-            </div>
-          )}
+          {!selectedId && <div className="h-full" aria-label="未选择邮件，阅读区域显示背景" />}
           {detail.isLoading && <div className="space-y-4 p-6"><Skeleton className="h-8 w-2/3" /><Skeleton className="h-4 w-1/3" /><Separator /><Skeleton className="h-40 w-full" /></div>}
           {detail.isError && <MailDetailFailure error={detail.error} onRetry={() => { void detail.refetch() }} />}
           {!detail.isError && selected && <div className="flex h-full min-h-0 flex-col">
@@ -1967,25 +2097,20 @@ export function MailPage() {
                   返回列表
                 </Button>
               )}
-              <div className="mb-3 flex items-start justify-between gap-3">
-                <h2 className="min-w-0 flex-1 break-words text-lg font-semibold leading-6">{selected.subject}</h2>
-                <div className="flex shrink-0 items-center gap-1.5">
-                  {canSendMail && <Button variant="outline" size="sm" onClick={() => openReply(selected)}><Reply className="h-4 w-4" />回复</Button>}
-                  {canSendMail && <Button variant="outline" size="sm" onClick={() => openForward(selected)}><Forward className="h-4 w-4" />转发</Button>}
-                  {(mailView !== "external" && mailView !== "unknown") && (selected.sendQueueId || canOrganizeMail) && (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="icon" className="h-9 w-9" aria-label="更多邮件操作" title="更多邮件操作">
-                          <Ellipsis className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        {selected.sendQueueId && <DropdownMenuItem onSelect={() => openMessageSendTimeline(selected)}><History className="h-4 w-4" />投递时间线</DropdownMenuItem>}
-                        {canOrganizeMail && <DropdownMenuItem onSelect={() => move.mutate({ id: selected.id, folder: selected.folder === "Archive" ? "Inbox" : "Archive" })}><Archive className="h-4 w-4" />{selected.folder === "Archive" ? "取消归档" : "归档"}</DropdownMenuItem>}
-                        {canOrganizeMail && <DropdownMenuItem className="text-destructive" onSelect={() => confirmDeleteMessage(selected)}><Trash2 className="h-4 w-4" />{selected.folder === "Trash" ? "永久删除" : "移入已删除"}</DropdownMenuItem>}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )}
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <h2 className="min-w-0 flex-1 truncate text-xl font-semibold" title={selected.subject}>{selected.subject}</h2>
+                <div className="mail-reading-actions">
+                  {canSendMail && <Button type="button" variant="ghost" size="icon" onClick={() => openReply(selected)} aria-label="回复" title="回复"><Reply /></Button>}
+                  {canSendMail && <Button type="button" variant="ghost" size="icon" onClick={() => openReplyAll(selected)} aria-label="全部回复" title="全部回复"><ReplyAll /></Button>}
+                  {canSendMail && <Button type="button" variant="ghost" size="icon" onClick={() => openForward(selected)} aria-label="转发" title="转发"><Forward /></Button>}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon" aria-label="更多邮件操作" title="更多邮件操作"><Ellipsis /></Button></DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-44">
+                      {mailView !== "external" && mailView !== "unknown" && selected.sendQueueId && <DropdownMenuItem onSelect={() => openMessageSendTimeline(selected)}><History />投递时间线</DropdownMenuItem>}
+                      {mailView !== "external" && mailView !== "unknown" && canOrganizeMail && <DropdownMenuItem onSelect={() => move.mutate({ id: selected.id, folder: selected.folder === "Archive" ? "Inbox" : "Archive" })}><Archive />{selected.folder === "Archive" ? "取消归档" : "归档"}</DropdownMenuItem>}
+                      {mailView !== "external" && mailView !== "unknown" && canOrganizeMail && <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => confirmDeleteMessage(selected)}><Trash2 />{selected.folder === "Trash" ? "永久删除" : "移入已删除"}</DropdownMenuItem>}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               </div>
               <MessageMetaPanel
@@ -2006,9 +2131,46 @@ export function MailPage() {
   )
 
   return (
-    <div className="mail-workspace-theme h-svh overflow-hidden bg-background">
+    <div
+      className="mail-wallpaper h-svh overflow-hidden"
+      data-mail-theme={selectedThemeId}
+      data-1p-ignore="true"
+      data-lpignore="true"
+      data-bwignore="true"
+      style={{
+        "--mail-wallpaper-light": selectedMailTheme ? `image-set(url(${selectedMailTheme.light}) type("image/webp"), url(${selectedMailTheme.lightFallback}) type("image/jpeg"))` : "none",
+        "--mail-wallpaper-dark": selectedMailTheme ? `image-set(url(${selectedMailTheme.dark}) type("image/webp"), url(${selectedMailTheme.darkFallback}) type("image/jpeg"))` : "none",
+        "--mail-wallpaper-position": selectedMailTheme?.backgroundPosition || "center center",
+        "--mail-accent-color": accentColor,
+      } as React.CSSProperties}
+    >
       <SidebarProvider className="mail-workspace-provider h-full min-h-0 w-full min-w-0 flex-col">
-        {isMobile ? (
+        {isMobile ? forwardingWorkspaceOpen ? (
+          <div className="mobile-forwarding-shell">
+            <ForwardingWorkspace
+              mailboxes={mailboxList.data?.items || []}
+              tab={forwardingWorkspaceTab}
+              onTabChange={navigateForwardingTab}
+            />
+          </div>
+        ) : mailboxWorkspaceOpen ? (
+          <div className="mobile-mailbox-shell">
+            <MailboxWorkspace
+              mailboxes={mailboxList.data?.items || []}
+              loading={mailboxList.isLoading}
+              error={mailboxList.error}
+              canCreate={canApplyMailbox}
+              onCreate={() => setMailboxCreateOpen(true)}
+              onOpenMailbox={(id) => { switchMailbox(id); navigate("/mail") }}
+              onManageForwarding={(id) => navigate(`/mail/forwarding?tab=settings&scope=${encodeURIComponent(id)}`)}
+              onRetry={() => { void mailboxList.refetch() }}
+            />
+          </div>
+        ) : contactsWorkspaceOpen ? (
+          <div className="mobile-contacts-shell">
+            <ContactsWorkspace canManage={canManageContacts} createOpen={contactCreateOpen} onCreateOpenChange={setContactCreateOpen} onCompose={(email) => { navigate("/mail"); openCompose({ key: `contact-${Date.now()}`, to: email }) }} />
+          </div>
+        ) : (
           <div className="flex h-full min-h-0 flex-col">
             {!selectedId && (
               <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2">
@@ -2022,22 +2184,109 @@ export function MailPage() {
                   </SheetContent>
                 </Sheet>
                 <div className="min-w-0 flex-1 text-sm font-semibold">{mailView === "label" && selectedLabel ? <Badge variant="outline" className="gap-1.5 rounded-md font-normal"><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: labelDotColor(selectedLabel) }} />{selectedLabel.name}</Badge> : viewTitle}</div>
-                {canSendMail && <Button type="button" size="icon" onClick={() => openCompose()} disabled={!selectedComposeMailbox} aria-label="写邮件"><PencilLine className="h-4 w-4" /></Button>}
+                {mailTransferTools}
+                  {canSendMail && <Button type="button" size="icon" onClick={() => openCompose()} disabled={!selectedComposeMailbox} aria-label="写邮件"><PencilLine className="h-4 w-4" /></Button>}
+                <div className="relative basis-full">
+                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={mailView === "external" ? "搜索远端邮件" : mailView === "sendQueue" ? "搜索发送队列" : mailView === "scheduled" ? "搜索待发送" : "搜索邮件"} type="search" name="mail-mobile-search" autoComplete="off" data-1p-ignore="true" data-lpignore="true" data-bwignore="true" className="h-10 pl-9" />
+                </div>
               </header>
             )}
             <section className="flex min-h-0 flex-1 flex-col">{contentView}</section>
           </div>
         ) : (
-          <div className="mail-shell-grid h-full min-h-0 w-full min-w-0 overflow-hidden">
-            <div className="h-full min-h-0 min-w-0 overflow-hidden">
-              {sidebarContent}
+          <div className={cn("mail-window", !utilityWorkspaceOpen && "mail-main-window")}>
+            {utilityWorkspaceOpen ? <UtilityCommandBar
+              refreshing={refreshing || autoRefreshing}
+              onNavigation={() => navigate("/mail")}
+              onMailboxes={() => navigate("/mail/mailboxes")}
+              onForwarding={() => navigate("/mail/forwarding?tab=settings")}
+              onContacts={() => navigate("/mail/contacts")}
+              onAppearance={() => navigate("/profile?accountTab=appearance")}
+              onSettings={openSettings}
+              leadingControl={contactsWorkspaceOpen ? (
+                <Button ref={contactCreateButtonRef} type="button" className="compose-command" aria-haspopup="menu" aria-expanded={contactMenuOpen} aria-controls="contact-create-menu" onClick={() => setContactMenuOpen((value) => !value)}><PersonAdd20Regular />新建联系人</Button>
+              ) : undefined}
+              searchControl={(
+                <DesktopMailSearch
+                  query={query}
+                  advancedOpen={advancedSearchOpen}
+                  advancedActive={advancedSearchActive}
+                  activeFilterCount={advancedSearchChips.length}
+                  draft={advancedSearchDraft}
+                  onQueryChange={setQuery}
+                  onKeyDown={(event) => {
+                    handleSearchKeyDown(event)
+                    if (event.key === "Enter") navigate("/mail")
+                  }}
+                  onAdvancedToggle={toggleAdvancedSearch}
+                  onAdvancedClose={() => setAdvancedSearchOpen(false)}
+                  onDraftChange={setAdvancedSearchDraft}
+                  onSubmit={(draft) => { applyAdvancedSearch(draft); navigate("/mail") }}
+                />
+              )}
+              onRefresh={() => {
+                setRefreshing(true)
+                void Promise.all([
+                  qc.invalidateQueries({ queryKey: ["mailboxes", "mine"] }),
+                  qc.invalidateQueries({ queryKey: ["forwarding-settings"] }),
+                ]).finally(() => setRefreshing(false))
+              }}
+            /> : null}
+            <AnchoredPopover anchorRef={contactCreateButtonRef} open={contactMenuOpen} onOpenChange={setContactMenuOpen} placement="bottom-start" id="contact-create-menu" role="menu" ariaLabel="新建联系人菜单" className="contact-create-menu">
+              <Button type="button" variant="ghost" role="menuitem" onClick={() => { setContactMenuOpen(false); setContactCreateOpen(true) }}><PersonAdd20Regular /><span><strong>新建联系人</strong><small>添加姓名和邮箱地址</small></span></Button>
+              <Button type="button" variant="ghost" role="menuitem" disabled aria-disabled="true"><ContactCard20Regular /><span><strong>新建联系人列表</strong><small>当前服务器暂不支持联系人分组</small></span></Button>
+            </AnchoredPopover>
+            <div className={cn("desktop-workspace", utilityWorkspaceOpen && "utility-is-open", forwardingWorkspaceOpen && "forwarding-is-open", mailboxWorkspaceOpen && "mailbox-is-open", contactsWorkspaceOpen && "contacts-is-open", !utilityWorkspaceOpen && sidebarCollapsed && "folder-is-collapsed")}>
+              {forwardingWorkspaceOpen ? (
+                <div className="forwarding-shell-pane">
+                  <ForwardingWorkspace
+                    mailboxes={mailboxList.data?.items || []}
+                    tab={forwardingWorkspaceTab}
+                    onTabChange={navigateForwardingTab}
+                  />
+                </div>
+              ) : mailboxWorkspaceOpen ? (
+                <div className="mailbox-shell-pane">
+                  <MailboxWorkspace
+                    mailboxes={mailboxList.data?.items || []}
+                    loading={mailboxList.isLoading}
+                    error={mailboxList.error}
+                    canCreate={canApplyMailbox}
+                    onCreate={() => setMailboxCreateOpen(true)}
+                    onOpenMailbox={(id) => { switchMailbox(id); navigate("/mail") }}
+                    onManageForwarding={(id) => navigate(`/mail/forwarding?tab=settings&scope=${encodeURIComponent(id)}`)}
+                    onRetry={() => { void mailboxList.refetch() }}
+                  />
+                </div>
+              ) : contactsWorkspaceOpen ? (
+                <div className="contacts-shell-pane">
+                  <ContactsWorkspace canManage={canManageContacts} createOpen={contactCreateOpen} onCreateOpenChange={setContactCreateOpen} onCompose={(email) => { navigate("/mail"); openCompose({ key: `contact-${Date.now()}`, to: email }) }} />
+                </div>
+              ) : (
+                <>
+                  <div className="mail-folder-stack h-full min-h-0 min-w-0">
+                    <div className="mail-folder-pane h-full min-h-0 min-w-0 overflow-hidden">{sidebarContent}</div>
+                  </div>
+                  <section className="mail-center-pane flex h-full min-h-0 min-w-0 flex-col">{contentView}</section>
+                </>
+              )}
             </div>
-            <section className="flex h-full min-h-0 min-w-0 flex-col">
-              {contentView}
-            </section>
           </div>
         )}
       </SidebarProvider>
+
+      <MailboxCreateSheet
+        open={mailboxCreateOpen}
+        onOpenChange={setMailboxCreateOpen}
+        canCreate={canApplyMailbox}
+        onCreated={(mailbox, openMailbox) => {
+          if (!openMailbox) return
+          setMailboxCreateOpen(false)
+          switchMailbox(mailbox.id)
+          navigate("/mail")
+        }}
+      />
 
       <ComposeDialog mailboxes={composeMailboxes} mailbox={selectedComposeMailbox} open={composeOpen} draft={composeDraft} limits={user?.limits} canSend={canSendMail} canManageDrafts={canManageDrafts} canSchedule={canScheduleMail} canManageSignatures={canManageSignatures} onOpenChange={(open) => { setComposeOpen(open); if (!open) setComposeDraft(undefined) }} onSent={() => { setComposeOpen(false); setComposeDraft(undefined); qc.invalidateQueries({ queryKey: ["messages"] }); qc.invalidateQueries({ queryKey: ["folders"] }); qc.invalidateQueries({ queryKey: ["mail-stats"] }); qc.invalidateQueries({ queryKey: ["labels"] }); qc.invalidateQueries({ queryKey: ["scheduled-sends"] }); qc.invalidateQueries({ queryKey: ["send-queue"] }) }} />
       <Input ref={mailImportInputRef} type="file" accept=".eml,.mbox,message/rfc822,application/mbox" multiple className="hidden" onChange={importSelectedMailFiles} />
@@ -2092,6 +2341,144 @@ export function MailPage() {
         onConfirm={() => pendingConfirm?.onConfirm()}
       />
     </div>
+  )
+}
+
+function MailIconButton({ label, children, onClick, className, pressed }: { label: string; children: React.ReactNode; onClick?: () => void; className?: string; pressed?: boolean }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button type="button" variant="ghost" size="icon" className={cn("mail-icon-button", className)} onClick={onClick} aria-label={label} aria-pressed={pressed}>
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+type WorkspaceMenuActions = {
+  onMailboxes: () => void
+  onForwarding: () => void
+  onContacts: () => void
+  onAppearance: () => void
+  onSettings: () => void
+}
+
+function WorkspaceMoreMenu({ onMailboxes, onForwarding, onContacts, onAppearance, onSettings }: WorkspaceMenuActions) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon" className="mail-icon-button" aria-label="更多邮箱功能" title="更多邮箱功能"><Ellipsis /></Button></DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="mail-filter-menu w-52">
+        <DropdownMenuItem onSelect={onMailboxes}><MailboxIcon />邮箱管理</DropdownMenuItem>
+        <DropdownMenuItem onSelect={onForwarding}><Forward />邮件转发</DropdownMenuItem>
+        <DropdownMenuItem onSelect={onContacts}><Users />联系人</DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={onAppearance}><SlidersHorizontal />外观</DropdownMenuItem>
+        <DropdownMenuItem onSelect={onSettings}><Settings />设置</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function UtilityCommandBar({ refreshing, searchControl, leadingControl, onNavigation, onRefresh, ...menuActions }: { refreshing: boolean; searchControl: React.ReactNode; leadingControl?: React.ReactNode; onNavigation: () => void; onRefresh: () => void } & WorkspaceMenuActions) {
+  return (
+    <TooltipProvider delayDuration={300}>
+      <div className="desktop-commandbar utility-commandbar" role="toolbar" aria-label="邮箱功能工具栏">
+        <div className="desktop-commandbar-leading">
+          <MailIconButton label="返回邮件导航" onClick={onNavigation} className="folder-toolbar-toggle"><Menu strokeWidth={1.35} /></MailIconButton>
+          {leadingControl}
+        </div>
+        <div className="desktop-commandbar-actions">{searchControl}</div>
+        <div className="desktop-commandbar-trailing">
+          <Button type="button" variant="ghost" className="desktop-command sync-command" disabled={refreshing} onClick={onRefresh} aria-label="同步邮箱状态" title="同步邮箱状态"><RefreshCcw className={cn(refreshing && "animate-spin")} />同步</Button>
+          <WorkspaceMoreMenu {...menuActions} />
+        </div>
+      </div>
+    </TooltipProvider>
+  )
+}
+
+function DesktopMailSearch({ query, advancedOpen, advancedActive, activeFilterCount, draft, onQueryChange, onKeyDown, onAdvancedToggle, onAdvancedClose, onDraftChange, onSubmit }: { query: string; advancedOpen: boolean; advancedActive: boolean; activeFilterCount: number; draft: AdvancedMailSearchDraft; onQueryChange: (query: string) => void; onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => void; onAdvancedToggle: () => void; onAdvancedClose: () => void; onDraftChange: (draft: AdvancedMailSearchDraft) => void; onSubmit: (draft: AdvancedMailSearchDraft) => void }) {
+  const rootRef = React.useRef<HTMLDivElement>(null)
+
+  React.useEffect(() => {
+    if (!advancedOpen) return
+    const closeOnOutside = (event: PointerEvent) => {
+      if (!(event.target instanceof Element)) return
+      if (rootRef.current?.contains(event.target)) return
+      if (event.target.closest('[data-radix-popper-content-wrapper], [role="listbox"], [role="option"]')) return
+      onAdvancedClose()
+    }
+    document.addEventListener("pointerdown", closeOnOutside)
+    return () => document.removeEventListener("pointerdown", closeOnOutside)
+  }, [advancedOpen, onAdvancedClose])
+
+  return (
+    <div ref={rootRef} className={cn("desktop-mail-search", advancedOpen && "has-advanced", (query || advancedActive) && "has-search")}>
+      <div id="desktop-mail-search-panel" className="desktop-search-panel" role="search" aria-label="搜索邮件">
+        <Search className="desktop-search-leading-icon" aria-hidden="true" />
+        <Input
+          type="search"
+          name="mail-desktop-search"
+          value={query}
+          onChange={(event) => onQueryChange(event.target.value)}
+          onFocus={() => { if (!advancedOpen) onAdvancedToggle() }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault()
+              onAdvancedClose()
+              event.currentTarget.blur()
+              return
+            }
+            onKeyDown(event)
+          }}
+          placeholder="搜索"
+          autoComplete="off"
+          data-1p-ignore="true"
+          data-lpignore="true"
+          data-bwignore="true"
+          aria-label="搜索发件人、主题和内容"
+        />
+        <Button type="button" variant="ghost" size="icon" className={cn("desktop-search-filter", (advancedActive || advancedOpen) && "is-active")} onClick={onAdvancedToggle} aria-label="高级搜索" aria-expanded={advancedOpen} title="高级搜索">
+          <SlidersHorizontal />
+          {activeFilterCount > 0 && <span aria-label={`${activeFilterCount} 个搜索条件`}>{activeFilterCount}</span>}
+        </Button>
+        {advancedOpen && <AdvancedSearchPanel query={query} draft={draft} onQueryChange={onQueryChange} onDraftChange={onDraftChange} onSubmit={onSubmit} />}
+      </div>
+    </div>
+  )
+}
+
+function MailFilterMenu({ focused, onFocusedChange, filter, onFilterChange, constraint, onConstraintChange, sort, onSortChange, onSettings }: { focused: boolean; onFocusedChange: (value: boolean) => void; filter: MailFilter; onFilterChange: (value: MailFilter) => void; constraint: MailConstraint; onConstraintChange: (value: MailConstraint) => void; sort: MailSort; onSortChange: (value: MailSort) => void; onSettings: () => void }) {
+  const filters: { value: MailFilter; label: string; icon: React.ReactNode }[] = [
+    { value: "unread", label: "未读", icon: <MailQuestion /> },
+    { value: "starred", label: "标记", icon: <Flag /> },
+    { value: "attachments", label: "附件", icon: <Paperclip /> },
+    { value: "recent7", label: "最近 7 天", icon: <Calendar /> },
+  ]
+  const sorts: { value: MailSort; label: string }[] = [
+    { value: "date-desc", label: "日期（由新到旧）" }, { value: "date-asc", label: "日期（由旧到新）" }, { value: "sender", label: "发件人" }, { value: "flagged", label: "标记" }, { value: "size-desc", label: "大小" }, { value: "importance", label: "重要性" }, { value: "subject", label: "主题" }, { value: "category", label: "类别" },
+  ]
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label="筛选与排序" title="筛选与排序"><Filter className="h-4 w-4" /></Button></DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="mail-filter-menu w-60">
+        <DropdownMenuItem onSelect={() => onFocusedChange(false)}>{!focused ? <Check /> : <span className="h-4 w-4" />}收件箱</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => onFocusedChange(true)}>{focused ? <Check /> : <span className="h-4 w-4" />}重点收件箱</DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="text-xs text-muted-foreground">筛选依据</DropdownMenuLabel>
+        {filters.map((item) => <DropdownMenuCheckboxItem key={item.value} checked={filter === item.value} onCheckedChange={(checked) => onFilterChange(checked ? item.value : "all")}><span className="mr-2 inline-flex">{item.icon}</span>{item.label}</DropdownMenuCheckboxItem>)}
+        <DropdownMenuCheckboxItem checked={constraint === "recipient"} onCheckedChange={(checked) => onConstraintChange(checked ? "recipient" : "all")}><span className="mr-2 inline-flex"><UserRound /></span>收件人是我</DropdownMenuCheckboxItem>
+        <DropdownMenuCheckboxItem checked={constraint === "mentioned"} onCheckedChange={(checked) => onConstraintChange(checked ? "mentioned" : "all")}><span className="mr-2 inline-flex"><AtSign /></span>提及我</DropdownMenuCheckboxItem>
+        <DropdownMenuCheckboxItem checked={constraint === "category"} onCheckedChange={(checked) => onConstraintChange(checked ? "category" : "all")}><span className="mr-2 inline-flex"><Tag /></span>类别</DropdownMenuCheckboxItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="text-xs text-muted-foreground">排序依据</DropdownMenuLabel>
+        {sorts.map((item) => <DropdownMenuItem key={item.value} onSelect={() => onSortChange(item.value)}>{sort === item.value ? <Check /> : <span className="h-4 w-4" />}{item.label}</DropdownMenuItem>)}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={onSettings}><Settings />设置……</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -2268,62 +2655,61 @@ function menuAnchorOrder(name: string) {
   }
 }
 
-function AdvancedSearchPanel({ draft, onDraftChange, onSubmit, onClear }: { draft: AdvancedMailSearchDraft; onDraftChange: (draft: AdvancedMailSearchDraft) => void; onSubmit: (draft: AdvancedMailSearchDraft) => void; onClear: () => void }) {
+function AdvancedSearchPanel({ query, draft, onQueryChange, onDraftChange, onSubmit }: { query: string; draft: AdvancedMailSearchDraft; onQueryChange: (query: string) => void; onDraftChange: (draft: AdvancedMailSearchDraft) => void; onSubmit: (draft: AdvancedMailSearchDraft) => void }) {
   const update = <K extends keyof AdvancedMailSearchDraft>(key: K, value: AdvancedMailSearchDraft[K]) => onDraftChange({ ...draft, [key]: value })
+  const [moreOpen, setMoreOpen] = React.useState(() => Boolean(draft.startDate || draft.endDate || draft.unread || draft.starred))
+  const [dateMode, setDateMode] = React.useState<"any" | "range">(() => draft.startDate || draft.endDate ? "range" : "any")
+
+  React.useEffect(() => {
+    if (draft.startDate || draft.endDate) {
+      setDateMode("range")
+      setMoreOpen(true)
+    }
+  }, [draft.endDate, draft.startDate])
+
   return (
     <form
-      className="absolute left-0 top-full z-50 mt-2 w-full rounded-md border bg-popover p-3 text-xs text-popover-foreground shadow-md"
+      className="advanced-search-panel absolute left-0 top-full z-50 w-full border text-xs text-popover-foreground shadow-md"
       onSubmit={(event) => {
         event.preventDefault()
         onSubmit(draft)
       }}
     >
-      <div className="grid grid-cols-2 gap-x-2 gap-y-3">
-        <AdvancedSearchField label="发件人">
-          <Input value={draft.from} onChange={(event) => update("from", event.target.value)} placeholder="邮箱或名称" className="h-8 rounded-md bg-background px-2.5 text-[13px] shadow-none" />
-        </AdvancedSearchField>
-        <AdvancedSearchField label="收件人">
-          <Input value={draft.to} onChange={(event) => update("to", event.target.value)} placeholder="邮箱地址" className="h-8 rounded-md bg-background px-2.5 text-[13px] shadow-none" />
-        </AdvancedSearchField>
-        <AdvancedSearchField label="主题" className="col-span-2">
-          <Input value={draft.subject} onChange={(event) => update("subject", event.target.value)} placeholder="主题关键词" className="h-8 rounded-md bg-background px-2.5 text-[13px] shadow-none" />
-        </AdvancedSearchField>
-        <AdvancedSearchField label="开始日期">
-          <Input type="date" value={draft.startDate} onChange={(event) => update("startDate", event.target.value)} className="h-8 rounded-md bg-background px-2.5 text-[13px] shadow-none" />
-        </AdvancedSearchField>
-        <AdvancedSearchField label="结束日期">
-          <Input type="date" value={draft.endDate} onChange={(event) => update("endDate", event.target.value)} className="h-8 rounded-md bg-background px-2.5 text-[13px] shadow-none" />
-        </AdvancedSearchField>
+      <div className="advanced-search-scope-row">
+        <span>搜索范围</span>
+        <strong>当前文件夹</strong>
+        <ChevronDown aria-hidden="true" />
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <AdvancedSearchToggle checked={draft.hasAttachments} onClick={() => update("hasAttachments", !draft.hasAttachments)}>有附件</AdvancedSearchToggle>
-        <AdvancedSearchToggle checked={draft.unread} onClick={() => update("unread", !draft.unread)}>未读</AdvancedSearchToggle>
-        <AdvancedSearchToggle checked={draft.starred} onClick={() => update("starred", !draft.starred)}>星标</AdvancedSearchToggle>
+      <div className="advanced-search-fields">
+        <AdvancedSearchField label="发件人"><Input value={draft.from} onChange={(event) => update("from", event.target.value)} aria-label="发件人" autoComplete="off" data-1p-ignore="true" data-lpignore="true" data-bwignore="true" /></AdvancedSearchField>
+        <AdvancedSearchField label="收件人"><Input value={draft.to} onChange={(event) => update("to", event.target.value)} aria-label="收件人" autoComplete="off" data-1p-ignore="true" data-lpignore="true" data-bwignore="true" /></AdvancedSearchField>
+        <AdvancedSearchField label="主题"><Input value={draft.subject} onChange={(event) => update("subject", event.target.value)} aria-label="主题" autoComplete="off" data-1p-ignore="true" data-lpignore="true" data-bwignore="true" /></AdvancedSearchField>
+        <AdvancedSearchField label="关键词"><Input value={query} onChange={(event) => onQueryChange(event.target.value)} aria-label="关键词" autoComplete="off" data-1p-ignore="true" data-lpignore="true" data-bwignore="true" /></AdvancedSearchField>
+        <div className="advanced-search-row advanced-search-date-row"><span>日期</span><Select value={dateMode} onValueChange={(value: "any" | "range") => { setDateMode(value); if (value === "range") setMoreOpen(true); else { update("startDate", ""); update("endDate", "") } }}><SelectTrigger aria-label="日期范围"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="any">任何</SelectItem><SelectItem value="range">日期范围</SelectItem></SelectContent></Select></div>
+        <div className="advanced-search-row advanced-search-switch-row"><span>附件</span><Switch className="advanced-search-switch" checked={draft.hasAttachments} onCheckedChange={(checked) => update("hasAttachments", checked)} aria-label="有附件" /></div>
       </div>
-      <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3">
-        <Button type="button" variant="ghost" className="h-8 px-2 text-xs font-normal text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={onClear}>清空条件</Button>
-        <div className="flex shrink-0 items-center gap-2">
-          <Button type="submit" className="h-8 rounded-md px-3 text-xs font-medium shadow-none">应用</Button>
+      <Button type="button" variant="ghost" className="advanced-search-more" onClick={() => setMoreOpen((open) => !open)} aria-expanded={moreOpen}><Plus aria-hidden="true" />添加更多选项</Button>
+      {moreOpen && (
+        <div className="advanced-search-more-options">
+          {dateMode === "range" && <><AdvancedSearchField label="开始日期"><Input type="date" value={draft.startDate} onChange={(event) => update("startDate", event.target.value)} aria-label="开始日期" /></AdvancedSearchField><AdvancedSearchField label="结束日期"><Input type="date" value={draft.endDate} onChange={(event) => update("endDate", event.target.value)} aria-label="结束日期" /></AdvancedSearchField></>}
+          <div className="advanced-search-row advanced-search-switch-row"><span>未读</span><Switch className="advanced-search-switch" checked={draft.unread} onCheckedChange={(checked) => update("unread", checked)} aria-label="未读邮件" /></div>
+          <div className="advanced-search-row advanced-search-switch-row"><span>星标</span><Switch className="advanced-search-switch" checked={draft.starred} onCheckedChange={(checked) => update("starred", checked)} aria-label="星标邮件" /></div>
         </div>
+      )}
+      <div className="advanced-search-footer">
+        <Button type="button" variant="ghost" className="advanced-search-save" disabled={!query.trim() && !hasAdvancedMailSearch(draft)}>保存搜索条件</Button>
+        <Button type="submit" className="advanced-search-submit">搜索<ArrowRight aria-hidden="true" /></Button>
       </div>
     </form>
   )
 }
 
-function AdvancedSearchField({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
+function AdvancedSearchField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className={cn("grid gap-1.5 text-xs font-normal text-muted-foreground", className)}>
-      <span className="leading-none">{label}</span>
+    <label className="advanced-search-row">
+      <span>{label}</span>
       {children}
     </label>
-  )
-}
-
-function AdvancedSearchToggle({ checked, onClick, children }: { checked: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <Button type="button" variant={checked ? "secondary" : "outline"} className={cn("h-7 rounded-full px-3 text-xs font-normal shadow-none", checked && "bg-accent text-accent-foreground")} onClick={onClick}>
-      {children}
-    </Button>
   )
 }
 
@@ -4427,6 +4813,7 @@ function ComposeDialog({ mailboxes, mailbox, open, draft, limits, canSend, canMa
       setClosing(false)
     }
   }
+
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (nextOpen) onOpenChange(true); else void closeCompose() }}>
       <DialogContent

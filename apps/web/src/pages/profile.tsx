@@ -1,11 +1,13 @@
 import * as React from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { ArrowLeft, BarChart3, Ban, Bell, BellOff, BookOpen, CheckCircle2, ChevronDown, ChevronUp, Clock3, Code2, Contact, Copy, ExternalLink, HardDrive, Image, Info, KeyRound, LogOut, Mail, MailCheck, MailX, Moon, PanelLeftOpen, PencilLine, PlayCircle, Plus, RefreshCcw, Search, SendHorizontal, Settings, ShieldCheck, SlidersHorizontal, Sun, Trash2, Users, X } from "lucide-react"
+import { ArrowLeft, BarChart3, Ban, Bell, BellOff, BookOpen, Check, CheckCircle2, ChevronDown, ChevronUp, Clock3, Code2, Contact, Copy, ExternalLink, HardDrive, Image, Info, KeyRound, LogOut, Mail, MailCheck, MailX, Monitor, Moon, PanelLeftOpen, PencilLine, PlayCircle, Plus, RefreshCcw, Search, SendHorizontal, Settings, ShieldCheck, SlidersHorizontal, Sun, Trash2, Users, X } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import { api, APIToken, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapStorageMode, ExternalImapSyncRun, ExternalImapTlsMode, ForwardingPendingBinding, ForwardingSettings, ForwardingVerifiedEmail, MailFolder, MailLabel, MailRule, MailRuleAction, MailRuleCondition, Mailbox, MailboxApplyOptions, MailSignature, MailStats, PermissionLimits } from "@/lib/api"
 import { cn, formatBytes } from "@/lib/utils"
-import { applyTheme, getInitialTheme } from "@/lib/theme"
+import { applyTheme, applyThemeMode, getInitialTheme, getThemeMode, resolveThemeMode, subscribeToSystemTheme, type ThemeMode } from "@/lib/theme"
+import { getAppearanceSettings, saveAppearanceSettings, type AppearanceSettings } from "@/lib/appearance"
+import { mailThemes } from "@/lib/mail-themes"
 import { DisplayMode, useDisplayMode } from "@/lib/display-mode"
 import { useMe } from "@/hooks/use-me"
 import { useLogout } from "@/hooks/use-logout"
@@ -32,7 +34,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog"
 import { useToast } from "@/hooks/use-toast"
 
 type Tab = "profile" | "mailboxes" | "contacts" | "cleanup" | "cleanupQueue" | "rules" | "blocked" | "stats" | "apiTokens"
-type AccountSettingsTab = "account" | "mail" | "clients" | "security"
+type AccountSettingsTab = "account" | "mail" | "clients" | "security" | "appearance"
 type MailboxView = "mine" | "forwarding" | "verified"
 type PendingConfirm = { title: string; description?: string; confirmText: string; destructive?: boolean; onConfirm: () => void }
 type RetryableQuery = { isLoading: boolean; isError: boolean; error: Error | null; refetch: () => Promise<unknown> }
@@ -53,6 +55,7 @@ const accountSettingTabs: { key: AccountSettingsTab; label: string }[] = [
   { key: "mail", label: "邮件" },
   { key: "clients", label: "通知与客户端" },
   { key: "security", label: "安全" },
+  { key: "appearance", label: "外观" },
 ]
 const forwardingTargetCollator = new Intl.Collator("en", { sensitivity: "base", numeric: true })
 
@@ -68,6 +71,7 @@ export function ProfilePage() {
   const [statsMailboxId, setStatsMailboxId] = React.useState("all")
   const [statsRangeDays, setStatsRangeDays] = React.useState(30)
   const [darkMode, setDarkMode] = React.useState(getInitialTheme)
+  const [themeMode, setThemeMode] = React.useState<ThemeMode>(getThemeMode)
   const [displayMode, setDisplayMode] = useDisplayMode()
   const [blockedMailboxId, setBlockedMailboxId] = React.useState("all")
   const [ruleDialogOpen, setRuleDialogOpen] = React.useState(false)
@@ -320,7 +324,14 @@ export function ProfilePage() {
     if (!mailboxId || !items.some((m) => m.id === mailboxId)) setMailboxId(items[0].id)
   }, [mailboxId, mailboxes.isSuccess, mailboxes.data?.items])
   React.useEffect(() => { if (mailboxId) localStorage.setItem("lanqin:selected-mailbox", mailboxId); else localStorage.removeItem("lanqin:selected-mailbox") }, [mailboxId])
-  React.useEffect(() => { applyTheme(darkMode, themeMountedRef.current); themeMountedRef.current = true }, [darkMode])
+  React.useEffect(() => { applyTheme(darkMode, themeMountedRef.current, false); themeMountedRef.current = true }, [darkMode])
+  React.useEffect(() => {
+    if (themeMode !== "system") return
+    return subscribeToSystemTheme((dark) => {
+      setDarkMode(dark)
+      applyTheme(dark, true, false)
+    })
+  }, [themeMode])
   React.useEffect(() => {
     document.documentElement.classList.add("workspace-ui")
     return () => document.documentElement.classList.remove("workspace-ui")
@@ -352,7 +363,12 @@ export function ProfilePage() {
   const sidebarContent = (
     <div className="flex h-full w-[var(--app-sidebar-width)] shrink-0 flex-col border-r border-border bg-card">
       <div className="h-[64px] border-b">
-        <AccountHeader name={user.displayName || selectedMailbox?.address || "NewSzxcn"} email={user.email || selectedMailbox?.address} darkMode={darkMode} onToggleTheme={() => setDarkMode((v) => !v)} onBack={() => navigate("/")} />
+        <AccountHeader name={user.displayName || selectedMailbox?.address || "NewSzxcn"} email={user.email || selectedMailbox?.address} darkMode={darkMode} onToggleTheme={() => {
+          const nextMode: ThemeMode = darkMode ? "light" : "dark"
+          setThemeMode(nextMode)
+          setDarkMode(!darkMode)
+          applyThemeMode(nextMode, true)
+        }} onBack={() => navigate("/")} />
       </div>
       <nav className="min-h-0 flex-1 overflow-y-auto p-2">
         <div className="px-2 pb-2 pt-2 text-xs font-semibold text-muted-foreground">管理</div>
@@ -495,6 +511,12 @@ export function ProfilePage() {
         onCopy={copy}
         onSelectMailbox={setMailboxId}
         onOpenCleanup={() => setTab("cleanup")}
+        themeMode={themeMode}
+        onThemeModeChange={(mode) => {
+          setThemeMode(mode)
+          setDarkMode(resolveThemeMode(mode))
+          applyThemeMode(mode, true)
+        }}
       />
     )
     if (tab === "mailboxes") return (
@@ -535,7 +557,7 @@ export function ProfilePage() {
   }
   function visibleTabQueries(): RetryableQuery[] {
     if (tab === "profile") {
-      if (accountTab === "security") return []
+      if (accountTab === "security" || accountTab === "appearance") return []
       if (accountTab === "account") return [mailboxes, accountStats]
       if (accountTab === "mail") return [mailboxes, labels, signatures]
       return [mailboxes, publicSettings]
@@ -624,6 +646,8 @@ function StatsRangeTabs({ rangeDays, onRangeChange }: { rangeDays: number; onRan
 
 type AccountSettingsSectionProps = {
   activeTab: AccountSettingsTab
+  themeMode: ThemeMode
+  onThemeModeChange: (mode: ThemeMode) => void
   user: { id: string; loginName?: string; email: string; displayName: string; role: string; disabled: boolean; twoFactorEnabled: boolean; createdAt: string; limits?: PermissionLimits }
   profile: { mutate: (form: FormData) => void; isPending: boolean }
   password: { mutate: (form: FormData) => void; isPending: boolean }
@@ -660,7 +684,9 @@ type AccountSettingsSectionProps = {
 
 function AccountSettingsSection(props: AccountSettingsSectionProps) {
   let content: React.ReactNode
-  if (props.activeTab === "mail") {
+  if (props.activeTab === "appearance") {
+    content = <AppearanceSettingsSection mode={props.themeMode} onModeChange={props.onThemeModeChange} />
+  } else if (props.activeTab === "mail") {
     content = (
       <MailPreferencesSection
         labels={props.labels}
@@ -711,6 +737,93 @@ function AccountSettingsSection(props: AccountSettingsSectionProps) {
     )
   }
   return <div className="profile-account-workspace">{content}</div>
+}
+
+const appearanceAccentOptions = ["#2f75e8", "#8b5cf6", "#ec4899", "#ef4444", "#0f9f9a", "#2f9e6f"]
+
+function AppearanceSettingsSection({ mode, onModeChange }: { mode: ThemeMode; onModeChange: (mode: ThemeMode) => void }) {
+  const [appearance, setAppearance] = React.useState<AppearanceSettings>(getAppearanceSettings)
+
+  function updateAppearance(next: AppearanceSettings) {
+    setAppearance(next)
+    saveAppearanceSettings(next)
+  }
+
+  return (
+    <div className="appearance-settings-page profile-continuous-panel">
+      <SettingsCard title="显示模式" subtitle="控制邮箱与设置页面的明暗外观。" surface="section">
+        <div className="appearance-segments" role="group" aria-label="显示模式">
+          {([
+            ["light", "浅色", Sun],
+            ["dark", "深色", Moon],
+            ["system", "跟随系统", Monitor],
+          ] as const).map(([value, label, Icon]) => (
+            <Button key={value} type="button" variant="ghost" className={cn(mode === value && "is-selected")} aria-pressed={mode === value} onClick={() => onModeChange(value)}>
+              <Icon />
+              <span>{label}</span>
+              {mode === value && <Check aria-hidden="true" />}
+            </Button>
+          ))}
+        </div>
+      </SettingsCard>
+
+      <SettingsCard title="背景图" subtitle="应用于邮箱和设置页面，浅色与深色模式自动使用对应图片。" surface="section">
+        <div className="theme-gallery">
+          {mailThemes.map((theme) => (
+            <Button
+              key={theme.id}
+              type="button"
+              variant="ghost"
+              className={cn("theme-option h-auto p-0", appearance.wallpaperId === theme.id && "is-selected")}
+              data-selected={appearance.wallpaperId === theme.id}
+              aria-pressed={appearance.wallpaperId === theme.id}
+              onClick={() => updateAppearance({ ...appearance, wallpaperId: theme.id })}
+            >
+              <img src={theme.thumbnail} alt="" />
+              <span>{theme.name}</span>
+              {appearance.wallpaperId === theme.id && <Check aria-hidden="true" />}
+            </Button>
+          ))}
+        </div>
+      </SettingsCard>
+
+      <SettingsCard title="强调色" subtitle="用于外观页的选中状态和重点提示。" surface="section">
+        <div className="accent-swatches" role="group" aria-label="强调色">
+          {appearanceAccentOptions.map((color) => (
+            <Button
+              key={color}
+              type="button"
+              variant="ghost"
+              className={cn(appearance.accentColor === color && "is-selected")}
+              style={{ backgroundColor: color }}
+              aria-label={`选择强调色 ${color}`}
+              aria-pressed={appearance.accentColor === color}
+              onClick={() => updateAppearance({ ...appearance, accentColor: color })}
+            >
+              {appearance.accentColor === color && <Check aria-hidden="true" />}
+            </Button>
+          ))}
+        </div>
+      </SettingsCard>
+
+      <SettingsCard title="毛玻璃强度" subtitle="调整邮箱和设置面板的背景模糊程度。" surface="section">
+        <div className="appearance-glass-heading">
+          <Label htmlFor="workspace-glass-blur">模糊半径</Label>
+          <output htmlFor="workspace-glass-blur">{appearance.glassBlur}px</output>
+        </div>
+        <Input
+          id="workspace-glass-blur"
+          type="range"
+          min={4}
+          max={28}
+          step={2}
+          value={appearance.glassBlur}
+          onInput={(event) => updateAppearance({ ...appearance, glassBlur: Number(event.currentTarget.value) })}
+          className="appearance-glass-slider"
+        />
+      </SettingsCard>
+    </div>
+  )
 }
 
 function SettingsCard({ title, subtitle, action, children, className, contentClassName, surface = "card" }: { title: string; subtitle?: string; action?: React.ReactNode; children: React.ReactNode; className?: string; contentClassName?: string; surface?: "card" | "section" }) {

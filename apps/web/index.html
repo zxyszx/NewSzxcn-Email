@@ -12,6 +12,16 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png?v=4" />
     <link rel="manifest" href="/site.webmanifest?v=4" />
     <title>NewSzxcn 邮箱</title>
+    <script>
+      (() => {
+        try {
+          const mode = localStorage.getItem("lanqin:theme") || "system"
+          const dark = mode === "dark" || (mode === "system" && matchMedia("(prefers-color-scheme: dark)").matches)
+          document.documentElement.classList.toggle("dark", dark)
+          document.documentElement.style.colorScheme = dark ? "dark" : "light"
+        } catch {}
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

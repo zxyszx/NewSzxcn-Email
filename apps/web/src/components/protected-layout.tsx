@@ -10,7 +10,7 @@ import { SystemVersionDialog } from "@/components/system-version-dialog"
 import { BrandMark } from "@/components/brand-mark"
 import { hasAnyPermission } from "@/lib/permissions"
 import type { PermissionKey } from "@/lib/api-types"
-import { applyTheme, getInitialTheme } from "@/lib/theme"
+import { applyTheme, applyThemeMode, getInitialTheme } from "@/lib/theme"
 import {
   Sidebar,
   SidebarContent,
@@ -61,7 +61,7 @@ function ProtectedContent() {
   const isAdminRoute = location.pathname.startsWith("/admin")
 
   React.useEffect(() => {
-    applyTheme(darkMode, themeMountedRef.current)
+    applyTheme(darkMode, themeMountedRef.current, false)
     themeMountedRef.current = true
   }, [darkMode])
   React.useEffect(() => {
@@ -99,7 +99,11 @@ function ProtectedContent() {
               variant="outline"
               size="icon"
               className="workspace-theme-toggle mt-1 size-8 shrink-0 rounded-full group-data-[collapsible=icon]:hidden"
-              onClick={() => setDarkMode((value) => !value)}
+              onClick={() => setDarkMode((value) => {
+                const next = !value
+                applyThemeMode(next ? "dark" : "light", true)
+                return next
+              })}
               aria-label={darkMode ? "切换日间模式" : "切换夜间模式"}
               title={darkMode ? "日间模式" : "夜间模式"}
             >

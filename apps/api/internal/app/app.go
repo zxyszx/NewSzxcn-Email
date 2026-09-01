@@ -72,6 +72,14 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	if cfg.ResetAdminPasswordOnStart {
+		if strings.TrimSpace(cfg.AdminPassword) == "" {
+			return nil, errors.New("LANQIN_RESET_ADMIN_PASSWORD_ON_START requires LANQIN_ADMIN_PASSWORD")
+		}
+		if !cfg.AllowInsecureHTTP || !isLoopbackListenAddress(cfg.Addr) {
+			return nil, errors.New("LANQIN_RESET_ADMIN_PASSWORD_ON_START is restricted to insecure loopback previews")
+		}
+	}
 	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
 		return nil, fmt.Errorf("create db dir: %w", err)
 	}
@@ -1770,6 +1778,18 @@ func (a *App) migrateConfiguredAdministratorIdentity(ctx context.Context) error 
 		return errors.New("no administrator user found for identity migration")
 	}
 	keeper := admins[0]
+	resetAdminPassword := false
+	configuredPasswordHash := keeper.PasswordHash
+	if cfg.ResetAdminPasswordOnStart {
+		if err := bcrypt.CompareHashAndPassword([]byte(keeper.PasswordHash), []byte(cfg.AdminPassword)); err != nil {
+			hash, hashErr := bcrypt.GenerateFromPassword([]byte(cfg.AdminPassword), bcrypt.DefaultCost)
+			if hashErr != nil {
+				return hashErr
+			}
+			configuredPasswordHash = string(hash)
+			resetAdminPassword = true
+		}
+	}
 	adminEmail, emailSource, err := a.resolveAdministratorEmail(ctx, cfg, keeper.ID, keeper.LoginName, keeper.Email)
 	if err != nil {
 		return err
@@ -1800,6 +1820,21 @@ func (a *App) migrateConfiguredAdministratorIdentity(ctx context.Context) error 
 			return fmt.Errorf("admin identity migration conflict: %w", err)
 		}
 		return err
+	}
+	if resetAdminPassword {
+		if _, err := tx.ExecContext(ctx, `UPDATE users SET password_hash=?, updated_at=? WHERE id=?`, configuredPasswordHash, now, keeper.ID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE mailboxes SET password_hash=?, updated_at=? WHERE user_id=?`, configuredPasswordHash, now, keeper.ID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id=?`, keeper.ID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM login_challenges WHERE user_id=?`, keeper.ID); err != nil {
+			return err
+		}
+		keeper.PasswordHash = configuredPasswordHash
 	}
 	parts := strings.SplitN(adminEmail, "@", 2)
 	localPart := parts[0]
@@ -1836,6 +1871,7 @@ func (a *App) migrateConfiguredAdministratorIdentity(ctx context.Context) error 
 		"demotedAdmins":  demoted,
 		"mailboxId":      mailboxID,
 		"mailboxCreated": mailboxCreated,
+		"passwordReset":  resetAdminPassword,
 		"migratedAt":     now,
 	}
 	raw, _ := json.Marshal(result)
@@ -1853,6 +1889,9 @@ func (a *App) migrateConfiguredAdministratorIdentity(ctx context.Context) error 
 		}
 	})
 	a.log.Info("administrator identity migration complete", "adminEmail", adminEmail, "adminUserId", keeper.ID, "demotedAdmins", len(demoted), "mailboxCreated", mailboxCreated)
+	if resetAdminPassword {
+		a.log.Info("reconciled configured administrator password for local preview", "adminUserId", keeper.ID)
+	}
 	return nil
 }
 

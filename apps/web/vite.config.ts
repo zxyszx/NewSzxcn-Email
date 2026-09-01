@@ -14,7 +14,8 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      port: 5173,
+      port: 5190,
+      strictPort: true,
       proxy: {
         "/api": apiTarget,
         "/healthz": apiTarget,
