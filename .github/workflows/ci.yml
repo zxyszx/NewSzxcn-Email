@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/release.yml"
+      - ".ai-reviewignore"
+      - "LICENSE"
+      - "deploy/.env.example"
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/release.yml"
+      - ".ai-reviewignore"
+      - "LICENSE"
+      - "deploy/.env.example"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Check web and api
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check installer
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck sqlite3
+          bash -n install.sh tests/install_test.sh tests/dkim_sync_test.sh
+          shellcheck -x install.sh tests/install_test.sh tests/dkim_sync_test.sh deploy/rspamd/sync-dkim.sh
+          bash tests/install_test.sh
+          bash tests/dkim_sync_test.sh
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install web dependencies
+        run: pnpm install --frozen-lockfile --filter newszxcn-email-web...
+
+      - name: Check shadcn/ui usage
+        run: pnpm --dir apps/web run check:shadcn
+
+      - name: Build web
+        run: pnpm --dir apps/web run build
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/api/go.mod
+          cache-dependency-path: apps/api/go.sum
+
+      - name: Test api
+        working-directory: apps/api
+        run: go test ./...

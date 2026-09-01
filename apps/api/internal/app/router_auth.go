@@ -1,0 +1,458 @@
+package app
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+)
+
+type contextKey string
+
+const userContextKey contextKey = "user"
+const apiTokenScopesContextKey contextKey = "api_token_scopes"
+
+type requestLogPrinter struct {
+	logger interface {
+		Info(string, ...any)
+	}
+}
+
+func (p requestLogPrinter) Print(values ...interface{}) {
+	p.logger.Info("http request", "detail", fmt.Sprint(values...))
+}
+
+type redactingLogFormatter struct {
+	delegate middleware.LogFormatter
+}
+
+func (f redactingLogFormatter) NewLogEntry(r *http.Request) middleware.LogEntry {
+	return f.delegate.NewLogEntry(redactedRequestForLogging(r))
+}
+
+func redactedRequestForLogging(r *http.Request) *http.Request {
+	if r == nil || r.URL == nil {
+		return r
+	}
+	clone := r.Clone(r.Context())
+	clonedURL := *r.URL
+	query := clonedURL.Query()
+	for key := range query {
+		if strings.EqualFold(key, "token") {
+			query.Set(key, "[REDACTED]")
+		}
+	}
+	clonedURL.RawQuery = query.Encode()
+	clone.URL = &clonedURL
+	clone.RequestURI = clonedURL.RequestURI()
+	return clone
+}
+
+func (a *App) Router() http.Handler {
+	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
+	r.Use(middleware.RealIP)
+	r.Use(middleware.RequestLogger(redactingLogFormatter{delegate: &middleware.DefaultLogFormatter{
+		Logger:  requestLogPrinter{logger: a.log},
+		NoColor: true,
+	}}))
+	r.Use(middleware.Recoverer)
+	r.Use(a.corsMiddleware)
+
+	r.Post("/auth-policy", a.handleAuthPolicy)
+	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		respondJSON(w, http.StatusOK, map[string]any{"ok": true, "time": a.now().UTC()})
+	})
+
+	r.Route("/api", func(r chi.Router) {
+		r.Get("/public/settings", a.handlePublicSettings)
+		r.Get("/verify-email", a.handleVerifyForwardingEmail)
+		r.Post("/auth/register", a.handleRegister)
+		r.Post("/auth/login", a.handleLogin)
+		r.Post("/auth/logout", a.handleLogout)
+		r.With(a.requireAuth).Get("/me", a.handleMe)
+		r.With(a.requireAuth).Post("/me/profile", a.handleUpdateProfile)
+		r.With(a.requireAuth).Post("/me/password", a.handleChangePassword)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess)).Get("/me/telegram", a.handleUserTelegramSettings)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess)).Post("/me/telegram", a.handleUpdateUserTelegramSettings)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess)).Post("/me/telegram/pair", a.handleCreateTelegramPairing)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess)).Post("/me/telegram/discover", a.handleDiscoverTelegramChat)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess)).Post("/me/telegram/test", a.handleTestTelegram)
+		r.With(a.requireAuth).Get("/me/api-tokens", a.handleListAPITokens)
+		r.With(a.requireAuth).Post("/me/api-tokens", a.handleCreateAPIToken)
+		r.With(a.requireAuth).Post("/me/api-tokens/{id}", a.handleUpdateAPIToken)
+		r.With(a.requireAuth).Delete("/me/api-tokens/{id}", a.handleDeleteAPIToken)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailboxApply)).Get("/me/mailbox-apply-options", a.handleMailboxApplyOptions)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailboxApply)).Post("/me/mailboxes/apply", a.handleApplyMailbox)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess)).Get("/me/forwarding", a.handleForwardingSettings)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess)).Post("/me/forwarding/verified-emails", a.handleAddForwardingVerifiedEmail)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess)).Post("/me/forwarding/verified-emails/{id}/resend", a.handleResendForwardingVerifiedEmail)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess)).Delete("/me/forwarding/verified-emails/{id}", a.handleDeleteForwardingVerifiedEmail)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess)).Post("/me/forwarding/pending-bindings", a.handleCreateForwardingPendingBinding)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess)).Delete("/me/forwarding/pending-bindings/{id}", a.handleDeleteForwardingPendingBinding)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess)).Post("/me/forwarding/pending-bindings/{id}/retry", a.handleRetryForwardingPendingBinding)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess)).Post("/me/forwarding/account", a.handleUpdateAccountForwarding)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess)).Post("/me/mailboxes/{id}/forwarding", a.handleUpdateMailboxForwarding)
+		r.With(a.requireAuth).Post("/me/2fa/setup", a.handleTwoFactorSetup)
+		r.With(a.requireAuth).Post("/me/2fa/enable", a.handleTwoFactorEnable)
+		r.With(a.requireAuth).Post("/me/2fa/disable", a.handleTwoFactorDisable)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailContacts)).Get("/me/contacts", a.handleListContacts)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailContacts)).Post("/me/contacts", a.handleCreateContact)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailContacts)).Delete("/me/contacts/{id}", a.handleDeleteContact)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailSignatures)).Get("/me/signatures", a.handleListSignatures)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailSignatures)).Post("/me/signatures", a.handleCreateSignature)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailSignatures)).Post("/me/signatures/{id}", a.handleUpdateSignature)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailSignatures)).Post("/me/signatures/{id}/default", a.handleSetDefaultSignature)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailSignatures)).Delete("/me/signatures/{id}", a.handleDeleteSignature)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailSignatures)).Get("/me/signatures/default", a.handleDefaultSignature)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailRules)).Get("/me/rules", a.handleListRules)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailRules)).Post("/me/rules", a.handleCreateRule)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailRules)).Post("/me/rules/{id}", a.handleUpdateRule)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailRules)).Post("/me/rules/{id}/move", a.handleMoveRule)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailRules)).Post("/me/rules/{id}/apply", a.handleApplyRule)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailRules)).Delete("/me/rules/{id}", a.handleDeleteRule)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailBlocked)).Get("/me/blocked-senders", a.handleListBlockedSenders)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailBlocked)).Post("/me/blocked-senders", a.handleCreateBlockedSender)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailBlocked)).Delete("/me/blocked-senders/{id}", a.handleDeleteBlockedSender)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailStats)).Get("/me/stats", a.handleMailStats)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailOrganize)).Post("/me/cleanup", a.handleMailCleanup)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess), a.requireExternalIMAPEnabled).Get("/me/external-imap-accounts", a.handleListExternalIMAPAccounts)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess), a.requireExternalIMAPEnabled).Post("/me/external-imap-accounts", a.handleCreateExternalIMAPAccount)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess), a.requireExternalIMAPEnabled).Post("/me/external-imap-accounts/{id}", a.handleUpdateExternalIMAPAccount)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess), a.requireExternalIMAPEnabled).Delete("/me/external-imap-accounts/{id}", a.handleDeleteExternalIMAPAccount)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess), a.requireExternalIMAPEnabled).Post("/me/external-imap-accounts/{id}/test", a.handleTestExternalIMAPAccount)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess), a.requireExternalIMAPEnabled).Get("/me/external-imap-accounts/{id}/runs", a.handleExternalIMAPSyncRuns)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess), a.requireExternalIMAPEnabled).Post("/me/external-imap-accounts/{id}/sync", a.handleSyncExternalIMAPAccount)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess), a.requireExternalIMAPEnabled).Post("/me/external-imap-accounts/{id}/sync-folder", a.handleSyncExternalIMAPFolder)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess), a.requireExternalIMAPEnabled).Post("/me/external-imap-oauth/{provider}/start", a.handleStartExternalIMAPOAuth)
+		r.With(a.requireExternalIMAPEnabled).Get("/external-imap-oauth/{provider}/callback", a.handleExternalIMAPOAuthCallback)
+		r.With(a.requireAuth).Get("/events", a.handleEvents)
+
+		r.Post("/open/v1/delivery-events", a.handleOpenAPIDeliveryWebhook)
+		r.Route("/open", func(r chi.Router) { a.registerOpenAPIRoutes(r) })
+		r.Route("/open/v1", func(r chi.Router) { a.registerOpenAPIRoutes(r) })
+
+		r.Group(func(r chi.Router) {
+			r.Use(a.requireAuth)
+			r.With(a.requirePermission(PermissionMailAccess)).Get("/mail/mailboxes", a.handleMyMailboxes)
+			r.With(a.requirePermission(PermissionMailRead)).Get("/mail/folders", a.handleMailFolders)
+			r.With(a.requirePermission(PermissionMailOrganize)).Post("/mail/folders", a.handleCreateMailFolder)
+			r.With(a.requirePermission(PermissionMailOrganize)).Patch("/mail/folders/{id}", a.handleRenameMailFolder)
+			r.With(a.requirePermission(PermissionMailOrganize)).Post("/mail/folders/reorder", a.handleReorderMailFolders)
+			r.With(a.requirePermission(PermissionMailOrganize)).Delete("/mail/folders/{id}", a.handleDeleteMailFolder)
+			r.With(a.requireAnyPermission(PermissionMailRead, PermissionMailLabels)).Get("/mail/labels", a.handleMailLabels)
+			r.With(a.requirePermission(PermissionMailLabels)).Post("/mail/labels", a.handleCreateMailLabel)
+			r.With(a.requirePermission(PermissionMailLabels)).Delete("/mail/labels/{id}", a.handleDeleteMailLabel)
+			r.With(a.requirePermission(PermissionMailRead)).Get("/mail/messages", a.handleMailMessages)
+			r.With(a.requirePermission(PermissionMailRead)).Get("/mail/starred", a.handleStarredMessages)
+			r.With(a.requirePermission(PermissionMailRead)).Get("/mail/export", a.handleExportMail)
+			r.With(a.requirePermission(PermissionMailOrganize)).Post("/mail/import", a.handleImportMail)
+			r.With(a.requirePermission(PermissionMailRead)).Get("/mail/messages/{id}", a.handleMailMessage)
+			r.With(a.requirePermission(PermissionMailRead)).Post("/mail/messages/{id}/translate", a.handleTranslateMailMessage)
+			r.With(a.requirePermission(PermissionMailRead), a.requireExternalIMAPEnabled).Get("/mail/external-accounts", a.handleMailExternalAccounts)
+			r.With(a.requirePermission(PermissionMailRead), a.requireExternalIMAPEnabled).Get("/mail/external-accounts/{id}/folders", a.handleExternalIMAPFolders)
+			r.With(a.requirePermission(PermissionMailRead), a.requireExternalIMAPEnabled).Get("/mail/external-accounts/{id}/messages", a.handleExternalIMAPMessages)
+			r.With(a.requirePermission(PermissionMailRead), a.requireExternalIMAPEnabled).Get("/mail/external-accounts/{id}/messages/{remoteId}", a.handleExternalIMAPMessage)
+			r.With(a.requirePermission(PermissionMailRead), a.requireExternalIMAPEnabled).Post("/mail/external-accounts/{id}/messages/{remoteId}/translate", a.handleTranslateExternalIMAPMessage)
+			r.With(a.requirePermission(PermissionMailAttachments), a.requireExternalIMAPEnabled).Get("/mail/external-accounts/{id}/attachments/{remoteId}/{partId}", a.handleExternalIMAPAttachment)
+			r.With(a.requirePermission(PermissionMailOrganize), a.requireExternalIMAPEnabled).Post("/mail/external-accounts/{id}/messages/{remoteId}/mark-read", a.handleExternalIMAPMarkRead)
+			r.With(a.requirePermission(PermissionMailSend)).Post("/mail/send", a.handleMailSend)
+			r.With(a.requirePermission(PermissionMailRead)).Get("/mail/send-queue", a.handleSendQueue)
+			r.With(a.requirePermission(PermissionMailRead)).Get("/mail/send-queue/{id}/audit", a.handleSendQueueAudit)
+			r.With(a.requirePermission(PermissionMailSend)).Post("/mail/send-queue/{id}/retry", a.handleRetrySendQueue)
+			r.With(a.requirePermission(PermissionMailSend)).Delete("/mail/send-queue/{id}", a.handleCancelSendQueue)
+			r.With(a.requirePermission(PermissionMailSchedule)).Get("/mail/scheduled-sends", a.handleScheduledSends)
+			r.With(a.requirePermission(PermissionMailSchedule), a.requirePermission(PermissionMailSend)).Post("/mail/schedule-send", a.handleScheduleSend)
+			r.With(a.requirePermission(PermissionMailSchedule)).Delete("/mail/schedule-send/{id}", a.handleCancelScheduledSend)
+			r.With(a.requirePermission(PermissionMailDrafts)).Post("/mail/drafts", a.handleSaveDraft)
+			r.With(a.requirePermission(PermissionMailDrafts)).Post("/mail/drafts/{id}", a.handleSaveDraft)
+			r.With(a.requirePermission(PermissionMailDrafts)).Delete("/mail/drafts/{id}", a.handleDeleteDraft)
+			r.With(a.requirePermission(PermissionMailOrganize)).Post("/mail/messages/{id}/mark-read", a.handleMarkRead)
+			r.With(a.requirePermission(PermissionMailOrganize)).Post("/mail/messages/{id}/star", a.handleStar)
+			r.With(a.requirePermission(PermissionMailLabels)).Post("/mail/messages/{id}/labels", a.handleAddMessageLabel)
+			r.With(a.requirePermission(PermissionMailLabels)).Delete("/mail/messages/{id}/labels/{labelID}", a.handleRemoveMessageLabel)
+			r.With(a.requirePermission(PermissionMailOrganize)).Post("/mail/messages/bulk-move", a.handleBulkMove)
+			r.With(a.requirePermission(PermissionMailOrganize)).Post("/mail/messages/{id}/move", a.handleMove)
+			r.With(a.requirePermission(PermissionMailOrganize)).Delete("/mail/messages/{id}", a.handleDeleteMessage)
+			r.With(a.requirePermission(PermissionMailAttachments)).Get("/mail/attachments/{id}", a.handleAttachment)
+		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(a.requireAuth)
+			r.Use(a.requireAdminAccess)
+			r.Get("/admin/system/version", a.handleSystemVersion)
+			r.Post("/admin/system/update", a.handleSystemUpdate)
+			r.Get("/admin/backups", a.handleListBackups)
+			r.Post("/admin/backups/settings", a.handleUpdateBackupSettings)
+			r.Post("/admin/backups/password", a.handleUpdateBackupPassword)
+			r.Post("/admin/backups/telegram/test", a.handleTestBackupTelegram)
+			r.Post("/admin/backups/telegram/discover-group", a.handleDiscoverBackupTelegramGroup)
+			r.Post("/admin/backups/google-drive/connect", a.handleGoogleDriveConnect)
+			r.Get("/admin/backups/google-drive/callback", a.handleGoogleDriveCallback)
+			r.Delete("/admin/backups/google-drive", a.handleGoogleDriveDisconnect)
+			r.Post("/admin/backups", a.handleCreateBackup)
+			r.Get("/admin/backups/{name}/download", a.handleDownloadBackup)
+			r.Post("/admin/backups/{name}/verify", a.handleVerifyBackup)
+			r.Post("/admin/backups/{name}/telegram", a.handleSendBackupTelegram)
+			r.Post("/admin/backups/{name}/google-drive", a.handleSendBackupGoogleDrive)
+			r.Delete("/admin/backups/{name}", a.handleDeleteBackup)
+			r.With(a.requirePermission(PermissionAdminOverview)).Get("/admin/overview", a.handleAdminOverview)
+			r.With(a.requireAnyPermission(PermissionUsersView, PermissionMailboxesView)).Get("/admin/users", a.handleListUsers)
+			r.With(a.requirePermission(PermissionUsersCreate)).Post("/admin/users", a.handleCreateUser)
+			r.With(a.requirePermission(PermissionUsersUpdate)).Post("/admin/users/{id}", a.handleUpdateUser)
+			r.With(a.requirePermission(PermissionUsersResetPassword)).Post("/admin/users/{id}/password", a.handleResetUserPassword)
+			r.With(a.requirePermission(PermissionUsersDelete)).Delete("/admin/users/{id}", a.handleDeleteUser)
+			r.With(a.requireAnyPermission(PermissionGroupsView, PermissionUsersView)).Get("/admin/permission-limits/defaults", a.handleDefaultPermissionLimits)
+			r.With(a.requireAnyPermission(PermissionGroupsView, PermissionUsersView)).Get("/admin/permissions", a.handlePermissionCatalog)
+			r.With(a.requireAnyPermission(PermissionGroupsView, PermissionUsersView)).Get("/admin/permission-groups", a.handleListPermissionGroups)
+			r.With(a.requirePermission(PermissionGroupsCreate)).Post("/admin/permission-groups", a.handleCreatePermissionGroup)
+			r.With(a.requirePermission(PermissionGroupsUpdate)).Post("/admin/permission-groups/{id}", a.handleUpdatePermissionGroup)
+			r.With(a.requirePermission(PermissionGroupsDelete)).Delete("/admin/permission-groups/{id}", a.handleDeletePermissionGroup)
+			r.With(a.requireAnyPermission(PermissionDomainsView, PermissionDNSView, PermissionMailboxesView, PermissionAliasesView, PermissionSettingsView, PermissionTemplatesView)).Get("/admin/domains", a.handleListDomains)
+			r.With(a.requirePermission(PermissionDomainsCreate)).Post("/admin/domains", a.handleCreateDomain)
+			r.With(a.requirePermission(PermissionDomainsUpdate)).Post("/admin/domains/{id}", a.handleUpdateDomain)
+			r.With(a.requirePermission(PermissionDomainsDelete)).Delete("/admin/domains/{id}", a.handleDeleteDomain)
+			r.With(a.requireAnyPermission(PermissionMailboxesView, PermissionMessagesView)).Get("/admin/mailboxes", a.handleListMailboxes)
+			r.With(a.requirePermission(PermissionMailboxesCreate)).Post("/admin/mailboxes", a.handleCreateMailbox)
+			r.With(a.requirePermission(PermissionMailboxesUpdate)).Post("/admin/mailboxes/{id}", a.handleUpdateMailbox)
+			r.With(a.requirePermission(PermissionMailboxesDelete)).Delete("/admin/mailboxes/{id}", a.handleDeleteMailbox)
+			r.With(a.requirePermission(PermissionAliasesView)).Get("/admin/aliases", a.handleListAliases)
+			r.With(a.requirePermission(PermissionAliasesCreate)).Post("/admin/aliases", a.handleCreateAlias)
+			r.With(a.requirePermission(PermissionAliasesUpdate)).Post("/admin/aliases/{id}", a.handleUpdateAlias)
+			r.With(a.requirePermission(PermissionAliasesDelete)).Delete("/admin/aliases/{id}", a.handleDeleteAlias)
+			r.With(a.requirePermission(PermissionMessagesView)).Get("/admin/messages", a.handleAdminMessages)
+			r.With(a.requirePermission(PermissionMessagesView)).Get("/admin/send-audit", a.handleAdminSendAudit)
+			r.With(a.requirePermission(PermissionMessagesRead)).Get("/admin/messages/{id}", a.handleAdminMessage)
+			r.With(a.requirePermission(PermissionMessagesAttachment)).Get("/admin/attachments/{id}", a.handleAdminAttachment)
+			r.With(a.requirePermission(PermissionSettingsView)).Get("/admin/settings", a.handleGetSystemSettings)
+			r.With(a.requirePermission(PermissionSettingsView)).Get("/admin/maildir-sync/health", a.handleMaildirSyncHealth)
+			r.With(a.requirePermission(PermissionSettingsUpdate)).Post("/admin/settings", a.handleUpdateSystemSettings)
+			r.With(a.requirePermission(PermissionSettingsTestSMTP)).Post("/admin/settings/test-smtp", a.handleTestSMTP)
+			r.With(a.requirePermission(PermissionSettingsUpdate)).Post("/admin/settings/telegram/pair", a.handleCreateTelegramPairing)
+			r.With(a.requirePermission(PermissionSettingsUpdate)).Post("/admin/settings/telegram/discover", a.handleDiscoverTelegramChat)
+			r.With(a.requirePermission(PermissionSettingsUpdate)).Post("/admin/settings/telegram/test", a.handleTestTelegram)
+			r.With(a.requirePermission(PermissionTemplatesView)).Get("/admin/mail-templates", a.handleListMailTemplates)
+			r.With(a.requirePermission(PermissionTemplatesUpdate)).Post("/admin/mail-templates/{key}", a.handleUpdateMailTemplate)
+			r.With(a.requirePermission(PermissionTemplatesReset)).Post("/admin/mail-templates/{key}/reset", a.handleResetMailTemplate)
+			r.With(a.requirePermission(PermissionDNSView)).Get("/admin/domains/{id}/dns-records", a.handleDNSRecords)
+			r.With(a.requirePermission(PermissionDNSCheck)).Post("/admin/domains/{id}/check-dns", a.handleDNSCheck)
+		})
+	})
+
+	return r
+}
+
+func (a *App) registerOpenAPIRoutes(r chi.Router) {
+	r.Use(a.requireAPIToken)
+	r.With(a.requireAPITokenScope("domains:read"), a.requireAdminAccess, a.requireAnyPermission(PermissionDomainsView, PermissionDNSView, PermissionMailboxesView, PermissionAliasesView, PermissionSettingsView, PermissionTemplatesView)).Get("/domains", a.handleOpenAPIListDomains)
+	r.With(a.requireAPITokenScope("domains:write"), a.requireAdminAccess, a.requirePermission(PermissionDomainsCreate)).Post("/domains", a.handleOpenAPICreateDomain)
+	r.With(a.requireAPITokenScope("domains:read"), a.requireAdminAccess, a.requireAnyPermission(PermissionDomainsView, PermissionDNSView, PermissionMailboxesView, PermissionAliasesView, PermissionSettingsView, PermissionTemplatesView)).Get("/domains/{id}", a.handleOpenAPIGetDomain)
+	r.With(a.requireAPITokenScope("domains:write"), a.requireAdminAccess, a.requirePermission(PermissionDomainsUpdate)).Post("/domains/{id}", a.handleOpenAPIUpdateDomain)
+	r.With(a.requireAPITokenScope("domains:write"), a.requireAdminAccess, a.requirePermission(PermissionDomainsDelete)).Delete("/domains/{id}", a.handleOpenAPIDeleteDomain)
+	r.With(a.requireAPITokenScope("dns:read"), a.requireAdminAccess, a.requirePermission(PermissionDNSView)).Get("/domains/{id}/dns-records", a.handleDNSRecords)
+	r.With(a.requireAPITokenScope("dns:check"), a.requireAdminAccess, a.requirePermission(PermissionDNSCheck)).Post("/domains/{id}/dns-check", a.handleDNSCheck)
+	r.With(a.requireAPITokenScope("mailboxes:read"), a.requireAdminAccess, a.requireAnyPermission(PermissionMailboxesView, PermissionMessagesView)).Get("/mailboxes", a.handleOpenAPIListMailboxes)
+	r.With(a.requireAPITokenScope("mailboxes:write"), a.requireAdminAccess, a.requirePermission(PermissionMailboxesCreate)).Post("/mailboxes", a.handleOpenAPICreateMailbox)
+	r.With(a.requireAPITokenScope("mailboxes:read"), a.requireAdminAccess, a.requireAnyPermission(PermissionMailboxesView, PermissionMessagesView)).Get("/mailboxes/{id}", a.handleOpenAPIGetMailbox)
+	r.With(a.requireAPITokenScope("mailboxes:write"), a.requireAdminAccess, a.requirePermission(PermissionMailboxesUpdate)).Post("/mailboxes/{id}", a.handleOpenAPIUpdateMailbox)
+	r.With(a.requireAPITokenScope("mailboxes:write"), a.requireAdminAccess, a.requirePermission(PermissionUsersResetPassword)).Post("/mailboxes/{id}/password", a.handleOpenAPIResetMailboxPassword)
+	r.With(a.requireAPITokenScope("mailboxes:write"), a.requireAdminAccess, a.requirePermission(PermissionMailboxesDelete)).Delete("/mailboxes/{id}", a.handleOpenAPIDeleteMailbox)
+	r.With(a.requireAPITokenScope("messages:send"), a.requirePermission(PermissionMailSend)).Post("/send", a.handleOpenAPISendMail)
+	r.With(a.requireAPITokenScope("messages:read"), a.requirePermission(PermissionMailRead)).Get("/send", a.handleOpenAPIListSends)
+	r.With(a.requireAPITokenScope("messages:read"), a.requirePermission(PermissionMailRead)).Get("/send/{id}", a.handleOpenAPISendStatus)
+	r.With(a.requireAPITokenScope("messages:read"), a.requirePermission(PermissionMailRead)).Get("/send/{id}/events", a.handleOpenAPISendEvents)
+	r.With(a.requireAPITokenScope("messages:manage"), a.requirePermission(PermissionMailSend)).Post("/send/{id}/retry", a.handleOpenAPIRetrySend)
+	r.With(a.requireAPITokenScope("messages:manage"), a.requirePermission(PermissionMailSend)).Post("/send/{id}/cancel", a.handleOpenAPICancelSend)
+	r.With(a.requireAPITokenScope("messages:read"), a.requirePermission(PermissionMailRead)).Get("/mailboxes/{id}/messages", a.handleOpenAPIMailboxMessages)
+	r.With(a.requireAPITokenScope("messages:read"), a.requirePermission(PermissionMailRead)).Get("/messages/{id}", a.handleOpenAPIMessage)
+	r.With(a.requireAPITokenScope("messages:read"), a.requirePermission(PermissionMailAttachments)).Get("/attachments/{id}", a.handleAttachment)
+	r.With(a.requireAPITokenScope("aliases:read"), a.requireAdminAccess, a.requirePermission(PermissionAliasesView)).Get("/aliases", a.handleOpenAPIListAliases)
+	r.With(a.requireAPITokenScope("aliases:write"), a.requireAdminAccess, a.requirePermission(PermissionAliasesCreate)).Post("/aliases", a.handleCreateAlias)
+	r.With(a.requireAPITokenScope("aliases:read"), a.requireAdminAccess, a.requirePermission(PermissionAliasesView)).Get("/aliases/{id}", a.handleOpenAPIGetAlias)
+	r.With(a.requireAPITokenScope("aliases:write"), a.requireAdminAccess, a.requirePermission(PermissionAliasesUpdate)).Post("/aliases/{id}", a.handleUpdateAlias)
+	r.With(a.requireAPITokenScope("aliases:write"), a.requireAdminAccess, a.requirePermission(PermissionAliasesDelete)).Delete("/aliases/{id}", a.handleDeleteAlias)
+}
+
+func (a *App) corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" && (strings.HasPrefix(origin, "http://localhost:") || strings.HasPrefix(origin, "http://127.0.0.1:") || origin == a.config().PublicBaseURL) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Idempotency-Key")
+			w.Header().Set("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS")
+		}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (a *App) requireAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, err := a.authenticateRequest(r)
+		if err != nil {
+			respondError(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userContextKey, user)))
+	})
+}
+
+func (a *App) requireAPIToken(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, scopes, err := a.authenticateAPIToken(r)
+		if err != nil {
+			respondError(w, http.StatusUnauthorized, "api token required")
+			return
+		}
+		ctx := context.WithValue(r.Context(), userContextKey, user)
+		ctx = context.WithValue(ctx, apiTokenScopesContextKey, scopes)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func (a *App) requireAPITokenScope(scope string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			scopes, _ := r.Context().Value(apiTokenScopesContextKey).(map[string]bool)
+			if !scopes["*"] && !scopes[scope] {
+				respondError(w, http.StatusForbidden, "api token scope required: "+scope)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func currentUser(r *http.Request) *User {
+	user, _ := r.Context().Value(userContextKey).(*User)
+	return user
+}
+
+func (a *App) authenticateRequest(r *http.Request) (*User, error) {
+	cookie, err := r.Cookie(a.config().CookieName)
+	if err != nil || cookie.Value == "" {
+		return nil, errors.New("no session")
+	}
+	row := a.db.QueryRowContext(r.Context(), `SELECT u.id,u.login_name,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.mailbox_limit_override,u.created_at
+		FROM sessions s JOIN users u ON u.id=s.user_id
+		WHERE s.token_hash=? AND s.expires_at > ?`, hashToken(cookie.Value), a.now().UTC().Format(time.RFC3339Nano))
+	var u User
+	var disabled, twoFactorEnabled int
+	var mailboxLimitOverride sql.NullInt64
+	var created string
+	if err := row.Scan(&u.ID, &u.LoginName, &u.Email, &u.DisplayName, &u.Role, &disabled, &twoFactorEnabled, &mailboxLimitOverride, &created); err != nil {
+		return nil, err
+	}
+	u.Disabled = intBool(disabled)
+	u.TwoFactorEnabled = intBool(twoFactorEnabled)
+	u.MailboxLimitOverride = intPtrFromNull(mailboxLimitOverride)
+	u.CreatedAt = parseTime(created)
+	if u.Disabled {
+		return nil, errors.New("disabled")
+	}
+	if err := a.attachUserAuthorization(r.Context(), &u); err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+func (a *App) authenticateAPIToken(r *http.Request) (*User, map[string]bool, error) {
+	token := bearerToken(r)
+	if token == "" {
+		return nil, nil, errors.New("no api token")
+	}
+	now := a.now().UTC().Format(time.RFC3339Nano)
+	row := a.db.QueryRowContext(r.Context(), `SELECT at.id,at.scopes_json,u.id,u.login_name,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.mailbox_limit_override,u.created_at
+		FROM api_tokens at JOIN users u ON u.id=at.user_id
+		WHERE at.token_hash=? AND at.disabled=0 AND at.expires_at > ?`, hashToken(token), now)
+	var tokenID, scopesJSON string
+	var u User
+	var disabled, twoFactorEnabled int
+	var mailboxLimitOverride sql.NullInt64
+	var created string
+	if err := row.Scan(&tokenID, &scopesJSON, &u.ID, &u.LoginName, &u.Email, &u.DisplayName, &u.Role, &disabled, &twoFactorEnabled, &mailboxLimitOverride, &created); err != nil {
+		return nil, nil, err
+	}
+	u.Disabled = intBool(disabled)
+	u.TwoFactorEnabled = intBool(twoFactorEnabled)
+	u.MailboxLimitOverride = intPtrFromNull(mailboxLimitOverride)
+	u.CreatedAt = parseTime(created)
+	if u.Disabled {
+		return nil, nil, errors.New("disabled")
+	}
+	if err := a.attachUserAuthorization(r.Context(), &u); err != nil {
+		return nil, nil, err
+	}
+	_, _ = a.db.ExecContext(r.Context(), `UPDATE api_tokens SET last_used_at=? WHERE id=?`, now, tokenID)
+	scopes := map[string]bool{}
+	for _, scope := range jsonDecodeSlice(scopesJSON) {
+		scopes[scope] = true
+	}
+	return &u, scopes, nil
+}
+
+func bearerToken(r *http.Request) string {
+	fields := strings.Fields(strings.TrimSpace(r.Header.Get("Authorization")))
+	if len(fields) != 2 || !strings.EqualFold(fields[0], "Bearer") {
+		return ""
+	}
+	return fields[1]
+}
+
+func (a *App) userByEmail(ctx context.Context, email string) (*User, string, error) {
+	email = normalizeEmail(email)
+	row := a.db.QueryRowContext(ctx, `SELECT id,login_name,email,display_name,role,password_hash,disabled,two_factor_enabled,mailbox_limit_override,created_at
+		FROM users WHERE email=? LIMIT 1`, email)
+	var u User
+	var passwordHash string
+	var disabled, twoFactorEnabled int
+	var mailboxLimitOverride sql.NullInt64
+	var created string
+	if err := row.Scan(&u.ID, &u.LoginName, &u.Email, &u.DisplayName, &u.Role, &passwordHash, &disabled, &twoFactorEnabled, &mailboxLimitOverride, &created); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, "", errNotFound
+		}
+		return nil, "", err
+	}
+	u.Disabled = intBool(disabled)
+	u.TwoFactorEnabled = intBool(twoFactorEnabled)
+	u.MailboxLimitOverride = intPtrFromNull(mailboxLimitOverride)
+	u.CreatedAt = parseTime(created)
+	if err := a.attachUserAuthorization(ctx, &u); err != nil {
+		return nil, "", err
+	}
+	return &u, passwordHash, nil
+}
+
+func (a *App) userByID(ctx context.Context, id string) (*User, error) {
+	row := a.db.QueryRowContext(ctx, `SELECT id,login_name,email,display_name,role,disabled,two_factor_enabled,mailbox_limit_override,created_at FROM users WHERE id=?`, id)
+	var u User
+	var disabled, twoFactorEnabled int
+	var mailboxLimitOverride sql.NullInt64
+	var created string
+	if err := row.Scan(&u.ID, &u.LoginName, &u.Email, &u.DisplayName, &u.Role, &disabled, &twoFactorEnabled, &mailboxLimitOverride, &created); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, errNotFound
+		}
+		return nil, err
+	}
+	u.Disabled = intBool(disabled)
+	u.TwoFactorEnabled = intBool(twoFactorEnabled)
+	u.MailboxLimitOverride = intPtrFromNull(mailboxLimitOverride)
+	u.CreatedAt = parseTime(created)
+	if err := a.attachUserAuthorization(ctx, &u); err != nil {
+		return nil, err
+	}
+	return &u, nil
+}

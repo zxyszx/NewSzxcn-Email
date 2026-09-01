@@ -1,0 +1,18 @@
+# Local/generated artifacts
+node_modules/**
+apps/web/node_modules/**
+tmp/**
+
+# Build/test output
+dist/**
+build/**
+coverage/**
+apps/web/dist/**
+apps/web/.vite/**
+
+# Runtime data and logs
+*.db
+*.sqlite
+*.sqlite3
+*.log
+deploy/data/**

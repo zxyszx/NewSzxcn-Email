@@ -1,0 +1,484 @@
+package app
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestBackupEndpointsRejectMismatchedConfirmation(t *testing.T) {
+	a := newTestApp(t)
+	stopTestWorkers(a)
+	server := httptest.NewServer(a.Router())
+	defer server.Close()
+	admin := &testClient{t: t, server: server}
+	var response map[string]any
+	if code := admin.do("POST", "/api/auth/login", map[string]string{"email": "admin@lanqin.local", "password": "ChangeMe123!"}, &response); code != http.StatusOK {
+		t.Fatalf("login code=%d body=%v", code, response)
+	}
+	response = nil
+	if code := admin.do("POST", "/api/admin/backups", map[string]any{"password": "BackupPassword123!", "confirmPassword": "DifferentPassword123!"}, &response); code != http.StatusBadRequest {
+		t.Fatalf("manual backup mismatch code=%d body=%v", code, response)
+	}
+	response = nil
+	if code := admin.do("POST", "/api/admin/backups/settings", map[string]any{"enabled": false, "days": 7, "password": "BackupPassword123!", "confirmPassword": "DifferentPassword123!"}, &response); code != http.StatusBadRequest {
+		t.Fatalf("scheduled backup mismatch code=%d body=%v", code, response)
+	}
+}
+
+func TestDiscoverTelegramGroupsReturnsUniqueCandidates(t *testing.T) {
+	telegramServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"ok":true,"result":[`+
+			`{"update_id":1,"message":{"text":"/newszxcn ABC123","chat":{"id":-1001,"type":"supergroup","title":"主备份"}}},`+
+			`{"update_id":2,"message":{"text":"/newszxcn ABC123","chat":{"id":-1002,"type":"group","title":"异地备份"}}},`+
+			`{"update_id":3,"message":{"text":"/newszxcn ABC123","chat":{"id":-1001,"type":"supergroup","title":"主备份"}}},`+
+			`{"update_id":4,"message":{"text":"/newszxcn WRONG","chat":{"id":-1003,"type":"group","title":"无关群组"}}}]}`)
+	}))
+	defer telegramServer.Close()
+	a := newTestApp(t)
+	stopTestWorkers(a)
+	a.telegramURL = telegramServer.URL
+	groups, err := a.discoverTelegramGroups(context.Background(), "test-token", "ABC123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != 2 || groups[0].ChatID != "-1001" || groups[1].ChatID != "-1002" {
+		t.Fatalf("unexpected groups: %+v", groups)
+	}
+}
+
+func TestGoogleDriveResumableRequest(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "newszxcn-backup-test.tar.zst.enc")
+	if err := os.WriteFile(path, []byte("encrypted backup"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	req, size, err := newGoogleDriveResumableRequest(context.Background(), path, "folder-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if size != int64(len("encrypted backup")) {
+		t.Fatalf("upload size = %d", size)
+	}
+	if req.URL.Query().Get("uploadType") != "resumable" || req.Header.Get("X-Upload-Content-Length") != fmt.Sprint(size) {
+		t.Fatalf("resumable request = %s headers=%v", req.URL, req.Header)
+	}
+	var metadata struct {
+		Name    string   `json:"name"`
+		Parents []string `json:"parents"`
+	}
+	if err := json.NewDecoder(req.Body).Decode(&metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata.Name != filepath.Base(path) || len(metadata.Parents) != 1 || metadata.Parents[0] != "folder-123" {
+		t.Fatalf("metadata = %+v", metadata)
+	}
+}
+
+func TestBackupProgressReaderReportsBytes(t *testing.T) {
+	var updates []int64
+	reader := &backupProgressReader{reader: strings.NewReader("encrypted backup"), onProgress: func(uploaded int64) {
+		updates = append(updates, uploaded)
+	}}
+	raw, err := io.ReadAll(reader)
+	if err != nil || string(raw) != "encrypted backup" {
+		t.Fatalf("read = %q, %v", raw, err)
+	}
+	if len(updates) == 0 || updates[len(updates)-1] != int64(len(raw)) {
+		t.Fatalf("progress updates = %v", updates)
+	}
+}
+
+func TestGoogleDriveUploadMessage(t *testing.T) {
+	tests := []struct {
+		status int
+		body   string
+		want   string
+	}{
+		{http.StatusUnauthorized, `{}`, "授权已失效"},
+		{http.StatusForbidden, `{"reason":"storageQuotaExceeded"}`, "空间不足"},
+		{http.StatusForbidden, `{}`, "无上传权限"},
+		{http.StatusTooManyRequests, `{}`, "请求过于频繁"},
+	}
+	for _, test := range tests {
+		message := googleDriveUploadMessage(&googleDriveAPIError{Operation: "upload", StatusCode: test.status, Body: test.body})
+		if !strings.Contains(message, test.want) {
+			t.Fatalf("message %q does not contain %q", message, test.want)
+		}
+	}
+}
+
+func TestGoogleDriveChunkUploadAndProgress(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "large-backup.tar.zst.enc")
+	size := int64(googleDriveUploadChunkSize + 3)
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(size); err != nil {
+		t.Fatal(err)
+	}
+	_ = file.Close()
+	var ranges []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ranges = append(ranges, r.Header.Get("Content-Range"))
+		_, _ = io.Copy(io.Discard, r.Body)
+		if len(ranges) == 1 {
+			w.WriteHeader(http.StatusPermanentRedirect)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"uploaded"}`)
+	}))
+	defer server.Close()
+	a := newTestApp(t)
+	stopTestWorkers(a)
+	if !a.startBackupTransfer("googleDrive", path) {
+		t.Fatal("failed to start transfer")
+	}
+	if err := a.uploadGoogleDriveChunks(context.Background(), server.Client(), server.URL, path, size); err != nil {
+		t.Fatal(err)
+	}
+	wantRanges := []string{
+		fmt.Sprintf("bytes 0-%d/%d", googleDriveUploadChunkSize-1, size),
+		fmt.Sprintf("bytes %d-%d/%d", googleDriveUploadChunkSize, size-1, size),
+	}
+	if len(ranges) != len(wantRanges) || ranges[0] != wantRanges[0] || ranges[1] != wantRanges[1] {
+		t.Fatalf("content ranges = %v, want %v", ranges, wantRanges)
+	}
+	transfer := a.backupTransfers[backupTransferKey("googleDrive", path)]
+	if transfer == nil || transfer.Uploaded != size {
+		t.Fatalf("transfer = %+v", transfer)
+	}
+}
+
+func TestBackupEncryptionRequiresDeploymentSecret(t *testing.T) {
+	dir := t.TempDir()
+	a := newTestAppWithConfig(t, Config{
+		Addr: ":0", DBPath: filepath.Join(dir, "data", "lanqin.db"), DataDir: filepath.Join(dir, "data"),
+		CookieName: "lanqin_test", SessionTTLHours: 24, AdminEmail: "admin@example.com", AdminPassword: "ChangeMe123!", AllowInsecureHTTP: true,
+	})
+	if _, err := a.encryptBackupPassword("BackupPassword123!"); err == nil {
+		t.Fatal("backup password encryption succeeded without a deployment secret")
+	}
+}
+
+func TestBackupPasswordValidation(t *testing.T) {
+	for _, valid := range []string{"12345678", "Restore Password 123!"} {
+		if !validBackupPassword(valid) {
+			t.Errorf("valid password rejected: %q", valid)
+		}
+	}
+	for _, invalid := range []string{"1234567", "password\nvalue", "password\x00value", strings.Repeat("x", 1025)} {
+		if validBackupPassword(invalid) {
+			t.Errorf("invalid password accepted: %q", invalid)
+		}
+	}
+}
+
+func TestBackupPasswordHint(t *testing.T) {
+	if got := backupPasswordHint("A23456789Z"); got != "A••••••••Z" {
+		t.Fatalf("password hint = %q", got)
+	}
+	if got := backupPasswordHint("ab"); got != "ab" {
+		t.Fatalf("two-character password hint = %q", got)
+	}
+	if got := backupPasswordHint(""); got != "" {
+		t.Fatalf("empty password hint = %q", got)
+	}
+}
+
+func TestSavedBackupPasswordAndHint(t *testing.T) {
+	dir := t.TempDir()
+	a := newTestAppWithConfig(t, Config{
+		Addr: ":0", DBPath: filepath.Join(dir, "data", "lanqin.db"), DataDir: filepath.Join(dir, "data"),
+		CookieName: "lanqin_test", SessionTTLHours: 24, AdminEmail: "admin@example.com", AdminPassword: "ChangeMe123!",
+		AllowInsecureHTTP: true, UpdateServiceToken: "test-update-secret",
+	})
+	stopTestWorkers(a)
+	ciphertext, err := a.encryptBackupPassword("A23456789Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := a.now().UTC().Format("2006-01-02T15:04:05Z")
+	if _, err = a.db.Exec(`INSERT INTO system_settings(key,value,updated_at) VALUES('backupPasswordCipher',?,?)`, ciphertext, now); err != nil {
+		t.Fatal(err)
+	}
+	password, err := a.savedBackupPassword(context.Background())
+	if err != nil || password != "A23456789Z" {
+		t.Fatalf("saved password = %q, %v", password, err)
+	}
+	schedule, err := a.loadBackupSchedule(context.Background())
+	if err != nil || !schedule.PasswordSet || schedule.PasswordHint != "A••••••••Z" {
+		t.Fatalf("schedule password state = %+v, %v", schedule, err)
+	}
+}
+
+func TestUpdateBackupPasswordDoesNotChangeScheduleSettings(t *testing.T) {
+	dir := t.TempDir()
+	a := newTestAppWithConfig(t, Config{
+		Addr: ":0", DBPath: filepath.Join(dir, "data", "lanqin.db"), DataDir: filepath.Join(dir, "data"),
+		CookieName: "lanqin_test", SessionTTLHours: 24, AdminEmail: "admin@example.com", AdminPassword: "ChangeMe123!",
+		AllowInsecureHTTP: true, UpdateServiceToken: "test-update-secret",
+	})
+	stopTestWorkers(a)
+	now := a.now().UTC().Format(time.RFC3339Nano)
+	for key, value := range map[string]string{
+		"backupScheduleEnabled":  "true",
+		"backupScheduleDays":     "30",
+		"backupTelegramMode":     "custom",
+		"backupTelegramChatId":   "-1001234567890",
+		"backupGoogleFolderName": "Existing Backups",
+	} {
+		if _, err := a.db.Exec(`INSERT INTO system_settings(key,value,updated_at) VALUES(?,?,?)`, key, value, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	server := httptest.NewServer(a.Router())
+	defer server.Close()
+	admin := &testClient{t: t, server: server}
+	var response map[string]any
+	if code := admin.do("POST", "/api/auth/login", map[string]string{"email": "admin@example.com", "password": "ChangeMe123!"}, &response); code != http.StatusOK {
+		t.Fatalf("login code=%d body=%v", code, response)
+	}
+	response = nil
+	if code := admin.do("POST", "/api/admin/backups/password", map[string]string{"password": "NewSharedPassword9", "confirmPassword": "NewSharedPassword9"}, &response); code != http.StatusOK {
+		t.Fatalf("password update code=%d body=%v", code, response)
+	}
+	if response["passwordHint"] != "N••••••••••9" {
+		t.Fatalf("password hint = %v", response["passwordHint"])
+	}
+	password, err := a.savedBackupPassword(context.Background())
+	if err != nil || password != "NewSharedPassword9" {
+		t.Fatalf("saved password = %q, %v", password, err)
+	}
+	for key, want := range map[string]string{
+		"backupScheduleEnabled":  "true",
+		"backupScheduleDays":     "30",
+		"backupTelegramMode":     "custom",
+		"backupTelegramChatId":   "-1001234567890",
+		"backupGoogleFolderName": "Existing Backups",
+	} {
+		var got string
+		if err := a.db.QueryRow(`SELECT value FROM system_settings WHERE key=?`, key).Scan(&got); err != nil || got != want {
+			t.Fatalf("setting %s = %q, %v; want %q", key, got, err, want)
+		}
+	}
+}
+
+func TestManualBackupReusesSavedPassword(t *testing.T) {
+	dir := t.TempDir()
+	deployDir := filepath.Join(dir, "deploy")
+	if err := os.MkdirAll(deployDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(deployDir, "docker-compose.yml"), []byte("services: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := newTestAppWithConfig(t, Config{
+		Addr: ":0", DBPath: filepath.Join(dir, "data", "lanqin.db"), DataDir: filepath.Join(dir, "data"),
+		CookieName: "lanqin_test", SessionTTLHours: 24, AdminEmail: "admin@example.com", AdminPassword: "ChangeMe123!",
+		AllowInsecureHTTP: true, UpdateServiceToken: "test-update-secret", BackupSourceDir: deployDir,
+		BackupDir: filepath.Join(dir, "data", "disaster-backups"),
+	})
+	stopTestWorkers(a)
+	ciphertext, err := a.encryptBackupPassword("SharedBackupPassword9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := a.now().UTC().Format("2006-01-02T15:04:05Z")
+	if _, err = a.db.Exec(`INSERT INTO system_settings(key,value,updated_at) VALUES('backupPasswordCipher',?,?)`, ciphertext, now); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(a.Router())
+	defer server.Close()
+	admin := &testClient{t: t, server: server}
+	var response map[string]any
+	if code := admin.do("POST", "/api/auth/login", map[string]string{"email": "admin@example.com", "password": "ChangeMe123!"}, &response); code != http.StatusOK {
+		t.Fatalf("login code=%d body=%v", code, response)
+	}
+	response = nil
+	if code := admin.do("POST", "/api/admin/backups", map[string]any{"password": "", "confirmPassword": "", "sendTelegram": false, "uploadGoogleDrive": false}, &response); code != http.StatusAccepted {
+		t.Fatalf("manual backup code=%d body=%v", code, response)
+	}
+	password, err := a.savedBackupPassword(context.Background())
+	if err != nil || password != "SharedBackupPassword9" {
+		t.Fatalf("saved password changed: %q, %v", password, err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		a.backupMu.Lock()
+		status := a.backupJob.Status
+		a.backupMu.Unlock()
+		if status != "running" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("manual backup did not finish before timeout")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestBackupScheduleCountdownResetsFromSuccessfulBackup(t *testing.T) {
+	a := newTestApp(t)
+	stopTestWorkers(a)
+	fixed := time.Date(2026, 8, 19, 8, 30, 0, 0, time.UTC)
+	a.now = func() time.Time { return fixed }
+	now := fixed.Format(time.RFC3339Nano)
+	for key, value := range map[string]string{"backupScheduleEnabled": "true", "backupScheduleDays": "7"} {
+		if _, err := a.db.Exec(`INSERT INTO system_settings(key,value,updated_at) VALUES(?,?,?)`, key, value, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := a.markBackupScheduleRun(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	schedule, err := a.loadBackupSchedule(context.Background())
+	if err != nil || schedule.LastBackupAt == nil || schedule.NextBackupAt == nil {
+		t.Fatalf("schedule timestamps missing: %+v err=%v", schedule, err)
+	}
+	if !schedule.LastBackupAt.Equal(fixed) || !schedule.NextBackupAt.Equal(fixed.Add(7*24*time.Hour)) {
+		t.Fatalf("schedule did not reset from successful backup: last=%v next=%v", schedule.LastBackupAt, schedule.NextBackupAt)
+	}
+}
+
+func TestPublicServerIPValidation(t *testing.T) {
+	for _, value := range []string{"203.0.113.10", "2001:4860:4860::8888"} {
+		if !isPublicIP(net.ParseIP(value)) {
+			t.Errorf("public IP rejected: %s", value)
+		}
+	}
+	for _, value := range []string{"127.0.0.1", "10.0.0.1", "192.168.1.1", "169.254.1.1", "::1", "fc00::1"} {
+		if isPublicIP(net.ParseIP(value)) {
+			t.Errorf("non-public IP accepted: %s", value)
+		}
+	}
+	if got := detectPublicServerIP(context.Background(), "203.0.113.10"); got != "203.0.113.10" {
+		t.Fatalf("literal public IP = %q", got)
+	}
+	if got := detectPublicServerIP(context.Background(), "127.0.0.1"); got != "" {
+		t.Fatalf("literal private IP = %q", got)
+	}
+}
+
+func TestWriteRuntimeBackupEnv(t *testing.T) {
+	t.Setenv("LANQIN_PUBLIC_HOSTNAME", "mail.example.com")
+	t.Setenv("LANQIN_TEST_QUOTED", "value'with\\slashes\nand-newline")
+	t.Setenv("LANQIN_BACKUP_DIR", "/backups")
+	t.Setenv("LANQIN_UPDATE_SERVICE_URL", "http://updater:8080/v1/update")
+	t.Setenv("UNRELATED_SECRET", "must-not-be-backed-up")
+	path := filepath.Join(t.TempDir(), ".env")
+	if err := writeRuntimeBackupEnv(path); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents := string(raw)
+	for _, expected := range []string{"LANQIN_PUBLIC_HOSTNAME='mail.example.com'", `LANQIN_TEST_QUOTED='value\'with\\slashes\nand-newline'`} {
+		if !strings.Contains(contents, expected) {
+			t.Errorf("backup environment missing %q: %s", expected, contents)
+		}
+	}
+	for _, excluded := range []string{"UNRELATED_SECRET", "must-not-be-backed-up", "LANQIN_BACKUP_DIR", "LANQIN_UPDATE_SERVICE_URL", "http://updater:8080"} {
+		if strings.Contains(contents, excluded) {
+			t.Fatalf("backup environment included excluded value %q", excluded)
+		}
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("backup environment permissions = %v, %v", info.Mode().Perm(), err)
+	}
+}
+
+func TestBackupAssetsAvailableWithBundledCompose(t *testing.T) {
+	dir := t.TempDir()
+	compose := filepath.Join(dir, "deploy", "docker-compose.yml")
+	if err := os.MkdirAll(filepath.Dir(compose), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(compose, []byte("services: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := newTestAppWithConfig(t, Config{
+		Addr: ":0", DBPath: filepath.Join(dir, "data", "lanqin.db"), DataDir: filepath.Join(dir, "data"),
+		CookieName: "lanqin_test", SessionTTLHours: 24, AdminEmail: "admin@example.com", AdminPassword: "ChangeMe123!",
+		AllowInsecureHTTP: true, BackupSourceDir: filepath.Dir(compose), BackupDir: filepath.Join(dir, "data", "disaster-backups"),
+	})
+	stopTestWorkers(a)
+	if !a.backupAssetsAvailable() {
+		t.Fatal("bundled compose did not enable complete backups")
+	}
+	if err := os.Remove(compose); err != nil {
+		t.Fatal(err)
+	}
+	if a.backupAssetsAvailable() {
+		t.Fatal("missing bundled compose incorrectly enabled complete backups")
+	}
+}
+
+func TestBackupPasswordEncryptionAndTelegramReport(t *testing.T) {
+	dir := t.TempDir()
+	a := newTestAppWithConfig(t, Config{
+		Addr: ":0", AppVersion: "v1.2.31", DBPath: filepath.Join(dir, "data", "lanqin.db"), DataDir: filepath.Join(dir, "data"),
+		CookieName: "lanqin_test", SessionTTLHours: 24, AdminEmail: "admin@newszxcn.com", AdminPassword: "ChangeMe123!",
+		PublicHostname: "mail.newszxcn.com", PublicBaseURL: "https://mail.newszxcn.com", AllowInsecureHTTP: true, UpdateServiceToken: "test-update-secret",
+	})
+
+	ciphertext, err := a.encryptBackupPassword("BackupPassword123!")
+	if err != nil || ciphertext == "BackupPassword123!" {
+		t.Fatalf("password encryption failed: %q %v", ciphertext, err)
+	}
+	plain, err := a.decryptBackupPassword(ciphertext)
+	if err != nil || plain != "BackupPassword123!" {
+		t.Fatalf("password decryption = %q, %v", plain, err)
+	}
+	if !validTelegramPrivateChatID("-1001234567890") {
+		t.Fatal("private Telegram group chat ID was rejected")
+	}
+
+	now := a.now().UTC().Format("2006-01-02T15:04:05Z")
+	if _, err := a.db.Exec(`INSERT INTO domains(id,name,status,dkim_selector,dkim_public_key,dkim_private_key,dns_status,created_at,updated_at) VALUES('domain_xyes','xyes.me','active','mail','','','unchecked',?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.db.Exec(`INSERT INTO users(id,login_name,email,display_name,role,password_hash,created_at,updated_at) VALUES('user_xyes','user@xyes.me','user@xyes.me','User','user','hash',?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(dir, "newszxcn-backup-20260811-120000-1.2.31.tar.zst.enc")
+	if err := os.WriteFile(path, []byte("encrypted backup"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := a.backupTelegramReport(context.Background(), path, info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"备份成功", "mail.newszxcn.com", "已有域名", "newszxcn.com", "xyes.me", "管理员账号", "admin@newszxcn.com", "普通用户账号", "user@xyes.me", "请不要解压", "本地上传", "1Password"} {
+		if !strings.Contains(report, expected) {
+			t.Errorf("report missing %q: %s", expected, report)
+		}
+	}
+	if strings.Contains(report, "newszxcn.com（管理员）") {
+		t.Fatal("domain list incorrectly contains account role")
+	}
+	if strings.Contains(report, "BackupPassword123!") || strings.Contains(report, "ChangeMe123!") {
+		t.Fatal("report leaked a password")
+	}
+}

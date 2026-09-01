@@ -1,0 +1,345 @@
+name: Docker Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  packages: write
+  pull-requests: read
+  issues: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  checks:
+    name: Check web and api
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check installer
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck sqlite3
+          bash -n install.sh tests/install_test.sh tests/dkim_sync_test.sh
+          shellcheck -x install.sh tests/install_test.sh tests/dkim_sync_test.sh deploy/rspamd/sync-dkim.sh
+          bash tests/install_test.sh
+          bash tests/dkim_sync_test.sh
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install web dependencies
+        run: pnpm install --frozen-lockfile --filter newszxcn-email-web...
+
+      - name: Check shadcn/ui usage
+        run: pnpm --dir apps/web run check:shadcn
+
+      - name: Build web
+        run: pnpm --dir apps/web run build
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/api/go.mod
+          cache-dependency-path: apps/api/go.sum
+
+      - name: Test api
+        working-directory: apps/api
+        run: go test ./...
+
+  release:
+    name: Resolve release tag
+    runs-on: ubuntu-latest
+    needs: checks
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+      release_url: ${{ steps.release.outputs.release_url }}
+    steps:
+      - name: Resolve tag version
+        id: release
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          version="${version#.}"
+          version="${version#-}"
+          release_url="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${tag}"
+          {
+            echo "tag=${tag}"
+            echo "version=${version}"
+            echo "release_url=${release_url}"
+          } >> "$GITHUB_OUTPUT"
+          echo "::notice::Docker release tag: ${tag}"
+
+  docker:
+    name: Build and publish ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: all-in-one
+            suffix: ""
+            context: .
+            file: ./deploy/all-in-one/Dockerfile
+            platforms: linux/amd64,linux/arm64
+          - name: api
+            suffix: -api
+            context: .
+            file: ./deploy/api.Dockerfile
+            platforms: linux/amd64,linux/arm64
+          - name: web
+            suffix: -web
+            context: .
+            file: ./deploy/web.Dockerfile
+            platforms: linux/amd64,linux/arm64
+          - name: postfix
+            suffix: -postfix
+            context: ./deploy/postfix
+            file: ./deploy/postfix/Dockerfile
+            platforms: linux/amd64
+          - name: dovecot
+            suffix: -dovecot
+            context: ./deploy/dovecot
+            file: ./deploy/dovecot/Dockerfile
+            platforms: linux/amd64
+          - name: rspamd
+            suffix: -rspamd
+            context: ./deploy/rspamd
+            file: ./deploy/rspamd/Dockerfile
+            platforms: linux/amd64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Prepare image name
+        id: image
+        shell: bash
+        run: |
+          image="${REGISTRY}/${GITHUB_REPOSITORY}${{ matrix.suffix }}"
+          {
+            echo "name=${image,,}"
+            echo "tag=${{ needs.release.outputs.tag }}"
+            echo "version=${{ needs.release.outputs.version }}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=raw,value=${{ steps.image.outputs.tag }}
+            type=raw,value=${{ steps.image.outputs.version }}
+            type=raw,value=latest
+            type=sha,prefix=sha-
+          labels: |
+            org.opencontainers.image.title=NewSzxcn Email ${{ matrix.name }}
+            org.opencontainers.image.version=${{ steps.image.outputs.tag }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          platforms: ${{ matrix.platforms }}
+          push: true
+          build-args: |
+            APP_VERSION=${{ needs.release.outputs.tag }}
+            APP_COMMIT=${{ github.sha }}
+            VITE_APP_VERSION=${{ needs.release.outputs.tag }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  github-release:
+    name: Create GitHub release
+    runs-on: ubuntu-latest
+    needs:
+      - release
+      - docker
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tag="${{ needs.release.outputs.tag }}"
+          repo="${GITHUB_REPOSITORY}"
+          repo_url="https://github.com/${repo}"
+          current_commit="$(git rev-list -n 1 "${tag}")"
+          previous_tag="$(git describe --tags --abbrev=0 "${current_commit}^" 2>/dev/null || true)"
+          version_notes=".github/release-notes/${tag}.md"
+
+          if [[ -f "${version_notes}" ]]; then
+            cp "${version_notes}" generated-release-notes.md
+          else
+            generate_args=(-f "tag_name=${tag}")
+            if [[ -n "${previous_tag}" ]]; then
+              generate_args+=(-f "previous_tag_name=${previous_tag}")
+            fi
+
+            if ! gh api -X POST "repos/${repo}/releases/generate-notes" "${generate_args[@]}" --jq '.body' > generated-release-notes.md; then
+              {
+                echo "GitHub 自动生成更新日志失败，已回退到提交列表。"
+                echo
+                if [[ -n "${previous_tag}" ]]; then
+                  git log --reverse --pretty=format:"- %s ([%h](${repo_url}/commit/%H))" "${previous_tag}..${tag}"
+                  echo
+                  echo
+                  echo "完整更新日志: [${previous_tag}...${tag}](${repo_url}/compare/${previous_tag}...${tag})"
+                else
+                  echo "- 首个公开版本。"
+                  echo
+                  echo "当前提交: [${GITHUB_SHA:0:7}](${repo_url}/commit/${GITHUB_SHA})"
+                fi
+              } > generated-release-notes.md
+            fi
+          fi
+
+          cp generated-release-notes.md release-notes.md
+
+      - name: Create or update GitHub release
+        id: release_result
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tag="${{ needs.release.outputs.tag }}"
+          title="NewSzxcn Email ${tag}"
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            gh release edit "${tag}" --title "${title}" --notes-file release-notes.md --latest
+            echo "created=false" >> "$GITHUB_OUTPUT"
+          else
+            gh release create "${tag}" --verify-tag --title "${title}" --notes-file release-notes.md --latest
+            echo "created=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Notify Telegram release channel
+        if: steps.release_result.outputs.created == 'true'
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_RELEASE_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_RELEASE_CHAT_ID }}
+          RELEASE_TAG: ${{ needs.release.outputs.tag }}
+          RELEASE_URL: ${{ needs.release.outputs.release_url }}
+        shell: bash
+        run: |
+          if [[ -z "${TELEGRAM_BOT_TOKEN}" || -z "${TELEGRAM_CHAT_ID}" ]]; then
+            echo "::notice::Telegram release notification is not configured; skipping."
+            exit 0
+          fi
+
+          python3 - <<'PY'
+          import html
+          import os
+          import re
+
+          notes = open("release-notes.md", "r", encoding="utf-8").read().strip()
+          notes = re.sub(r"<!--[\s\S]*?-->", "", notes)
+          entries = []
+          for raw in notes.splitlines():
+              line = re.sub(r"^#{1,6}\s+", "", raw).strip()
+              line = re.sub(r"^[-*+]\s+", "", line)
+              line = re.sub(r"\*\*([^*]+)\*\*", r"\1", line)
+              line = re.sub(r"`([^`]+)`", r"\1", line)
+              if re.match(r"^(full changelog|what's changed|new contributors)\b", line, re.IGNORECASE):
+                  continue
+              if re.match(r"^https?://", line, re.IGNORECASE):
+                  continue
+              line = re.sub(r"\[([^]]+)\]\([^)]+\)", r"\1", line)
+              if line:
+                  entries.append(line)
+
+          sections = []
+          for index, entry in enumerate(entries, 1):
+              parts = re.split(r"[：:]", entry, maxsplit=1)
+              if len(parts) == 1:
+                  parts = re.split(r"[，；。]", entry, maxsplit=1)
+              title = parts[0].strip()
+              description = parts[1].strip() if len(parts) > 1 else ""
+              section = f"<b>{index:02d} · {html.escape(title)}</b>"
+              if description:
+                  section += "\n<blockquote>" + html.escape(description.rstrip("。") + "。") + "</blockquote>"
+              sections.append(section)
+
+          tag = os.environ["RELEASE_TAG"]
+          prefix = f"<b>NewSzxcn Email {html.escape(tag)}</b>\n<i>新版本现已发布</i>\n\n<b>更新内容 · {len(sections)} 项</b>\n\n"
+          release_url = html.escape(os.environ["RELEASE_URL"], quote=True)
+          footer = f'\n\n<a href="{release_url}">查看完整更新说明 ↗</a>'
+          available = max(0, 3600 - len(prefix) - len(footer))
+          visible_sections = []
+          used = 0
+          for section in sections:
+              added = len(section) + (2 if visible_sections else 0)
+              if used + added > available:
+                  break
+              visible_sections.append(section)
+              used += added
+          body = "\n\n".join(visible_sections)
+          if len(visible_sections) < len(sections):
+              body += "\n\n更新内容较长，请打开下方链接查看完整内容。"
+          open("telegram-release-message.txt", "w", encoding="utf-8").write(prefix + body + footer)
+          PY
+
+          jq -n \
+            --arg chat_id "${TELEGRAM_CHAT_ID}" \
+            --rawfile text telegram-release-message.txt \
+            '{
+              chat_id:$chat_id,
+              text:$text,
+              parse_mode:"HTML",
+              disable_web_page_preview:true
+            }' > telegram-release-payload.json
+
+          http_code="$(curl -sS --retry 2 --retry-all-errors --connect-timeout 10 --max-time 30 \
+            -o telegram-release-response.json -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            --data-binary @telegram-release-payload.json \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage")"
+          if [[ "${http_code}" != "200" ]] || ! jq -e '.ok == true' telegram-release-response.json >/dev/null 2>&1; then
+            description="$(jq -r '.description // "unknown Telegram error"' telegram-release-response.json 2>/dev/null || echo "unknown Telegram error")"
+            echo "::warning::Telegram release notification failed (HTTP ${http_code}): ${description}"
+            exit 1
+          fi
+          echo "::notice::Telegram release notification sent."

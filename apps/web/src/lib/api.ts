@@ -1,0 +1,348 @@
+import type { User, AdminUser, AdminOverview, Domain, Mailbox, Alias, MailFolder, MailLabel, MailMessage, MailTranslation, DNSRecord, DNSCheckResult, ListResponse, SendPayload, DraftPayload, ScheduleSendPayload, ScheduledSend, SendQueueItem, SendQueueAuditEvent, SendQueueStatus, Contact, MailSignature, MailRule, MailRuleCondition, MailRuleAction, BlockedSender, MailStats, ForwardingSettings, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapOAuthStartPayload, ExternalImapSyncRun, MailboxApplyOptions, MailTemplate, MaildirSyncHealth, SystemSettings, SystemSettingsPayload, SystemVersion, SystemUpdateResult, BackupList, PublicSettings, LoginPayload, LoginResponse, RegisterPayload, PermissionGroup, PermissionInfo, PermissionKey, PermissionLimits, APIToken, TwoFactorEnableResponse, BulkMoveResult, TelegramPrivateChat, TelegramPairing, UserTelegramSettings } from "./api-types"
+export * from "./api-types"
+
+const REQUEST_TIMEOUT_MS = 15_000
+const MAIL_DELIVERY_TIMEOUT_MS = 60_000
+
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message)
+    this.name = "ApiError"
+  }
+}
+
+export function isUnauthorizedError(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 401
+}
+
+export type MailSearchParams = {
+  q?: string
+  from?: string
+  to?: string
+  subject?: string
+  startDate?: string
+  endDate?: string
+  attachmentMode?: "all" | "with" | "without"
+  minSizeKb?: string
+  maxSizeKb?: string
+  readStatus?: "all" | "read" | "unread"
+  flagStatus?: "all" | "starred" | "unstarred"
+  hasAttachments?: boolean
+  unread?: boolean
+  starred?: boolean
+}
+
+function appendMailSearchParams(params: URLSearchParams, search: MailSearchParams | string) {
+  if (typeof search === "string") {
+    if (search) params.set("q", search)
+    return
+  }
+  if (search.q) params.set("q", search.q)
+  if (search.from) params.set("from", search.from)
+  if (search.to) params.set("to", search.to)
+  if (search.subject) params.set("subject", search.subject)
+  if (search.startDate) params.set("startDate", search.startDate)
+  if (search.endDate) params.set("endDate", search.endDate)
+  if (search.attachmentMode && search.attachmentMode !== "all") params.set("attachmentMode", search.attachmentMode)
+  else if (search.hasAttachments) params.set("hasAttachments", "1")
+  if (search.minSizeKb) params.set("minSizeKb", search.minSizeKb)
+  if (search.maxSizeKb) params.set("maxSizeKb", search.maxSizeKb)
+  if (search.readStatus && search.readStatus !== "all") params.set("readStatus", search.readStatus)
+  else if (search.unread) params.set("unread", "1")
+  if (search.flagStatus && search.flagStatus !== "all") params.set("flagStatus", search.flagStatus)
+  else if (search.starred) params.set("starred", "1")
+}
+
+async function request<T>(path: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<T> {
+  const { timeoutMs, ...requestInit } = init
+  const controller = new AbortController()
+  let timedOut = false
+  const timeout = window.setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeoutMs || REQUEST_TIMEOUT_MS)
+  const externalSignal = requestInit.signal
+  const abortFromExternalSignal = () => controller.abort()
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort()
+    else externalSignal.addEventListener("abort", abortFromExternalSignal, { once: true })
+  }
+  try {
+    const res = await fetch(path, { credentials: "include", headers: { "Content-Type": "application/json", ...(requestInit.headers || {}) }, ...requestInit, signal: controller.signal })
+    if (!res.ok) {
+      let message = `${res.status} ${res.statusText}`
+      try { const body = await res.json(); message = body.error || message } catch {}
+      throw new ApiError(message, res.status)
+    }
+    return res.json() as Promise<T>
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error(timedOut ? "请求超时，请检查后端服务是否正常" : "请求已取消")
+    }
+    if (error instanceof TypeError) throw new Error("无法连接后端服务，请检查服务状态")
+    throw error instanceof Error ? error : new Error("网络请求失败")
+  } finally {
+    window.clearTimeout(timeout)
+    externalSignal?.removeEventListener("abort", abortFromExternalSignal)
+  }
+}
+
+async function uploadForm<T>(path: string, form: FormData): Promise<T> {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), 5 * 60_000)
+  try {
+    const res = await fetch(path, { method: "POST", credentials: "include", body: form, signal: controller.signal })
+    if (!res.ok) {
+      if (res.status === 413) throw new Error("导入文件过大，请减少单次导入数量后重试")
+      let message = `${res.status} ${res.statusText}`
+      try { const body = await res.json(); message = body.error || message } catch {}
+      throw new Error(message)
+    }
+    return res.json() as Promise<T>
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw new Error("导入超时，请缩小文件后重试")
+    throw error instanceof Error ? error : new Error("网络请求失败")
+  } finally {
+    window.clearTimeout(timeout)
+  }
+}
+
+export const api = {
+  publicSettings: () => request<PublicSettings>("/api/public/settings"),
+  register: (payload: RegisterPayload) => request<{ user: User }>("/api/auth/register", { method: "POST", body: JSON.stringify(payload) }),
+  login: (payload: LoginPayload) => request<LoginResponse>("/api/auth/login", { method: "POST", body: JSON.stringify(payload) }),
+  logout: () => request<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
+  me: () => request<{ user: User }>("/api/me"),
+  updateProfile: (payload: { displayName: string }) => request<{ user: User }>("/api/me/profile", { method: "POST", body: JSON.stringify(payload) }),
+  userTelegramSettings: () => request<UserTelegramSettings>("/api/me/telegram"),
+  updateUserTelegramSettings: (payload: { enabled: boolean; botToken: string; privateChatId: string; mailboxIds: string[] }) => request<UserTelegramSettings>("/api/me/telegram", { method: "POST", body: JSON.stringify(payload) }),
+  createUserTelegramPairing: (botToken: string) => request<TelegramPairing>("/api/me/telegram/pair", { method: "POST", body: JSON.stringify({ botToken }) }),
+  discoverUserTelegramChat: (botToken: string, pairingCode: string) => request<TelegramPrivateChat>("/api/me/telegram/discover", { method: "POST", body: JSON.stringify({ botToken, pairingCode }) }),
+  testUserTelegram: (botToken: string, chatId: string) => request<{ ok: boolean }>("/api/me/telegram/test", { method: "POST", body: JSON.stringify({ botToken, chatId }), timeoutMs: MAIL_DELIVERY_TIMEOUT_MS }),
+  changePassword: (payload: { currentPassword: string; newPassword: string }) => request<{ ok: boolean }>("/api/me/password", { method: "POST", body: JSON.stringify(payload) }),
+  apiTokens: () => request<ListResponse<APIToken>>("/api/me/api-tokens"),
+  createApiToken: (payload: { name: string; expiresAt?: string; scopes: string[] }) => request<{ token: string; item: APIToken }>("/api/me/api-tokens", { method: "POST", body: JSON.stringify(payload) }),
+  updateApiToken: (id: string, payload: { name?: string; expiresAt?: string; disabled?: boolean; scopes?: string[] }) => request<APIToken>(`/api/me/api-tokens/${id}`, { method: "POST", body: JSON.stringify(payload) }),
+  deleteApiToken: (id: string) => request<{ ok: boolean }>(`/api/me/api-tokens/${id}`, { method: "DELETE" }),
+  setupTwoFactor: () => request<{ secret: string; otpauthUrl: string }>("/api/me/2fa/setup", { method: "POST" }),
+  enableTwoFactor: (code: string) => request<TwoFactorEnableResponse>("/api/me/2fa/enable", { method: "POST", body: JSON.stringify({ code }) }),
+  disableTwoFactor: (code: string) => request<{ user: User }>("/api/me/2fa/disable", { method: "POST", body: JSON.stringify({ code }) }),
+  contacts: () => request<ListResponse<Contact>>("/api/me/contacts"),
+  createContact: (payload: { name: string; email: string; note: string }) => request<Contact>("/api/me/contacts", { method: "POST", body: JSON.stringify(payload) }),
+  deleteContact: (id: string) => request<{ ok: boolean }>(`/api/me/contacts/${id}`, { method: "DELETE" }),
+  signatures: () => request<ListResponse<MailSignature>>("/api/me/signatures"),
+  createSignature: (payload: { mailboxId: string; name: string; content: string; isDefault: boolean }) => request<MailSignature>("/api/me/signatures", { method: "POST", body: JSON.stringify(payload) }),
+  updateSignature: (id: string, payload: { mailboxId: string; name: string; content: string; isDefault: boolean }) => request<MailSignature>(`/api/me/signatures/${id}`, { method: "POST", body: JSON.stringify(payload) }),
+  setDefaultSignature: (id: string) => request<MailSignature>(`/api/me/signatures/${id}/default`, { method: "POST" }),
+  deleteSignature: (id: string) => request<{ ok: boolean }>(`/api/me/signatures/${id}`, { method: "DELETE" }),
+  defaultSignature: (mailboxId?: string) => request<{ signature: MailSignature | null }>(`/api/me/signatures/default${mailboxId ? `?mailboxId=${encodeURIComponent(mailboxId)}` : ""}`),
+  rules: () => request<ListResponse<MailRule>>("/api/me/rules"),
+  createRule: (payload: { mailboxId: string; name: string; matchMode: "all" | "any"; conditions: MailRuleCondition[]; actions: MailRuleAction[]; applyToExisting: boolean; stopProcessing: boolean; enabled: boolean }) => request<MailRule>("/api/me/rules", { method: "POST", body: JSON.stringify(payload) }),
+  updateRule: (id: string, payload: Partial<{ mailboxId: string; name: string; matchMode: "all" | "any"; conditions: MailRuleCondition[]; actions: MailRuleAction[]; applyToExisting: boolean; stopProcessing: boolean; enabled: boolean }>) => request<MailRule>(`/api/me/rules/${id}`, { method: "POST", body: JSON.stringify(payload) }),
+  moveRule: (id: string, direction: "up" | "down") => request<{ ok: boolean }>(`/api/me/rules/${id}/move`, { method: "POST", body: JSON.stringify({ direction }) }),
+  applyRule: (id: string) => request<{ ok: boolean; affected: number }>(`/api/me/rules/${id}/apply`, { method: "POST" }),
+  deleteRule: (id: string) => request<{ ok: boolean }>(`/api/me/rules/${id}`, { method: "DELETE" }),
+  blockedSenders: () => request<ListResponse<BlockedSender>>("/api/me/blocked-senders"),
+  createBlockedSender: (payload: { mailboxId: string; email: string; reason: string }) => request<BlockedSender>("/api/me/blocked-senders", { method: "POST", body: JSON.stringify(payload) }),
+  deleteBlockedSender: (id: string) => request<{ ok: boolean }>(`/api/me/blocked-senders/${id}`, { method: "DELETE" }),
+  mailStats: (mailboxId?: string, days?: number) => {
+    const query = new URLSearchParams()
+    if (mailboxId) query.set("mailboxId", mailboxId)
+    if (days) query.set("days", String(days))
+    const suffix = query.toString()
+    return request<MailStats>(`/api/me/stats${suffix ? `?${suffix}` : ""}`)
+  },
+  cleanupMail: (payload: { mailboxId: string; target: "empty-trash" | "empty-spam" | "archive-read-inbox" }) => request<{ ok: boolean; affected: number }>("/api/me/cleanup", { method: "POST", body: JSON.stringify(payload) }),
+  mailboxApplyOptions: () => request<MailboxApplyOptions>("/api/me/mailbox-apply-options"),
+  applyMailbox: (payload: { domainId: string; localPart: string; displayName: string }) => request<Mailbox>("/api/me/mailboxes/apply", { method: "POST", body: JSON.stringify(payload) }),
+  forwardingSettings: () => request<ForwardingSettings>("/api/me/forwarding"),
+  addForwardingVerifiedEmail: (email: string) => request<ForwardingSettings>("/api/me/forwarding/verified-emails", { method: "POST", body: JSON.stringify({ email }) }),
+  resendForwardingVerifiedEmail: (id: string) => request<ForwardingSettings>(`/api/me/forwarding/verified-emails/${id}/resend`, { method: "POST" }),
+  deleteForwardingVerifiedEmail: (id: string) => request<ForwardingSettings>(`/api/me/forwarding/verified-emails/${id}`, { method: "DELETE" }),
+  createForwardingPendingBinding: (payload: { email: string; scope: "account" | "mailbox"; mailboxId?: string }) => request<ForwardingSettings>("/api/me/forwarding/pending-bindings", { method: "POST", body: JSON.stringify(payload) }),
+  deleteForwardingPendingBinding: (id: string) => request<ForwardingSettings>(`/api/me/forwarding/pending-bindings/${id}`, { method: "DELETE" }),
+  retryForwardingPendingBinding: (id: string) => request<ForwardingSettings>(`/api/me/forwarding/pending-bindings/${id}/retry`, { method: "POST" }),
+  updateAccountForwarding: (targetEmails: string[] | string) => request<ForwardingSettings>("/api/me/forwarding/account", { method: "POST", body: JSON.stringify(Array.isArray(targetEmails) ? { targetEmails } : { targetEmail: targetEmails }) }),
+  updateMailboxForwarding: (mailboxId: string, targetEmails: string[] | string) => request<ForwardingSettings>(`/api/me/mailboxes/${mailboxId}/forwarding`, { method: "POST", body: JSON.stringify(Array.isArray(targetEmails) ? { targetEmails } : { targetEmail: targetEmails }) }),
+  externalImapAccounts: (mailboxId?: string) => request<ListResponse<ExternalImapAccount>>(`/api/me/external-imap-accounts${mailboxId ? `?mailboxId=${encodeURIComponent(mailboxId)}` : ""}`),
+  createExternalImapAccount: (payload: ExternalImapAccountPayload) => request<ExternalImapAccount>("/api/me/external-imap-accounts", { method: "POST", body: JSON.stringify(payload) }),
+  updateExternalImapAccount: (id: string, payload: ExternalImapAccountPayload) => request<ExternalImapAccount>(`/api/me/external-imap-accounts/${id}`, { method: "POST", body: JSON.stringify(payload) }),
+  deleteExternalImapAccount: (id: string) => request<{ ok: boolean }>(`/api/me/external-imap-accounts/${id}`, { method: "DELETE" }),
+  startExternalImapOAuth: (provider: ExternalImapOAuthProvider, payload: ExternalImapOAuthStartPayload) => request<{ url: string }>(`/api/me/external-imap-oauth/${provider}/start`, { method: "POST", body: JSON.stringify(payload) }),
+  testExternalImapAccount: (id: string) => request<{ ok: boolean; folders: number }>(`/api/me/external-imap-accounts/${id}/test`, { method: "POST", timeoutMs: MAIL_DELIVERY_TIMEOUT_MS }),
+  externalImapSyncRuns: (id: string) => request<ListResponse<ExternalImapSyncRun>>(`/api/me/external-imap-accounts/${id}/runs`),
+  syncExternalImapAccount: (id: string) => request<ExternalImapSyncRun>(`/api/me/external-imap-accounts/${id}/sync`, { method: "POST", timeoutMs: MAIL_DELIVERY_TIMEOUT_MS }),
+  syncExternalImapFolder: (id: string, folder: string) => request<ExternalImapSyncRun>(`/api/me/external-imap-accounts/${id}/sync-folder`, { method: "POST", body: JSON.stringify({ folder }), timeoutMs: MAIL_DELIVERY_TIMEOUT_MS }),
+  adminOverview: () => request<AdminOverview>("/api/admin/overview"),
+  users: () => request<ListResponse<AdminUser>>("/api/admin/users"),
+  permissionGroups: () => request<ListResponse<PermissionGroup> & { catalog: PermissionInfo[] }>("/api/admin/permission-groups"),
+  createPermissionGroup: (payload: { name: string; description: string; permissions: PermissionKey[]; limits: PermissionLimits }) => request<PermissionGroup>("/api/admin/permission-groups", { method: "POST", body: JSON.stringify(payload) }),
+  updatePermissionGroup: (id: string, payload: { name: string; description: string; permissions: PermissionKey[]; limits: PermissionLimits }) => request<PermissionGroup>(`/api/admin/permission-groups/${id}`, { method: "POST", body: JSON.stringify(payload) }),
+  defaultPermissionLimits: () => request<PermissionLimits>("/api/admin/permission-limits/defaults"),
+  deletePermissionGroup: (id: string) => request<{ ok: boolean }>(`/api/admin/permission-groups/${id}`, { method: "DELETE" }),
+  createUser: (payload: { email: string; displayName: string; role: "user"; password: string; disabled: boolean; mailboxLimitOverride?: number; storageQuotaMb?: number; permissionGroupIds?: string[] }) => request<AdminUser>("/api/admin/users", { method: "POST", body: JSON.stringify(payload) }),
+  updateUser: (id: string, payload: { email?: string; displayName: string; role: "admin" | "user"; disabled: boolean; mailboxLimitOverride?: number; storageQuotaMb?: number; permissionGroupIds?: string[] }) => request<AdminUser>(`/api/admin/users/${id}`, { method: "POST", body: JSON.stringify(payload) }),
+  resetUserPassword: (id: string, password: string) => request<{ ok: boolean }>(`/api/admin/users/${id}/password`, { method: "POST", body: JSON.stringify({ password }) }),
+  deleteUser: (id: string) => request<{ ok: boolean }>(`/api/admin/users/${id}`, { method: "DELETE" }),
+  domains: () => request<ListResponse<Domain>>("/api/admin/domains"),
+  createDomain: (name: string) => request<Domain>("/api/admin/domains", { method: "POST", body: JSON.stringify({ name }) }),
+  updateDomain: (id: string, payload: { status: string }) => request<Domain>(`/api/admin/domains/${id}`, { method: "POST", body: JSON.stringify(payload) }),
+  deleteDomain: (id: string) => request<{ ok: boolean }>(`/api/admin/domains/${id}`, { method: "DELETE" }),
+  mailboxes: () => request<ListResponse<Mailbox>>("/api/admin/mailboxes"),
+  createMailbox: (payload: { domainId: string; localPart: string; displayName?: string; userId: string }) => request<Mailbox>("/api/admin/mailboxes", { method: "POST", body: JSON.stringify(payload) }),
+  updateMailbox: (id: string, payload: { userId: string; displayName: string; quotaMb: number; status: string }) => request<Mailbox>(`/api/admin/mailboxes/${id}`, { method: "POST", body: JSON.stringify(payload) }),
+  deleteMailbox: (id: string) => request<{ ok: boolean }>(`/api/admin/mailboxes/${id}`, { method: "DELETE" }),
+  aliases: () => request<ListResponse<Alias>>("/api/admin/aliases"),
+  createAlias: (payload: { domainId: string; source: string; destination: string; enabled: boolean }) => request<Alias>("/api/admin/aliases", { method: "POST", body: JSON.stringify(payload) }),
+  updateAlias: (id: string, payload: { source: string; destination: string; enabled: boolean }) => request<Alias>(`/api/admin/aliases/${id}`, { method: "POST", body: JSON.stringify(payload) }),
+  deleteAlias: (id: string) => request<{ ok: boolean }>(`/api/admin/aliases/${id}`, { method: "DELETE" }),
+  adminMessages: (params: { mailboxId?: string; folder?: string; q?: string; cursor?: string } = {}) => {
+    const query = new URLSearchParams()
+    if (params.mailboxId) query.set("mailboxId", params.mailboxId)
+    if (params.folder) query.set("folder", params.folder)
+    if (params.q) query.set("q", params.q)
+    if (params.cursor) query.set("cursor", params.cursor)
+    const suffix = query.toString()
+    return request<ListResponse<MailMessage>>(`/api/admin/messages${suffix ? `?${suffix}` : ""}`)
+  },
+  adminMessage: (id: string) => request<MailMessage>(`/api/admin/messages/${id}`),
+  adminSendAudit: (params: { mailboxId?: string; messageId?: string; event?: string; from?: string; to?: string; cursor?: string } = {}) => {
+    const query = new URLSearchParams()
+    if (params.mailboxId) query.set("mailboxId", params.mailboxId)
+    if (params.messageId) query.set("messageId", params.messageId)
+    if (params.event) query.set("event", params.event)
+    if (params.from) query.set("from", params.from)
+    if (params.to) query.set("to", params.to)
+    if (params.cursor) query.set("cursor", params.cursor)
+    const suffix = query.toString()
+    return request<ListResponse<SendQueueAuditEvent>>(`/api/admin/send-audit${suffix ? `?${suffix}` : ""}`)
+  },
+  systemVersion: () => request<SystemVersion>("/api/admin/system/version"),
+  updateSystem: () => request<SystemUpdateResult>("/api/admin/system/update", { method: "POST", timeoutMs: 45_000 }),
+  backups: () => request<BackupList>("/api/admin/backups"),
+  createBackup: (password: string, confirmPassword: string, sendTelegram: boolean, uploadGoogleDrive: boolean) => request<{ ok: boolean; message: string }>("/api/admin/backups", { method: "POST", body: JSON.stringify({ password, confirmPassword, sendTelegram, uploadGoogleDrive }) }),
+  updateBackupSettings: (payload: { enabled: boolean; days: number; password: string; confirmPassword: string; serverIp: string; chatId: string; telegramMode: "system" | "custom"; telegramEnabled: boolean; telegramBotToken: string; googleDriveEnabled: boolean; googleClientId: string; googleClientSecret: string; googleFolderName: string }) => request<import("./api-types").BackupSchedule>("/api/admin/backups/settings", { method: "POST", body: JSON.stringify(payload) }),
+  updateBackupPassword: (password: string, confirmPassword: string) => request<{ passwordSet: boolean; passwordHint: string }>("/api/admin/backups/password", { method: "POST", body: JSON.stringify({ password, confirmPassword }) }),
+  testBackupTelegram: (payload: { mode: "system" | "custom"; chatId: string }) => request<{ ok: boolean }>("/api/admin/backups/telegram/test", { method: "POST", body: JSON.stringify(payload), timeoutMs: MAIL_DELIVERY_TIMEOUT_MS }),
+  discoverBackupTelegramGroup: (pairingCode: string) => request<{ items: TelegramPrivateChat[] }>("/api/admin/backups/telegram/discover-group", { method: "POST", body: JSON.stringify({ pairingCode }) }),
+  connectGoogleDrive: () => request<{ url: string }>("/api/admin/backups/google-drive/connect", { method: "POST" }),
+  disconnectGoogleDrive: () => request<{ ok: boolean }>("/api/admin/backups/google-drive", { method: "DELETE" }),
+  verifyBackup: (name: string) => request<{ ok: boolean; sha256: string }>(`/api/admin/backups/${encodeURIComponent(name)}/verify`, { method: "POST", timeoutMs: 60_000 }),
+  sendBackupTelegram: (name: string) => request<{ ok: boolean }>(`/api/admin/backups/${encodeURIComponent(name)}/telegram`, { method: "POST", timeoutMs: 10 * 60_000 }),
+  sendBackupGoogleDrive: (name: string) => request<{ ok: boolean }>(`/api/admin/backups/${encodeURIComponent(name)}/google-drive`, { method: "POST", timeoutMs: 30 * 60_000 }),
+  deleteBackup: (name: string) => request<{ ok: boolean }>(`/api/admin/backups/${encodeURIComponent(name)}`, { method: "DELETE" }),
+  systemSettings: () => request<SystemSettings>("/api/admin/settings"),
+  maildirSyncHealth: () => request<MaildirSyncHealth>("/api/admin/maildir-sync/health"),
+  updateSystemSettings: (payload: SystemSettingsPayload) => request<SystemSettings>("/api/admin/settings", { method: "POST", body: JSON.stringify(payload) }),
+  testSmtp: (to: string) => request<{ ok: boolean }>("/api/admin/settings/test-smtp", { method: "POST", body: JSON.stringify({ to }), timeoutMs: MAIL_DELIVERY_TIMEOUT_MS }),
+  createTelegramPairing: (botToken: string) => request<TelegramPairing>("/api/admin/settings/telegram/pair", { method: "POST", body: JSON.stringify({ botToken }) }),
+  discoverTelegramChat: (botToken: string, pairingCode: string) => request<TelegramPrivateChat>("/api/admin/settings/telegram/discover", { method: "POST", body: JSON.stringify({ botToken, pairingCode }) }),
+  testTelegram: (botToken: string, chatId: string) => request<{ ok: boolean }>("/api/admin/settings/telegram/test", { method: "POST", body: JSON.stringify({ botToken, chatId }), timeoutMs: MAIL_DELIVERY_TIMEOUT_MS }),
+  mailTemplates: () => request<ListResponse<MailTemplate>>("/api/admin/mail-templates"),
+  updateMailTemplate: (key: string, payload: { subject: string; bodyText: string; bodyHtml: string }) => request<MailTemplate>(`/api/admin/mail-templates/${encodeURIComponent(key)}`, { method: "POST", body: JSON.stringify(payload) }),
+  resetMailTemplate: (key: string) => request<MailTemplate>(`/api/admin/mail-templates/${encodeURIComponent(key)}/reset`, { method: "POST" }),
+  dnsRecords: (domainId: string) => request<{ items: DNSRecord[] }>(`/api/admin/domains/${domainId}/dns-records`),
+  checkDns: (domainId: string) => request<DNSCheckResult>(`/api/admin/domains/${domainId}/check-dns`, { method: "POST" }),
+  myMailboxes: () => request<ListResponse<Mailbox>>("/api/mail/mailboxes"),
+  externalMailAccounts: () => request<ListResponse<ExternalImapAccount>>("/api/mail/external-accounts"),
+  externalFolders: (id: string) => request<ListResponse<ExternalImapFolder>>(`/api/mail/external-accounts/${id}/folders`),
+  externalMessages: (id: string, folder: string, cursor = "", q = "") => {
+    const params = new URLSearchParams({ folder, cursor, q })
+    return request<ListResponse<MailMessage>>(`/api/mail/external-accounts/${id}/messages?${params.toString()}`)
+  },
+  externalMessage: (id: string, remoteId: string) => request<MailMessage>(`/api/mail/external-accounts/${id}/messages/${encodeURIComponent(remoteId)}`),
+  markExternalRead: (id: string, remoteId: string, read: boolean) => request<{ ok: boolean }>(`/api/mail/external-accounts/${id}/messages/${encodeURIComponent(remoteId)}/mark-read`, { method: "POST", body: JSON.stringify({ read }) }),
+  folders: (mailboxId?: string) => request<ListResponse<MailFolder>>(`/api/mail/folders${mailboxId ? `?mailboxId=${encodeURIComponent(mailboxId)}` : ""}`),
+  createFolder: (payload: { mailboxId?: string; name: string; icon?: string }) => {
+    const query = payload.mailboxId ? `?mailboxId=${encodeURIComponent(payload.mailboxId)}` : ""
+    return request<MailFolder>(`/api/mail/folders${query}`, { method: "POST", body: JSON.stringify({ name: payload.name, icon: payload.icon }) })
+  },
+  renameFolder: (id: string, payload: { mailboxId?: string; folderName?: string; name: string }) => {
+    const query = new URLSearchParams()
+    if (payload.mailboxId) query.set("mailboxId", payload.mailboxId)
+    if (payload.folderName) query.set("folderName", payload.folderName)
+    const suffix = query.toString()
+    return request<MailFolder>(`/api/mail/folders/${id}${suffix ? `?${suffix}` : ""}`, { method: "PATCH", body: JSON.stringify({ name: payload.name }) })
+  },
+  reorderFolders: (payload: { mailboxId?: string; folderIds: string[]; folders?: { id: string; sortOrder: number }[] }) => {
+    const query = payload.mailboxId ? `?mailboxId=${encodeURIComponent(payload.mailboxId)}` : ""
+    return request<{ ok: boolean }>(`/api/mail/folders/reorder${query}`, { method: "POST", body: JSON.stringify(payload.folders ? { folders: payload.folders } : { folderIds: payload.folderIds }) })
+  },
+  deleteFolder: (id: string, mailboxId?: string, folderName?: string) => {
+    const query = new URLSearchParams()
+    if (mailboxId) query.set("mailboxId", mailboxId)
+    if (folderName) query.set("folderName", folderName)
+    const suffix = query.toString()
+    return request<{ ok: boolean; moved: number }>(`/api/mail/folders/${id}${suffix ? `?${suffix}` : ""}`, { method: "DELETE" })
+  },
+  labels: (mailboxId?: string) => request<ListResponse<MailLabel>>(`/api/mail/labels${mailboxId ? `?mailboxId=${encodeURIComponent(mailboxId)}` : ""}`),
+  createLabel: (payload: { mailboxId?: string; name: string; color?: string }) => {
+    const query = payload.mailboxId ? `?mailboxId=${encodeURIComponent(payload.mailboxId)}` : ""
+    return request<MailLabel>(`/api/mail/labels${query}`, { method: "POST", body: JSON.stringify({ name: payload.name, color: payload.color || "" }) })
+  },
+  deleteLabel: (id: string, mailboxId?: string) => request<{ labels: MailLabel[] }>(`/api/mail/labels/${id}${mailboxId ? `?mailboxId=${encodeURIComponent(mailboxId)}` : ""}`, { method: "DELETE" }),
+  messages: (folder: string, search: MailSearchParams | string = "", cursor = "", mailboxId?: string) => {
+    const params = new URLSearchParams({ folder, cursor })
+    appendMailSearchParams(params, search)
+    if (mailboxId) params.set("mailboxId", mailboxId)
+    return request<ListResponse<MailMessage>>(`/api/mail/messages?${params.toString()}`)
+  },
+  labelMessages: (labelId: string, search: MailSearchParams | string = "", cursor = "", mailboxId?: string) => {
+    const params = new URLSearchParams({ labelId, cursor })
+    appendMailSearchParams(params, search)
+    if (mailboxId) params.set("mailboxId", mailboxId)
+    return request<ListResponse<MailMessage>>(`/api/mail/messages?${params.toString()}`)
+  },
+  starredMessages: (search: MailSearchParams | string = "", cursor = "", mailboxId?: string) => {
+    const params = new URLSearchParams({ cursor })
+    appendMailSearchParams(params, search)
+    if (mailboxId) params.set("mailboxId", mailboxId)
+    return request<ListResponse<MailMessage>>(`/api/mail/starred?${params.toString()}`)
+  },
+  exportMailUrl: (params: { view: "folder" | "starred" | "label" | "unknown"; mailboxId?: string; folder?: string; labelId?: string; messageIds?: string[] }) => {
+    const query = new URLSearchParams({ view: params.view })
+    if (params.mailboxId) query.set("mailboxId", params.mailboxId)
+    if (params.folder) query.set("folder", params.folder)
+    if (params.labelId) query.set("labelId", params.labelId)
+    params.messageIds?.forEach((id) => query.append("messageId", id))
+    return `/api/mail/export?${query.toString()}`
+  },
+  importMail: (files: File[], payload: { mailboxId: string; folder: string }) => {
+    const form = new FormData()
+    form.set("mailboxId", payload.mailboxId)
+    form.set("folder", payload.folder)
+    files.forEach((file) => form.append("files", file))
+    return uploadForm<{ ok: boolean; imported: number; skipped: number; errors: string[] }>("/api/mail/import", form)
+  },
+  message: (id: string, options: { markRead?: boolean } = {}) => request<MailMessage>(`/api/mail/messages/${id}${options.markRead === false ? "?markRead=0" : ""}`),
+  translateMessage: (id: string, targetLanguage: string) => request<MailTranslation>(`/api/mail/messages/${id}/translate`, { method: "POST", body: JSON.stringify({ targetLanguage }), timeoutMs: MAIL_DELIVERY_TIMEOUT_MS }),
+  translateExternalMessage: (id: string, remoteId: string, targetLanguage: string) => request<MailTranslation>(`/api/mail/external-accounts/${id}/messages/${encodeURIComponent(remoteId)}/translate`, { method: "POST", body: JSON.stringify({ targetLanguage }), timeoutMs: MAIL_DELIVERY_TIMEOUT_MS }),
+  send: (payload: SendPayload) => request<MailMessage>("/api/mail/send", { method: "POST", body: JSON.stringify(payload), timeoutMs: MAIL_DELIVERY_TIMEOUT_MS }),
+  scheduledSends: (mailboxId?: string) => request<ListResponse<ScheduledSend>>(`/api/mail/scheduled-sends${mailboxId ? `?mailboxId=${encodeURIComponent(mailboxId)}` : ""}`),
+  scheduleSend: (payload: ScheduleSendPayload) => request<ScheduledSend>("/api/mail/schedule-send", { method: "POST", body: JSON.stringify(payload), timeoutMs: MAIL_DELIVERY_TIMEOUT_MS }),
+  cancelScheduledSend: (id: string) => request<{ ok: boolean }>(`/api/mail/schedule-send/${id}`, { method: "DELETE" }),
+  sendQueue: (params: { mailboxId?: string; status?: SendQueueStatus | "all"; cursor?: string; messageId?: string; recipient?: string; from?: string; to?: string } = {}) => {
+    const query = new URLSearchParams()
+    if (params.mailboxId) query.set("mailboxId", params.mailboxId)
+    if (params.status && params.status !== "all") query.set("status", params.status)
+    if (params.cursor) query.set("cursor", params.cursor)
+    if (params.messageId) query.set("messageId", params.messageId)
+    if (params.recipient) query.set("recipient", params.recipient)
+    if (params.from) query.set("from", params.from)
+    if (params.to) query.set("to", params.to)
+    const suffix = query.toString()
+    return request<ListResponse<SendQueueItem>>(`/api/mail/send-queue${suffix ? `?${suffix}` : ""}`)
+  },
+  sendQueueAudit: (id: string) => request<ListResponse<SendQueueAuditEvent>>(`/api/mail/send-queue/${id}/audit`),
+  retrySendQueue: (id: string) => request<SendQueueItem>(`/api/mail/send-queue/${id}/retry`, { method: "POST", timeoutMs: MAIL_DELIVERY_TIMEOUT_MS }),
+  cancelSendQueue: (id: string) => request<SendQueueItem>(`/api/mail/send-queue/${id}`, { method: "DELETE" }),
+  saveDraft: (payload: DraftPayload, id?: string) => request<MailMessage>(id ? `/api/mail/drafts/${id}` : "/api/mail/drafts", { method: "POST", body: JSON.stringify(payload), timeoutMs: MAIL_DELIVERY_TIMEOUT_MS }),
+  deleteDraft: (id: string) => request<{ ok: boolean }>(`/api/mail/drafts/${id}`, { method: "DELETE" }),
+  markRead: (id: string, read: boolean) => request<{ ok: boolean }>(`/api/mail/messages/${id}/mark-read`, { method: "POST", body: JSON.stringify({ read }) }),
+  star: (id: string, starred: boolean) => request<{ ok: boolean }>(`/api/mail/messages/${id}/star`, { method: "POST", body: JSON.stringify({ starred }) }),
+  addLabel: (id: string, payload: { name: string; color?: string }) => request<{ labels: MailLabel[] }>(`/api/mail/messages/${id}/labels`, { method: "POST", body: JSON.stringify(payload) }),
+  removeLabel: (id: string, labelID: string) => request<{ labels: MailLabel[] }>(`/api/mail/messages/${id}/labels/${labelID}`, { method: "DELETE" }),
+  move: (id: string, folder: string) => request<{ ok: boolean }>(`/api/mail/messages/${id}/move`, { method: "POST", body: JSON.stringify({ folder }) }),
+  bulkMove: (ids: string[], folder: string) => request<BulkMoveResult>("/api/mail/messages/bulk-move", { method: "POST", body: JSON.stringify({ ids, folder }) }),
+  delete: (id: string) => request<{ ok: boolean }>(`/api/mail/messages/${id}`, { method: "DELETE" }),
+}

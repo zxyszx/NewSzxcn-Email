@@ -1,0 +1,41 @@
+services:
+  lanqin-email:
+    image: ${LANQIN_IMAGE:-ghcr.io/zxyszx/newszxcn-email:latest}
+    env_file: .env
+    environment:
+      LANQIN_UPDATE_SERVICE_URL: http://updater:8080/v1/update
+      LANQIN_UPDATE_SERVICE_TOKEN: ${LANQIN_UPDATE_TOKEN:-}
+      LANQIN_BACKUP_SOURCE_DIR: /backup-source
+      LANQIN_BACKUP_DIR: /backups
+    ports:
+      - "${LANQIN_HTTP_BIND:-80}:80"
+      - "${LANQIN_SMTP_BIND:-25}:25"
+      - "${LANQIN_SMTPS_BIND:-465}:465"
+      - "${LANQIN_SUBMISSION_BIND:-587}:587"
+      - "${LANQIN_IMAPS_BIND:-993}:993"
+      - "${LANQIN_POP3S_BIND:-995}:995"
+    volumes:
+      - ./data:/data
+      - ./mail:/var/mail/vhosts
+      - ./dkim:/var/lib/rspamd/dkim
+      - ./certs:/certs:ro
+      - ./.env:/backup-source/.env:ro
+      - ./docker-compose.yml:/backup-source/docker-compose.yml:ro
+      - ./backups:/backups
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+      com.centurylinklabs.watchtower.scope: "newszxcn-email"
+    restart: unless-stopped
+
+  updater:
+    image: nickfedor/watchtower:1.20.2
+    environment:
+      WATCHTOWER_HTTP_API_TOKEN: ${LANQIN_UPDATE_TOKEN:?请在 .env 设置 LANQIN_UPDATE_TOKEN}
+    command:
+      - --http-api-update
+      - --label-enable
+      - --scope
+      - newszxcn-email
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped

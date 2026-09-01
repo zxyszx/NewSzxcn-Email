@@ -1,0 +1,9 @@
+services:
+  lanqin-email:
+    build:
+      context: ..
+      dockerfile: deploy/all-in-one/Dockerfile
+      args:
+        APP_VERSION: ${LANQIN_BUILD_VERSION:-dev}
+        APP_COMMIT: ${LANQIN_BUILD_COMMIT:-local}
+        VITE_APP_VERSION: ${LANQIN_BUILD_VERSION:-dev}

@@ -1,0 +1,77 @@
+services:
+  api:
+    image: ${LANQIN_API_IMAGE:-ghcr.io/zxyszx/newszxcn-email-api:latest}
+    env_file: .env
+    environment:
+      LANQIN_SMTP_HOST: ${LANQIN_STACK_SMTP_HOST:-postfix}
+      LANQIN_SMTP_PORT: ${LANQIN_STACK_SMTP_PORT:-25}
+      LANQIN_SUBMISSION_ADDR: ${LANQIN_SUBMISSION_ADDR:-}
+      LANQIN_SUBMISSION_TLS_ADDR: ${LANQIN_SUBMISSION_TLS_ADDR:-}
+    volumes:
+      - ./data:/data
+      - ./mail:/var/mail/vhosts:ro
+      # 生产环境如需第三方客户端校验证书，请取消下面挂载的注释，并在 .env 配置：
+      # LANQIN_TLS_CERT_FILE=/certs/fullchain.pem
+      # LANQIN_TLS_KEY_FILE=/certs/privkey.pem
+      # - /etc/letsencrypt/live/${LANQIN_PUBLIC_HOSTNAME}:/certs:ro
+    ports:
+      - "465:465"
+      - "587:587"
+    depends_on:
+      - dovecot
+      - postfix
+    restart: unless-stopped
+
+  web:
+    image: ${LANQIN_WEB_IMAGE:-ghcr.io/zxyszx/newszxcn-email-web:latest}
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - api
+      - web
+    restart: unless-stopped
+
+  postfix:
+    image: ${LANQIN_POSTFIX_IMAGE:-ghcr.io/zxyszx/newszxcn-email-postfix:latest}
+    env_file: .env
+    volumes:
+      - ./data:/data
+      - ./mail:/var/mail/vhosts
+      # 生产环境如需第三方客户端校验证书，请取消下面挂载，并在 .env 配置：
+      # - /etc/letsencrypt:/etc/letsencrypt:ro
+    ports:
+      - "25:25"
+    depends_on:
+      - dovecot
+      - rspamd
+    restart: unless-stopped
+
+  dovecot:
+    image: ${LANQIN_DOVECOT_IMAGE:-ghcr.io/zxyszx/newszxcn-email-dovecot:latest}
+    env_file: .env
+    volumes:
+      - ./data:/data
+      - ./mail:/var/mail/vhosts
+      # 生产环境如需第三方客户端校验证书，请取消下面挂载，并在 .env 配置：
+      # LANQIN_TLS_CERT_FILE=/etc/letsencrypt/live/mail.example.com/fullchain.pem
+      # LANQIN_TLS_KEY_FILE=/etc/letsencrypt/live/mail.example.com/privkey.pem
+      # - /etc/letsencrypt:/etc/letsencrypt:ro
+    ports:
+      - "993:993"
+      - "995:995"
+    restart: unless-stopped
+
+  rspamd:
+    image: ${LANQIN_RSPAMD_IMAGE:-ghcr.io/zxyszx/newszxcn-email-rspamd:latest}
+    env_file: .env
+    volumes:
+      - ./data:/data:ro
+      - ./dkim:/var/lib/rspamd/dkim
+    restart: unless-stopped

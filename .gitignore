@@ -1,0 +1,63 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+.yarn/
+
+# Build outputs
+/dist/
+dist/
+build/
+.vite/
+.cache/
+coverage/
+*.tsbuildinfo
+
+# Environment files
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Runtime data / local databases
+/data/
+/tmp/
+tmp/
+apps/api/data/
+apps/api/tmp/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Mail/runtime generated artifacts
+maildata/
+dkim-keys/
+*.pem
+*.key
+*.crt
+
+# Go generated binaries / test artifacts
+*.exe
+*.test
+*.out
+coverage.out
+
+# OS / editor local files
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+.cursor/
+.claude/
+*.swp
+*.swo

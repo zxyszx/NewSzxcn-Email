@@ -1,0 +1,183 @@
+package app
+
+import (
+	"fmt"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+type Config struct {
+	Addr                            string
+	AppVersion                      string
+	DBPath                          string
+	DataDir                         string
+	CookieName                      string
+	SessionTTLHours                 int
+	AdminUsername                   string
+	AdminEmail                      string
+	MailDomain                      string
+	AdminPassword                   string
+	ResetAdminPasswordOnStart       bool
+	PublicHostname                  string
+	PublicBaseURL                   string
+	SMTPHost                        string
+	SMTPPort                        string
+	SMTPUsername                    string
+	SMTPPassword                    string
+	SMTPRequireTLS                  bool
+	SubmissionAddr                  string
+	SubmissionTLSAddr               string
+	SubmissionMaxMessageMB          int
+	TLSCertFile                     string
+	TLSKeyFile                      string
+	MaildirRoot                     string
+	MaildirScanSeconds              int
+	AllowInsecureHTTP               bool
+	OpenRegistration                bool
+	TwoFactorEnabled                bool
+	TurnstileEnabled                bool
+	TurnstileSiteKey                string
+	TurnstileSecretKey              string
+	CatchAllEnabled                 bool
+	MailAutoRefresh                 bool
+	MailRefreshSeconds              int
+	UserMailboxApplyEnabled         bool
+	UserMailboxDomainIDs            string
+	ReservedMailboxPrefixes         string
+	ExternalIMAPEnabled             bool
+	ExternalIMAPSecretKey           string
+	ExternalIMAPSyncSeconds         int
+	ExternalIMAPAllowPrivateHosts   bool
+	ExternalIMAPGmailClientID       string
+	ExternalIMAPGmailClientSecret   string
+	ExternalIMAPOutlookClientID     string
+	ExternalIMAPOutlookClientSecret string
+	TelegramMailEnabled             bool
+	TelegramBotToken                string
+	TelegramPrivateChatID           string
+	TelegramBodyMode                string
+	TelegramMailboxIDs              string
+	TelegramIncludeUnregistered     bool
+	MailTranslateEnabled            bool
+	MailTranslateMaxChars           int
+	DeliveryWebhookSecret           string
+	StatusWebhookURL                string
+	StatusWebhookSecret             string
+	StatusWebhookAllowPrivateHosts  bool
+	ReleaseAPIURL                   string
+	UpdateServiceURL                string
+	UpdateServiceToken              string
+	BackupSourceDir                 string
+	BackupDir                       string
+}
+
+func LoadConfig() Config {
+	dataDir := getenv("LANQIN_DATA_DIR", "./data")
+	return Config{
+		Addr:                            getenv("LANQIN_ADDR", ":8080"),
+		AppVersion:                      getenv("LANQIN_APP_VERSION", BuildVersion),
+		DBPath:                          getenv("LANQIN_DB_PATH", filepath.Join(dataDir, "lanqin.db")),
+		DataDir:                         dataDir,
+		CookieName:                      getenv("LANQIN_COOKIE_NAME", "lanqin_session"),
+		SessionTTLHours:                 getenvInt("LANQIN_SESSION_TTL_HOURS", 24*7),
+		AdminUsername:                   normalizeLoginName(getenv("LANQIN_ADMIN_USERNAME", "")),
+		AdminEmail:                      strings.ToLower(getenv("LANQIN_ADMIN_EMAIL", "")),
+		MailDomain:                      normalizeDomain(getenv("LANQIN_MAIL_DOMAIN", "")),
+		AdminPassword:                   getenv("LANQIN_ADMIN_PASSWORD", ""),
+		ResetAdminPasswordOnStart:       getenvBool("LANQIN_RESET_ADMIN_PASSWORD_ON_START", false),
+		PublicHostname:                  getenv("LANQIN_PUBLIC_HOSTNAME", "mail.lanqin.local"),
+		PublicBaseURL:                   getenv("LANQIN_PUBLIC_BASE_URL", "http://localhost:5173"),
+		SMTPHost:                        getenv("LANQIN_SMTP_HOST", ""),
+		SMTPPort:                        getenv("LANQIN_SMTP_PORT", "25"),
+		SMTPUsername:                    getenv("LANQIN_SMTP_USERNAME", ""),
+		SMTPPassword:                    getenv("LANQIN_SMTP_PASSWORD", ""),
+		SMTPRequireTLS:                  getenvBool("LANQIN_SMTP_REQUIRE_TLS", false),
+		SubmissionAddr:                  getenv("LANQIN_SUBMISSION_ADDR", ""),
+		SubmissionTLSAddr:               getenv("LANQIN_SUBMISSION_TLS_ADDR", ""),
+		SubmissionMaxMessageMB:          getenvInt("LANQIN_SUBMISSION_MAX_MESSAGE_MB", 35),
+		TLSCertFile:                     getenv("LANQIN_TLS_CERT_FILE", ""),
+		TLSKeyFile:                      getenv("LANQIN_TLS_KEY_FILE", ""),
+		MaildirRoot:                     getenv("LANQIN_MAILDIR_ROOT", ""),
+		MaildirScanSeconds:              getenvInt("LANQIN_MAILDIR_SCAN_SECONDS", 30),
+		AllowInsecureHTTP:               getenvBool("LANQIN_ALLOW_INSECURE_HTTP", true),
+		OpenRegistration:                getenvBool("LANQIN_OPEN_REGISTRATION", false),
+		TwoFactorEnabled:                getenvBool("LANQIN_TWO_FACTOR_ENABLED", false),
+		TurnstileEnabled:                getenvBool("LANQIN_TURNSTILE_ENABLED", false),
+		TurnstileSiteKey:                getenv("LANQIN_TURNSTILE_SITE_KEY", ""),
+		TurnstileSecretKey:              getenv("LANQIN_TURNSTILE_SECRET_KEY", ""),
+		CatchAllEnabled:                 getenvBool("LANQIN_CATCH_ALL_ENABLED", false),
+		MailAutoRefresh:                 getenvBool("LANQIN_MAIL_AUTO_REFRESH", true),
+		MailRefreshSeconds:              getenvInt("LANQIN_MAIL_REFRESH_SECONDS", 30),
+		UserMailboxApplyEnabled:         getenvBool("LANQIN_USER_MAILBOX_APPLY_ENABLED", false),
+		UserMailboxDomainIDs:            getenv("LANQIN_USER_MAILBOX_DOMAIN_IDS", ""),
+		ReservedMailboxPrefixes:         getenv("LANQIN_RESERVED_MAILBOX_PREFIXES", "admin,postmaster,abuse,hostmaster,webmaster,root,security,noreply,no-reply,mailer-daemon"),
+		ExternalIMAPEnabled:             getenvBool("LANQIN_EXTERNAL_IMAP_ENABLED", false),
+		ExternalIMAPSecretKey:           getenv("LANQIN_EXTERNAL_IMAP_SECRET_KEY", ""),
+		ExternalIMAPSyncSeconds:         getenvInt("LANQIN_EXTERNAL_IMAP_SYNC_SECONDS", 300),
+		ExternalIMAPAllowPrivateHosts:   getenvBool("LANQIN_EXTERNAL_IMAP_ALLOW_PRIVATE_HOSTS", false),
+		ExternalIMAPGmailClientID:       getenv("LANQIN_EXTERNAL_IMAP_GMAIL_CLIENT_ID", ""),
+		ExternalIMAPGmailClientSecret:   getenv("LANQIN_EXTERNAL_IMAP_GMAIL_CLIENT_SECRET", ""),
+		ExternalIMAPOutlookClientID:     getenv("LANQIN_EXTERNAL_IMAP_OUTLOOK_CLIENT_ID", ""),
+		ExternalIMAPOutlookClientSecret: getenv("LANQIN_EXTERNAL_IMAP_OUTLOOK_CLIENT_SECRET", ""),
+		TelegramMailEnabled:             getenvBool("LANQIN_TELEGRAM_MAIL_ENABLED", false),
+		TelegramBotToken:                getenv("LANQIN_TELEGRAM_BOT_TOKEN", ""),
+		TelegramPrivateChatID:           getenv("LANQIN_TELEGRAM_PRIVATE_CHAT_ID", ""),
+		TelegramBodyMode:                normalizeTelegramBodyMode(getenv("LANQIN_TELEGRAM_BODY_MODE", "summary")),
+		TelegramMailboxIDs:              getenv("LANQIN_TELEGRAM_MAILBOX_IDS", ""),
+		TelegramIncludeUnregistered:     getenvBool("LANQIN_TELEGRAM_INCLUDE_UNREGISTERED", false),
+		MailTranslateEnabled:            getenvBool("LANQIN_MAIL_TRANSLATE_ENABLED", true),
+		MailTranslateMaxChars:           getenvInt("LANQIN_MAIL_TRANSLATE_MAX_CHARS", 8000),
+		DeliveryWebhookSecret:           getenv("LANQIN_DELIVERY_WEBHOOK_SECRET", ""),
+		StatusWebhookURL:                getenv("LANQIN_STATUS_WEBHOOK_URL", ""),
+		StatusWebhookSecret:             getenv("LANQIN_STATUS_WEBHOOK_SECRET", ""),
+		StatusWebhookAllowPrivateHosts:  getenvBool("LANQIN_STATUS_WEBHOOK_ALLOW_PRIVATE_HOSTS", false),
+		ReleaseAPIURL:                   getenv("LANQIN_RELEASE_API_URL", "https://api.github.com/repos/zxyszx/NewSzxcn-Email/releases/latest"),
+		UpdateServiceURL:                getenv("LANQIN_UPDATE_SERVICE_URL", ""),
+		UpdateServiceToken:              getenv("LANQIN_UPDATE_SERVICE_TOKEN", ""),
+		BackupSourceDir:                 getenv("LANQIN_BACKUP_SOURCE_DIR", "/usr/share/newszxcn-email/deploy"),
+		BackupDir:                       getenv("LANQIN_BACKUP_DIR", filepath.Join(dataDir, "disaster-backups")),
+	}
+}
+
+func isLoopbackListenAddress(addr string) bool {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(addr))
+	if err != nil {
+		return false
+	}
+	host = strings.Trim(host, "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func getenv(key, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func getenvBool(key string, fallback bool) bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	if v == "" {
+		return fallback
+	}
+	return v == "1" || v == "true" || v == "yes" || v == "on"
+}
+
+func getenvInt(key string, fallback int) int {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
+	}
+	var n int
+	_, err := fmt.Sscanf(v, "%d", &n)
+	if err != nil || n <= 0 {
+		return fallback
+	}
+	return n
+}

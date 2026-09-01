@@ -1,0 +1,27 @@
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/api.Dockerfile
+      args:
+        APP_VERSION: ${LANQIN_BUILD_VERSION:-dev}
+        APP_COMMIT: ${LANQIN_BUILD_COMMIT:-local}
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/web.Dockerfile
+      args:
+        VITE_APP_VERSION: ${LANQIN_BUILD_VERSION:-dev}
+
+  postfix:
+    build:
+      context: ./postfix
+
+  dovecot:
+    build:
+      context: ./dovecot
+
+  rspamd:
+    build:
+      context: ./rspamd
