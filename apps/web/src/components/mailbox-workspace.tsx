@@ -140,7 +140,7 @@ export function MailboxWorkspace({
         <div className="mailbox-list-toolbar">
           <div><h2>邮箱列表</h2><span>{filtered.length} 个邮箱</span></div>
           <div className="mailbox-list-controls">
-            <label className="mailbox-list-search">
+            <label className="mailbox-list-search mailbox-search-field">
               <Search20Regular aria-hidden="true" />
               <Input value={query} onChange={(event) => updateParams({ q: event.target.value, page: undefined })} placeholder="搜索邮箱地址" type="search" autoComplete="off" aria-label="搜索邮箱地址" />
             </label>

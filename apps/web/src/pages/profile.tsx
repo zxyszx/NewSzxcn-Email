@@ -795,7 +795,7 @@ function AppearanceSettingsSection({ mode, onModeChange }: { mode: ThemeMode; on
               type="button"
               variant="ghost"
               className={cn(appearance.accentColor === color && "is-selected")}
-              style={{ backgroundColor: color }}
+              style={{ "--accent-swatch": color } as React.CSSProperties}
               aria-label={`选择强调色 ${color}`}
               aria-pressed={appearance.accentColor === color}
               onClick={() => updateAppearance({ ...appearance, accentColor: color })}
@@ -1583,9 +1583,9 @@ function MailboxManagement({
       <section className="rounded-lg border bg-card">
         <div className="flex flex-col items-stretch gap-2 px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
           <h2 className="text-lg font-semibold leading-7">我的邮箱 ({mailboxes.length})</h2>
-          <div className="relative w-full sm:w-64 sm:shrink-0">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input value={mailboxSearch} onChange={(event) => setMailboxSearch(event.target.value)} className="h-[34px] pl-9 text-sm shadow-none" placeholder="搜索邮箱地址..." />
+          <div className="mailbox-search-field relative w-full sm:w-64 sm:shrink-0">
+            <Search className="mailbox-search-icon pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
+            <Input value={mailboxSearch} onChange={(event) => setMailboxSearch(event.target.value)} type="search" autoComplete="off" className="h-[34px] pl-9 text-sm shadow-none" placeholder="搜索邮箱地址..." aria-label="搜索邮箱地址" />
           </div>
         </div>
         <div className="hidden grid-cols-[minmax(0,1fr)_minmax(220px,0.8fr)_100px] gap-4 border-y bg-muted/25 px-5 py-2 text-xs font-medium text-muted-foreground md:grid">
@@ -1654,7 +1654,7 @@ function MailboxManagement({
         <div className="rounded-lg border bg-muted/15 p-3 sm:p-4">
           <Label htmlFor="account-forwarding-email" className="mb-2 block text-sm font-medium">全部邮箱统一转发</Label>
           <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_92px]">
-            <Input id="account-forwarding-email" type="email" inputMode="email" value={accountBindingDraft} onChange={(event) => setAccountBindingDraft(event.target.value)} placeholder="输入外部邮箱，未验证也可先绑定" className="h-11 sm:h-10" disabled={forwardingBusy} onKeyDown={(event) => { if (event.key === "Enter") bindForwardingTarget("account") }} />
+            <Input id="account-forwarding-email" type="email" inputMode="email" autoComplete="off" spellCheck={false} value={accountBindingDraft} onChange={(event) => setAccountBindingDraft(event.target.value)} placeholder="输入外部邮箱，未验证也可先绑定" className="h-11 sm:h-10" disabled={forwardingBusy} onKeyDown={(event) => { if (event.key === "Enter") bindForwardingTarget("account") }} />
             <Button type="button" className="h-10" disabled={forwardingBusy || !accountBindingDraft.trim()} onClick={() => bindForwardingTarget("account")}>{createPendingBinding.isPending ? "处理中" : "绑定"}</Button>
           </div>
           <p className="mt-1.5 text-xs text-muted-foreground">已验证地址立即绑定；未验证地址会发送验证邮件，对方确认后自动绑定全部邮箱。</p>
@@ -1672,9 +1672,9 @@ function MailboxManagement({
               <h3 className="text-lg font-semibold">单邮箱转发</h3>
               <p className="mt-1 text-sm text-muted-foreground">仅显示设置了单独目标的邮箱，账号级目标仍会自动叠加。</p>
             </div>
-            <div className="relative w-full sm:w-64">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input value={singleForwardSearch} onChange={(event) => setSingleForwardSearch(event.target.value)} className="h-10 pl-9 text-sm shadow-none" placeholder="搜索单邮箱规则" aria-label="搜索单邮箱转发规则" />
+            <div className="mailbox-search-field relative w-full sm:w-64">
+              <Search className="mailbox-search-icon pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
+              <Input value={singleForwardSearch} onChange={(event) => setSingleForwardSearch(event.target.value)} type="search" autoComplete="off" className="h-10 pl-9 text-sm shadow-none" placeholder="搜索单邮箱规则" aria-label="搜索单邮箱转发规则" />
             </div>
           </div>
           <div className="mt-4 overflow-hidden rounded-lg border">
@@ -1758,9 +1758,9 @@ function MailboxManagement({
               <h2 className="text-lg font-semibold">验证邮箱管理</h2>
               <p className="mt-1 text-sm text-muted-foreground">待验证任务优先显示，完成后自动归入已验证列表。</p>
             </div>
-            <form className="flex w-full min-w-0 items-center rounded-md border border-input bg-background p-1 focus-within:ring-1 focus-within:ring-ring lg:w-[30rem] lg:shrink-0" role="search" onSubmit={submitVerifiedSearch}>
-              <Search className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />
-              <Input value={verifiedSearch} onChange={(event) => setVerifiedSearch(event.target.value)} type="email" inputMode="email" className="h-9 min-w-0 flex-1 border-0 bg-transparent px-2 text-base shadow-none focus-visible:ring-0 sm:text-sm" placeholder="搜索或输入邮箱地址" aria-label="搜索或添加验证邮箱" />
+            <form className="mailbox-search-field flex w-full min-w-0 items-center rounded-md border border-input bg-background p-1 focus-within:ring-1 focus-within:ring-ring lg:w-[30rem] lg:shrink-0" role="search" onSubmit={submitVerifiedSearch}>
+              <Search className="mailbox-search-icon ml-2 h-4 w-4 shrink-0" />
+              <Input value={verifiedSearch} onChange={(event) => setVerifiedSearch(event.target.value)} type="email" inputMode="email" autoComplete="off" spellCheck={false} className="h-9 min-w-0 flex-1 border-0 bg-transparent px-2 text-base shadow-none focus-visible:ring-0 sm:text-sm" placeholder="搜索或输入邮箱地址" aria-label="搜索或添加验证邮箱" />
               {verifiedSearch && <Button type="button" variant="ghost" size="icon" className="size-9 shrink-0 text-muted-foreground" onClick={() => setVerifiedSearch("")} aria-label="清除输入" title="清除输入"><X className="h-4 w-4" /></Button>}
               {canAddVerifiedSearch && <Button type="submit" size="sm" className="h-9 shrink-0 px-3" disabled={addVerifiedEmail.isPending}><Plus className="h-4 w-4" />{addVerifiedEmail.isPending ? "添加中" : "添加邮箱"}</Button>}
             </form>
@@ -1895,7 +1895,7 @@ function MailboxManagement({
             />
             <div className="space-y-2">
               <Label className="text-sm font-medium">已验证的转发目标</Label>
-              <ForwardingTargetPicker emails={verifiedEmails} selected={forwardDraft} lockedSelected={accountForwardTargets} lockedLabel="账号级" onChange={(targets) => setForwardDraft(withoutForwardingTargets(targets, accountForwardTargets))} disabled={forwardingBusy} />
+              <ForwardingTargetPicker emails={verifiedEmails} selected={forwardDraft} lockedSelected={accountForwardTargets} lockedLabel="账号级" onChange={(targets) => setForwardDraft(withoutForwardingTargets(targets, accountForwardTargets))} disabled={forwardingBusy} placement="top" />
               {accountForwardTargets.length > 0 && <p className="text-xs text-muted-foreground">账号级目标已置顶锁定，不能在单个邮箱里取消；下方可追加邮箱单独目标。</p>}
             </div>
             {verifiedEmails.length === 0 && <p className="text-xs text-muted-foreground">暂无已验证地址，可直接在上方输入邮箱先绑定并发送验证。</p>}
@@ -2132,7 +2132,7 @@ function PendingBindingList({ items, busy, onCancel, onRetry }: {
         const expired = item.status === "expired"
         const label = failed ? "自动绑定失败" : expired ? "验证已过期" : "等待验证后自动绑定"
         return (
-          <div key={item.id} className="flex min-h-11 flex-wrap items-center gap-2 border-b px-3 py-2 text-xs last:border-b-0">
+          <div key={item.id} className="forwarding-pending-row min-h-11 border-b px-3 py-2 text-xs last:border-b-0">
             <Clock3 className="h-4 w-4 shrink-0 text-amber-600" />
             <span className="min-w-0 flex-1 break-all font-medium">{item.email}</span>
             <span className={cn("text-muted-foreground", failed && "text-destructive")}>{label}</span>
@@ -2406,7 +2406,7 @@ function ForwardingTargetPicker({ emails, selected, lockedSelected = [], lockedL
     return <div className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">暂无已验证邮箱</div>
   }
   return (
-    <div className="relative min-w-0">
+    <div className="forwarding-target-picker relative min-w-0">
       <Button
         type="button"
         variant="outline"
@@ -2427,7 +2427,7 @@ function ForwardingTargetPicker({ emails, selected, lockedSelected = [], lockedL
       </Button>
       {open && (
         <div className={cn(
-          "relative z-30 mt-2 overflow-hidden rounded-md border bg-popover shadow-md sm:absolute sm:left-0 sm:right-0 sm:mt-0",
+          "forwarding-target-popover relative z-30 mt-2 overflow-hidden rounded-md border bg-popover shadow-md sm:absolute sm:left-0 sm:right-0 sm:mt-0",
           placement === "top" ? "sm:bottom-full sm:mb-2" : "sm:mt-2",
         )}>
           <div className="flex items-center justify-between border-b px-3 py-2">
@@ -2435,13 +2435,15 @@ function ForwardingTargetPicker({ emails, selected, lockedSelected = [], lockedL
             <Badge variant="secondary">已选 {selectedEmails.length}</Badge>
           </div>
           <div className="p-2">
-            <div className="relative min-w-0">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <div className="mailbox-search-field relative min-w-0">
+              <Search className="mailbox-search-icon pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2" />
               <Input
+                type="search"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 className="h-11 pl-9 pr-11 text-base shadow-none sm:text-sm"
                 placeholder="搜索已验证邮箱"
+                autoComplete="off"
                 autoFocus
               />
               {query && (

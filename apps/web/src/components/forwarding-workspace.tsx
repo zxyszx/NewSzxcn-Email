@@ -449,12 +449,14 @@ export function ForwardingWorkspace({ mailboxes, tab, onTabChange }: Props) {
                 <div className="forwarding-search">
                   <Search20Regular />
                   <Input
+                    type="search"
                     value={mailboxSearch}
                     onChange={(event) =>
                       updateMailboxSearch(event.target.value)
                     }
                     placeholder="搜索邮箱"
                     aria-label="搜索邮箱"
+                    autoComplete="off"
                   />
                 </div>
               </div>
@@ -1234,10 +1236,12 @@ function VerificationManagement({
               <div className="forwarding-search">
                 <Search20Regular />
                 <Input
+                  type="search"
                   value={search}
                   onChange={(event) => onSearch(event.target.value)}
                   placeholder="搜索邮箱"
                   aria-label="搜索验证邮箱"
+                  autoComplete="off"
                 />
               </div>
             )}
@@ -1406,6 +1410,8 @@ function VerificationSheet({
                 value={email}
                 onChange={(event) => onEmail(event.target.value)}
                 placeholder="name@example.com"
+                autoComplete="off"
+                spellCheck={false}
                 autoFocus
               />
               <small className={cn(error && "is-error")}>
@@ -1419,6 +1425,7 @@ function VerificationSheet({
                 value={note}
                 onChange={(event) => onNote(event.target.value)}
                 placeholder="例如：家人邮箱"
+                autoComplete="off"
               />
             </div>
             <div className="forwarding-verification-binding-preview">

@@ -241,14 +241,14 @@ function LoginArtwork({ challengeToken, leaving, loginPending, openRegistration,
                 <Label htmlFor="email" className="space-auth-label">邮箱地址</Label>
                 <div className="space-auth-field">
                   <Mail className="space-auth-field-icon" aria-hidden="true" />
-                  <Input id="email" name="email" type="email" autoComplete="username" placeholder="请输入邮箱地址" required autoFocus className="space-auth-input" />
+                  <Input id="email" name="email" type="email" autoComplete="username" allowPasswordManager placeholder="请输入邮箱地址" required autoFocus className="space-auth-input" />
                 </div>
               </div>
               <div className="space-y-2.5">
                 <Label htmlFor="password" className="space-auth-label">密码</Label>
                 <div className="space-auth-field">
                   <LockKeyhole className="space-auth-field-icon" aria-hidden="true" />
-                  <PasswordInput id="password" name="password" autoComplete="current-password" placeholder="请输入密码" required className="space-auth-input" />
+                  <PasswordInput id="password" name="password" autoComplete="current-password" allowPasswordManager placeholder="请输入密码" required className="space-auth-input" />
                 </div>
               </div>
             </>

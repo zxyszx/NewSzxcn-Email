@@ -879,6 +879,19 @@
     backdrop-filter: blur(12px) saturate(1.04);
   }
 
+  html.workspace-ui [data-slot="dialog-content"].forwarding-dialog {
+    min-width: 0;
+    max-width: min(32rem, calc(100vw - 1.5rem));
+    overflow-x: clip;
+  }
+
+  html.workspace-ui [data-slot="dialog-content"].forwarding-dialog > *,
+  html.workspace-ui [data-slot="dialog-content"].forwarding-dialog .forwarding-target-picker,
+  html.workspace-ui [data-slot="dialog-content"].forwarding-dialog .forwarding-target-popover {
+    min-width: 0;
+    max-width: 100%;
+  }
+
   html.dark.workspace-ui [data-slot="dialog-content"].verified-email-dialog,
   html.dark.workspace-ui [data-slot="dialog-content"].forwarding-dialog {
     background: hsl(228 48% 9% / 0.95);
@@ -2035,7 +2048,7 @@ vue-devtools-anchor,
 .forwarding-inline-empty strong { display: block; font-size: 14px; }
 .forwarding-inline-empty p { margin: 4px 0 0; color: hsl(var(--muted-foreground)); font-size: 13px; }
 .forwarding-search { position: relative; width: min(240px, 34vw); }
-.forwarding-search > svg { position: absolute; z-index: 1; left: 11px; top: 50%; width: 18px; height: 18px; transform: translateY(-50%); color: hsl(var(--muted-foreground)); pointer-events: none; }
+.forwarding-search > svg { position: absolute; z-index: 1; left: 11px; top: 50%; width: 18px; height: 18px; transform: translateY(-50%); color: hsl(var(--foreground) / 0.74); stroke-width: 2; pointer-events: none; }
 .forwarding-search input { height: 40px; padding-left: 38px; background: color-mix(in srgb, var(--mail-glass-strong) 66%, transparent); font-size: 13px; }
 .forwarding-mailbox-list { display: block; }
 .forwarding-email-list { display: grid; }
@@ -2590,8 +2603,11 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
 .mail-folder-pane { isolation: isolate; border-radius: 14px 0 0 14px; background: var(--mail-glass-folder); background-clip: padding-box; color: hsl(var(--foreground)); backdrop-filter: blur(var(--mail-glass-blur)) saturate(118%); text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
 .mail-folder-pane > div { border-right: 0 !important; background: transparent !important; }
 .mail-folder-pane [data-sidebar="sidebar"] { background: transparent !important; }
-.mail-folder-pane [data-sidebar="menu-button"] { border-radius: 9px; }
-.mail-folder-pane [data-sidebar="menu-button"][data-active="true"] { color: var(--mail-accent-color); background: color-mix(in srgb, var(--mail-accent-color) 13%, transparent); box-shadow: inset 2px 0 0 var(--mail-accent-color); }
+.mail-folder-pane [data-sidebar="menu-button"] { border-radius: 9px; transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease; }
+.mail-folder-pane [data-sidebar="menu-button"]:hover:not([data-active="true"]) { color: hsl(var(--foreground)); background: color-mix(in srgb, var(--mail-accent-color) 8%, var(--mail-glass-folder)); }
+.mail-folder-pane [data-sidebar="menu-button"][data-active="true"] { color: color-mix(in srgb, var(--mail-accent-color) 64%, hsl(var(--foreground))); background: color-mix(in srgb, var(--mail-accent-color) 22%, var(--mail-glass-folder)); box-shadow: inset 3px 0 0 var(--mail-accent-color); font-weight: 650; }
+.dark .mail-folder-pane [data-sidebar="menu-button"]:hover:not([data-active="true"]) { background: color-mix(in srgb, var(--mail-accent-color) 11%, var(--mail-glass-folder)); }
+.dark .mail-folder-pane [data-sidebar="menu-button"][data-active="true"] { color: color-mix(in srgb, var(--mail-accent-color) 55%, white); background: color-mix(in srgb, var(--mail-accent-color) 27%, var(--mail-glass-folder)); }
 
 .mail-folder-heading {
   display: flex;
@@ -2839,11 +2855,13 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
 .appearance-segments button { position: relative; display: flex; min-height: 44px; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 8px; background: transparent; font-size: 14px; font-weight: 550; }
 .appearance-segments button > svg { width: 17px; height: 17px; }
 .appearance-segments button > svg:last-child { position: absolute; right: 8px; color: var(--mail-accent-color); }
-.appearance-segments button:hover { background: hsl(var(--background) / 0.58); }
-.appearance-segments button.is-selected { background: hsl(var(--background) / 0.96); box-shadow: 0 1px 4px rgba(25, 40, 58, 0.12); }
+.appearance-segments button:hover:not(.is-selected) { background: color-mix(in srgb, var(--mail-accent-color) 8%, hsl(var(--background) / 0.58)); }
+.profile-workspace-theme .appearance-segments button.is-selected[aria-pressed="true"] { color: color-mix(in srgb, var(--mail-accent-color) 60%, hsl(var(--foreground))) !important; background: color-mix(in srgb, var(--mail-accent-color) 18%, hsl(var(--background) / 0.96)) !important; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mail-accent-color) 42%, transparent), 0 1px 4px rgba(25, 40, 58, 0.12) !important; font-weight: 650; }
 .theme-gallery { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
 .theme-option { position: relative; display: grid; min-width: 0; min-height: 82px; grid-template-rows: 56px 26px; grid-template-columns: minmax(0, 1fr); align-items: stretch; gap: 0; overflow: hidden; padding: 0; border: 2px solid var(--mail-accent-color); border-radius: 8px; background: hsl(var(--background) / 0.72); text-align: left; }
 .theme-option:not(.is-selected) { border-color: hsl(var(--border)); }
+.theme-option:not(.is-selected):hover { border-color: color-mix(in srgb, var(--mail-accent-color) 48%, hsl(var(--border))); }
+.theme-option.is-selected { box-shadow: 0 0 0 1px color-mix(in srgb, var(--mail-accent-color) 38%, transparent); }
 .theme-option--none { grid-template-rows: 56px 26px; background: linear-gradient(135deg, hsl(var(--muted)) 0 48%, hsl(var(--background)) 48% 52%, hsl(var(--muted)) 52% 100%); }
 .theme-option--none > span { align-self: end; }
 .theme-option img { width: 100%; height: 56px; object-fit: cover; }
@@ -2852,8 +2870,45 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
 .theme-option small { display: none; }
 .theme-option > svg { position: absolute; top: 5px; right: 5px; width: 18px; height: 18px; padding: 2px; border-radius: 50%; background: var(--mail-accent-color); color: white; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.26); }
 .accent-swatches { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
-.accent-swatches button { display: grid; width: 100%; height: 44px; place-items: center; border: 3px solid transparent; border-radius: 10px; color: white; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.34); }
-.accent-swatches button.is-selected { border-color: hsl(var(--foreground)); }
+.profile-workspace-theme .accent-swatches button[aria-pressed] { display: grid; width: 100%; height: 44px; place-items: center; border: 3px solid transparent; border-radius: 10px; background: var(--accent-swatch) !important; color: white !important; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.34); opacity: 0.9; transition: opacity 160ms ease, filter 160ms ease, box-shadow 160ms ease; }
+.profile-workspace-theme .accent-swatches button:hover:not(.is-selected) { opacity: 0.78; filter: saturate(0.88) brightness(1.06); }
+.profile-workspace-theme .accent-swatches button.is-selected[aria-pressed="true"] { border-color: hsl(var(--foreground)); opacity: 1; filter: saturate(1.12) brightness(0.94); box-shadow: inset 0 0 0 1px rgba(255, 255,255, 0.5), 0 0 0 2px color-mix(in srgb, var(--accent-swatch) 46%, transparent) !important; }
+
+.mailbox-search-field .mailbox-search-icon,
+.mailbox-search-field > svg:first-child {
+  color: hsl(var(--foreground) / 0.74);
+  stroke-width: 2.15;
+}
+
+.mailbox-search-field:focus-within .mailbox-search-icon,
+.mailbox-search-field:focus-within > svg:first-child {
+  color: var(--mail-accent-color);
+}
+
+.forwarding-target-picker,
+.forwarding-target-picker > [data-slot="button"],
+.forwarding-target-popover {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.forwarding-pending-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 16px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 639px) {
+  .forwarding-pending-row {
+    grid-template-columns: 16px minmax(0, 1fr) auto;
+  }
+
+  .forwarding-pending-row > span:nth-of-type(2) {
+    grid-column: 2 / -1;
+  }
+}
 
 .mail-window button:focus-visible,
 .mail-window input:focus-visible,
