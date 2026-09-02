@@ -336,6 +336,33 @@ EOF
   [[ "${output}" == *'无法从数据库反向查看'* ]] || fail_test "password hash warning missing"
 )
 
+test_completion_summary() (
+  local temp_dir output
+  temp_dir="$(mktemp -d)"
+  INSTALL_DIR="${temp_dir}/install"
+  mkdir -p "${INSTALL_DIR}"
+  cat > "${INSTALL_DIR}/.env" <<'EOF'
+LANQIN_PUBLIC_BASE_URL=https://mail.example.com
+LANQIN_MAIL_DOMAIN=example.com
+LANQIN_ADMIN_EMAIL=admin@example.com
+LANQIN_ADMIN_PASSWORD=recorded-password
+EOF
+
+  output="$(show_completion_summary install 2>&1)"
+  [[ "${output}" == *'NewSzxcn Email 安装完成'* ]] || fail_test "install completion title missing"
+  [[ "${output}" == *'登录地址：https://mail.example.com'* ]] || fail_test "install completion URL missing"
+  [[ "${output}" == *'后台地址：https://mail.example.com/admin'* ]] || fail_test "install completion admin URL missing"
+  [[ "${output}" == *'邮局域名：example.com'* ]] || fail_test "install completion mail domain missing"
+  [[ "${output}" == *'管理员邮箱：admin@example.com'* ]] || fail_test "install completion administrator missing"
+  [[ "${output}" == *'管理员初始密码：recorded-password'* ]] || fail_test "install completion password missing"
+  [[ "${output}" == *'请立即将管理员初始密码保存到密码管理器'* ]] || fail_test "install completion password warning missing"
+
+  output="$(show_completion_summary restore 2>&1)"
+  [[ "${output}" == *'NewSzxcn Email 备份恢复完成'* ]] || fail_test "restore completion title missing"
+  [[ "${output}" == *'备份中记录的密码：recorded-password'* ]] || fail_test "restore recorded password missing"
+  [[ "${output}" == *'备份中记录的密码可能已经失效'* ]] || fail_test "restore stale password warning missing"
+)
+
 test_admin_password_hash_parsing() (
   compose() {
     # shellcheck disable=SC2016
@@ -891,6 +918,7 @@ test_menu_runtime_metadata
 test_incomplete_install_defaults_to_repair
 test_service_commands_require_complete_installation
 test_admin_credentials
+test_completion_summary
 test_admin_password_hash_parsing
 test_admin_password_reset_only_updates_admin_account
 test_admin_two_factor_reset_only_updates_admin_account

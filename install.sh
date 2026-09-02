@@ -1189,7 +1189,7 @@ do_install() {
   wait_for_health 90 || fail "服务未能通过健康检查，请执行 newszxcn-email logs 查看日志。"
   configure_web_mode
   generate_guide >/dev/null || warn "安装成功，但邮箱后台配置指南生成失败，可稍后执行 newszxcn-email guide 重试。"
-  success "安装完成：$(env_value LANQIN_PUBLIC_BASE_URL)"
+  show_completion_summary "install"
   warn "下一步请配置 MX、SPF、DKIM、DMARC，并确认 25/465/587/993/995 端口可访问。"
   warn "输入 ns 可打开管理菜单；输入 newszxcn-email guide 可查看邮箱后台配置指南。"
 }
@@ -1461,7 +1461,7 @@ do_restore_backup() {
   rm -f "${nginx_backup}"
   ensure_cli_alias
   generate_guide >/dev/null || warn "数据已恢复，但配置指南生成失败，可稍后执行 newszxcn-email guide。"
-  success "备份恢复完成：$(env_value LANQIN_PUBLIC_BASE_URL)"
+  show_completion_summary "restore"
   warn "如果服务器 IP 已更换，请更新 A、MX、SPF、PTR，并重新检查 TLS 证书。"
 }
 
@@ -1637,6 +1637,41 @@ do_guide() {
   generate_guide || fail "尚未安装，无法生成邮箱后台配置指南。"
   cat "${GUIDE_FILE}"
   success "指南已更新并保存到 ${GUIDE_FILE}。"
+}
+
+show_completion_summary() {
+  local mode="${1:-install}" public_url admin_url mail_domain admin_email password title password_label
+  public_url="$(env_value LANQIN_PUBLIC_BASE_URL || true)"
+  admin_url="${public_url:+${public_url%/}/admin}"
+  mail_domain="$(env_value LANQIN_MAIL_DOMAIN || true)"
+  admin_email="$(env_value LANQIN_ADMIN_EMAIL || true)"
+  password="$(env_value LANQIN_ADMIN_PASSWORD || true)"
+  if [[ "${mode}" == "restore" ]]; then
+    title="备份恢复完成"
+    password_label="备份中记录的密码"
+  else
+    title="安装完成"
+    password_label="管理员初始密码"
+  fi
+  cat <<EOF
+
+==================================================
+ NewSzxcn Email ${title}
+==================================================
+登录地址：${public_url:-未记录}
+后台地址：${admin_url:-未记录}
+邮局域名：${mail_domain:-未记录}
+
+管理员邮箱：${admin_email:-未记录}
+${password_label}：${password:-未记录}
+管理菜单：ns
+==================================================
+EOF
+  if [[ "${mode}" == "restore" ]]; then
+    warn "如果管理员曾在网页修改密码，备份中记录的密码可能已经失效；请使用修改后的密码，或执行 newszxcn-email reset-password。"
+  else
+    warn "请立即将管理员初始密码保存到密码管理器，并在首次登录后修改密码。"
+  fi
 }
 
 do_show_admin_credentials() {
