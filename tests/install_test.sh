@@ -132,8 +132,8 @@ test_compose_configuration() {
   grep -Fq 'image ls -q --no-trunc' "${ROOT_DIR}/install.sh" || fail_test "cleanup does not compare full image IDs"
 }
 
-test_update_runtime_configuration() (
-  local temp_dir
+test_update_runtime_configuration() {
+  local temp_dir INSTALL_DIR
   temp_dir="$(mktemp -d)"
   INSTALL_DIR="${temp_dir}/custom-install"
   mkdir -p "${INSTALL_DIR}"
@@ -141,15 +141,15 @@ test_update_runtime_configuration() (
   ensure_update_runtime_config
   assert_eq "${INSTALL_DIR}" "$(env_value LANQIN_INSTALL_DIR)" "updater installation directory"
   [[ -n "$(env_value LANQIN_UPDATE_TOKEN)" ]] || fail_test "update token was not generated"
-)
+}
 
-test_rollback_image_reference() (
-  local temp_dir
+test_rollback_image_reference() {
+  local temp_dir INSTALL_DIR
   temp_dir="$(mktemp -d)"
   INSTALL_DIR="${temp_dir}"
   printf 'LANQIN_IMAGE=registry.example.test:5000/team/mail:v9\n' > "${INSTALL_DIR}/.env"
   assert_eq "registry.example.test:5000/team/mail:rollback-previous" "$(rollback_image_ref)" "rollback image reference"
-)
+}
 
 test_legacy_configuration_is_preserved() {
   local temp_dir
