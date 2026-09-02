@@ -183,7 +183,7 @@ func (a *App) triggerUpdateService(ctx context.Context) error {
 
 func (a *App) scheduleUpdateService(currentVersion, targetVersion string) {
 	go func() {
-		// Let the accepted response reach the browser before Watchtower replaces this container.
+		// Let the accepted response reach the browser before the updater replaces this container.
 		time.Sleep(250 * time.Millisecond)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()

@@ -52,9 +52,9 @@ bash <(curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/i
 
 ### 后台页面更新
 
-超级管理员可点击后台侧栏中的版本号，查看当前版本、最新版本与更新日志。点击“立即更新”后，系统会先在线备份 SQLite 数据库，再拉取新镜像并重启；页面会等待服务恢复后自动刷新。
+超级管理员可点击后台侧栏中的版本号，查看当前版本、最新版本与更新日志。点击“立即更新”后，系统会先在线备份 SQLite 数据库，将当前正常镜像保留为 `rollback-previous`，再拉取新镜像并重启。只有新版本通过健康检查后，才会清理本项目多余的无标签旧镜像；失败时自动恢复上一镜像且不执行清理。
 
-更新服务只在 Docker 内部网络开放，不映射公网端口。普通用户和普通后台权限组无法执行系统更新。
+更新服务只在 Docker 内部网络开放，不映射公网端口。普通用户和普通后台权限组无法执行系统更新。CLI、后台更新和回滚共用更新锁，防止并发替换镜像。不会启用可能提前删除回滚镜像的 Watchtower `--cleanup`。
 
 ### 命令行更新
 
@@ -62,10 +62,20 @@ bash <(curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/i
 sudo newszxcn-email update
 ```
 
-命令行更新会保留当前镜像、备份数据库并执行健康检查。需要回滚时运行：
+命令行更新会保留当前镜像、备份数据库并执行健康检查。旧安装执行一次更新后会自动从 Watchtower 迁移到新的受控更新器。需要回滚时运行：
 
 ```bash
 sudo newszxcn-email rollback
+```
+
+成功更新后正常只保留当前镜像、`rollback-previous` 镜像和更新器镜像。清理范围限定为带项目标签的无标签旧镜像，不会删除其他应用镜像、容器、卷、邮件、数据库、证书、配置或备份。可使用以下命令检查：
+
+```bash
+docker system df
+docker image ls --filter 'label=org.opencontainers.image.title=NewSzxcn Email all-in-one'
+docker image ls --filter 'label=org.opencontainers.image.title=NewSzxcn Email updater'
+docker image inspect ghcr.io/zxyszx/newszxcn-email:rollback-previous --format '{{.Id}}'
+cd /opt/newszxcn-email && docker compose logs --tail=200 updater
 ```
 
 常用运维命令：

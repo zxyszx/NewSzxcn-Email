@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM golang:1.25-bookworm AS api-build
+FROM golang:1.26.7-bookworm AS api-build
 WORKDIR /src/apps/api
 COPY apps/api/go.mod apps/api/go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
@@ -29,6 +29,7 @@ FROM debian:bookworm-slim
 ARG APP_VERSION="dev"
 ENV LANQIN_APP_VERSION=${APP_VERSION}
 ENV DEBIAN_FRONTEND=noninteractive
+LABEL org.opencontainers.image.title="NewSzxcn Email all-in-one"
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
   --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
   rm -f /etc/apt/apt.conf.d/docker-clean && \

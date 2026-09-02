@@ -23,19 +23,20 @@ services:
       - ./docker-compose.yml:/backup-source/docker-compose.yml:ro
       - ./backups:/backups
     labels:
-      com.centurylinklabs.watchtower.enable: "true"
-      com.centurylinklabs.watchtower.scope: "newszxcn-email"
+      com.newszxcn.email.component: "mail"
     restart: unless-stopped
 
   updater:
-    image: nickfedor/watchtower:1.20.2
+    image: ${LANQIN_UPDATER_IMAGE:-ghcr.io/zxyszx/newszxcn-email-updater:latest}
     environment:
       WATCHTOWER_HTTP_API_TOKEN: ${LANQIN_UPDATE_TOKEN:?请在 .env 设置 LANQIN_UPDATE_TOKEN}
-    command:
-      - --http-api-update
-      - --label-enable
-      - --scope
-      - newszxcn-email
+      LANQIN_INSTALL_DIR: ${LANQIN_INSTALL_DIR:-/opt/newszxcn-email}
+      LANQIN_TARGET_IMAGE: ${LANQIN_IMAGE:-ghcr.io/zxyszx/newszxcn-email:latest}
+      LANQIN_UPDATE_HEALTH_URL: http://lanqin-email/healthz
+      LANQIN_UPDATE_HEALTH_SECONDS: ${LANQIN_UPDATE_HEALTH_SECONDS:-90}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - ${LANQIN_INSTALL_DIR:-/opt/newszxcn-email}:${LANQIN_INSTALL_DIR:-/opt/newszxcn-email}
+    labels:
+      com.newszxcn.email.component: "updater"
     restart: unless-stopped

@@ -112,11 +112,11 @@ bash <(curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/i
 
 ### 后台页面更新
 
-超级管理员可点击后台侧栏中的版本号，查看当前版本、最新版本与更新日志。点击“立即更新”后，系统会先在线备份 SQLite 数据库，再拉取新镜像并重启；页面会等待服务恢复后自动刷新。
+超级管理员可点击后台侧栏中的版本号，查看当前版本、最新版本与更新日志。点击“立即更新”后，系统会先在线备份 SQLite 数据库，把当前正常镜像标记为 `rollback-previous`，再拉取新镜像并重启；页面会等待服务恢复后自动刷新。只有新容器通过健康检查后，更新器才会删除属于 NewSzxcn Email 的多余无标签旧镜像。
 
 更新期间容器会短暂重启。接口会先向页面确认更新已受理，再异步替换容器；页面遇到临时 `502/503/504` 或网络中断时会继续检查服务状态，不会立即误报更新失败。
 
-更新服务只在 Docker 内部网络开放，不映射公网端口。普通用户和普通后台权限组无法执行系统更新。
+更新服务只在 Docker 内部网络开放，不映射公网端口。普通用户和普通后台权限组无法执行系统更新。更新器使用跨 CLI 与网页更新的文件锁，重复触发会被拒绝。项目没有启用 Watchtower `--cleanup`，避免它在健康检查和回滚确认前删除旧镜像。
 
 ### 命令行更新
 
@@ -124,13 +124,26 @@ bash <(curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/i
 sudo newszxcn-email update
 ```
 
-命令行更新会创建完整回滚快照、校验数据库备份并执行健康检查。需要恢复上次更新前的镜像、数据库和配置时运行：
+命令行更新会创建完整回滚快照、校验数据库备份并执行健康检查。旧版本安装首次执行此命令时，会自动用受控更新器替换原 Watchtower 服务并写入安装目录配置。需要恢复上次更新前的镜像、数据库和配置时运行：
 
 ```bash
 sudo newszxcn-email rollback
 ```
 
 手动回滚会先要求确认，并额外备份当前数据库，再恢复更新前版本。回滚后的镜像会保持锁定，直到下一次明确执行更新。
+
+正常情况下只保留当前运行镜像、`ghcr.io/zxyszx/newszxcn-email:rollback-previous` 和更新器镜像。清理只匹配带有 NewSzxcn Email 项目标签且没有任何标签的旧镜像，不运行全局 prune，不删除容器、卷、邮件、数据库、证书、配置或备份。每次清理会在更新器日志中记录清理前后的 `docker system df`、删除的镜像 ID 和估算释放空间。
+
+手动检查：
+
+```bash
+docker system df
+docker image ls --filter 'label=org.opencontainers.image.title=NewSzxcn Email all-in-one'
+docker image ls --filter 'label=org.opencontainers.image.title=NewSzxcn Email updater'
+docker image inspect ghcr.io/zxyszx/newszxcn-email:rollback-previous --format '{{.Id}}'
+cd /opt/newszxcn-email && docker compose ps
+cd /opt/newszxcn-email && docker compose logs --tail=200 updater
+```
 
 常用运维命令：
 

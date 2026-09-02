@@ -126,7 +126,17 @@ sudo newszxcn-email reset-password
 sudo newszxcn-email reset-2fa
 ```
 
-命令行更新会创建完整回滚快照、校验 SQLite 数据库备份、拉取最新镜像并执行健康检查。`rollback` 命令会先备份当前数据库并要求确认，然后恢复上次更新前的镜像、数据库、Compose、环境、安装脚本和 Nginx 配置。回滚镜像会保持锁定，下一次执行更新时解除。
+命令行更新会创建完整回滚快照、校验 SQLite 数据库备份、将当前镜像保留为 `rollback-previous`、拉取最新镜像并执行健康检查。新版本健康后才会清理本项目无标签旧镜像；失败时立即恢复旧镜像且不会清理。`rollback` 命令会先备份当前数据库并要求确认，然后恢复上次更新前的镜像、数据库、Compose、环境、安装脚本和 Nginx 配置。CLI 与后台更新共用更新锁，回滚镜像会保持锁定，直到下一次确认正常的更新替换它。
+
+检查镜像保留与清理日志：
+
+```bash
+docker system df
+docker image ls --filter 'label=org.opencontainers.image.title=NewSzxcn Email all-in-one'
+docker image ls --filter 'label=org.opencontainers.image.title=NewSzxcn Email updater'
+docker image inspect ghcr.io/zxyszx/newszxcn-email:rollback-previous --format '{{.Id}}'
+cd /opt/newszxcn-email && docker compose logs --tail=200 updater
+```
 
 `guide` 命令会读取当前安装地址、管理员邮箱、证书到期时间和 acme.sh 续期状态，重新生成仅 root 可读的 `/root/newszxcn-email-guide.txt`。
 

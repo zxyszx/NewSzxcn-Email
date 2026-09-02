@@ -21,11 +21,22 @@ sudo newszxcn-email reset-password
 sudo newszxcn-email reset-2fa
 ```
 
-一键安装会把配置和数据放在 `/opt/newszxcn-email`，并部署内部 Watchtower 更新服务。该服务不映射公网端口，仅接受带随机令牌的容器内请求；后台“立即更新”也只允许超级管理员执行。
+一键安装会把配置和数据放在 `/opt/newszxcn-email`，并部署项目自带的受控更新服务。该服务不映射公网端口，仅接受带随机令牌的容器内请求；后台“立即更新”也只允许超级管理员执行。旧安装执行一次 `sudo newszxcn-email update` 后会自动重建原 Watchtower 服务并切换到新更新器。
 
 首次安装会依次询问防火墙模式和邮件服务器域名，自动检测邮箱地址域名，再选择默认 `admin` 前缀或自行创建管理员邮箱前缀，最后输入密码并选择 Web 部署方式。防火墙可以选择自动添加邮局必要端口规则或保留现有规则，不会清空服务器已有防火墙。自动 Web 模式会把容器绑定到 `127.0.0.1:8088`，配置宿主机 Nginx，并使用官方 `acme.sh` 申请和续期证书。例如服务器域名 `mail.newszxcn.com`、选择默认前缀会创建 `admin@newszxcn.com`；自定义管理员密码最少 6 位，留空则生成 12 位密码。
 
-安装后输入 `ns` 可以打开统一管理菜单。更新前会创建包含数据库、镜像、Compose、环境、安装脚本和 Nginx 的回滚快照；更新或健康检查失败时会自动恢复。手动完整回滚前还会单独备份当前数据库，回滚镜像会保持锁定到下一次更新。
+安装后输入 `ns` 可以打开统一管理菜单。更新前会创建包含数据库、镜像、Compose、环境、安装脚本和 Nginx 的回滚快照，并把当前正常镜像标记为 `ghcr.io/zxyszx/newszxcn-email:rollback-previous`；更新或健康检查失败时会自动恢复。只有健康检查成功后才会删除带 NewSzxcn Email 项目标签的无标签旧镜像。手动完整回滚前还会单独备份当前数据库，回滚镜像会保持锁定到下一次更新。
+
+更新器不会使用 Watchtower `--cleanup`，也不会运行 `docker system prune`。清理不会涉及容器、卷、`data`、`mail`、`certs`、`.env` 或 `backups`。CLI 与网页更新使用同一个 `${LANQIN_INSTALL_DIR}/.update.lock` 文件锁，避免并发任务移动回滚标签。清理日志包含操作前后的 `docker system df`、删除的镜像 ID 和估算释放字节数。
+
+```bash
+docker system df
+docker image ls --filter 'label=org.opencontainers.image.title=NewSzxcn Email all-in-one'
+docker image ls --filter 'label=org.opencontainers.image.title=NewSzxcn Email updater'
+docker image inspect ghcr.io/zxyszx/newszxcn-email:rollback-previous --format '{{.Id}}'
+cd /opt/newszxcn-email && docker compose ps
+cd /opt/newszxcn-email && docker compose logs --tail=200 updater
+```
 
 菜单可查看安装或最近一次命令行重置时记录的管理员登录信息，也可单独重置唯一管理员的统一登录密码。密码采用 bcrypt 哈希，无法从数据库反向解密；网页修改密码后，脚本中的记录可能已经失效。命令行重置前会备份并校验数据库，同时同步该管理员名下邮箱的 SMTP/IMAP 密码，不会修改普通用户或其邮箱。唯一管理员 2FA 锁死时可使用 `sudo newszxcn-email reset-2fa` 应急关闭。
 

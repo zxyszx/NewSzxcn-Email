@@ -73,9 +73,13 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: apps/api/go.mod
+          go-version: 1.26.7
           cache-dependency-path: apps/api/go.sum
 
       - name: Test api
         working-directory: apps/api
+        run: go test ./...
+
+      - name: Test updater
+        working-directory: deploy/updater
         run: go test ./...

@@ -8,6 +8,7 @@ COMMAND="${1:-menu}"
 ROLLBACK_FILE="${INSTALL_DIR}/.rollback-image"
 ROLLBACK_POINTER="${INSTALL_DIR}/.rollback-manifest"
 RUNTIME_IMAGE_PIN="${INSTALL_DIR}/.rollback-runtime-image"
+UPDATE_LOCK_FILE="${INSTALL_DIR}/.update.lock"
 NGINX_CONFIG="/etc/nginx/conf.d/newszxcn-email.conf"
 ACME_WEBROOT="/var/www/newszxcn-acme"
 CERT_DIR="${INSTALL_DIR}/certs"
@@ -545,6 +546,7 @@ configure_first_install() {
   set_env LANQIN_ADMIN_PASSWORD "${admin_password}"
   set_env LANQIN_INSTALL_WEB_MODE "${web_mode}"
   set_env LANQIN_UPDATE_TOKEN "${update_token}"
+  set_env LANQIN_INSTALL_DIR "${INSTALL_DIR}"
   chmod 0600 "${INSTALL_DIR}/.env"
 }
 
@@ -555,6 +557,12 @@ ensure_update_token() {
     set_env LANQIN_UPDATE_TOKEN "$(random_secret)"
     chmod 0600 "${INSTALL_DIR}/.env"
   fi
+}
+
+ensure_update_runtime_config() {
+  ensure_update_token
+  set_env LANQIN_INSTALL_DIR "${INSTALL_DIR}"
+  chmod 0600 "${INSTALL_DIR}/.env"
 }
 
 prepare_directories() {
@@ -855,6 +863,90 @@ current_image_id() {
   docker image inspect --format '{{.Id}}' "${image_ref}" 2>/dev/null
 }
 
+rollback_image_ref() {
+  local image_ref repository last_component
+  image_ref="$(env_value LANQIN_IMAGE || true)"
+  image_ref="${image_ref:-ghcr.io/zxyszx/newszxcn-email:latest}"
+  repository="${image_ref%%@*}"
+  last_component="${repository##*/}"
+  if [[ "${last_component}" == *:* ]]; then
+    repository="${repository%:*}"
+  fi
+  printf '%s:rollback-previous' "${repository}"
+}
+
+acquire_update_lock() {
+  command -v flock >/dev/null 2>&1 || fail "系统缺少 flock，无法安全执行并发更新保护。"
+  install -d -m 0755 "${INSTALL_DIR}"
+  exec 9>"${UPDATE_LOCK_FILE}"
+  chmod 0600 "${UPDATE_LOCK_FILE}"
+  flock -n 9 || fail "已有更新或回滚任务正在运行，请等待完成后重试。"
+}
+
+release_update_lock() {
+  flock -u 9 2>/dev/null || true
+  exec 9>&-
+}
+
+preserve_rollback_image() {
+  local current rollback
+  current="$(current_image_id || true)"
+  [[ -n "${current}" ]] || { warn "无法确定当前运行镜像。"; return 1; }
+  rollback="$(rollback_image_ref)"
+  docker image tag "${current}" "${rollback}" || return 1
+  log "已保留当前正常镜像作为唯一回滚版本：${rollback}"
+}
+
+cleanup_project_images() {
+  local before after current rollback candidate tags size released=0 container image protected
+  local -a protected_images=() deleted_images=()
+  before="$(docker system df 2>&1 || true)"
+  log "镜像清理前 Docker 磁盘占用："
+  printf '%s\n' "${before}"
+  current="$(current_image_id || true)"
+  rollback="$(docker image inspect --format '{{.Id}}' "$(rollback_image_ref)" 2>/dev/null || true)"
+  [[ -n "${current}" ]] && protected_images+=("${current}")
+  [[ -n "${rollback}" ]] && protected_images+=("${rollback}")
+  while IFS= read -r container; do
+    [[ -n "${container}" ]] || continue
+    image="$(docker inspect --format '{{.Image}}' "${container}" 2>/dev/null || true)"
+    [[ -n "${image}" ]] && protected_images+=("${image}")
+  done < <(docker ps -aq 2>/dev/null || true)
+
+  while IFS= read -r candidate; do
+    [[ -n "${candidate}" ]] || continue
+    protected="false"
+    for image in "${protected_images[@]}"; do
+      if [[ "${candidate}" == "${image}" ]]; then
+        protected="true"
+        break
+      fi
+    done
+    [[ "${protected}" == "false" ]] || continue
+    tags="$(docker image inspect --format '{{json .RepoTags}}' "${candidate}" 2>/dev/null || true)"
+    [[ -z "${tags}" || "${tags}" == "null" || "${tags}" == "[]" || "${tags}" == '["<none>:<none>"]' ]] || continue
+    size="$(docker image inspect --format '{{.Size}}' "${candidate}" 2>/dev/null || printf '0')"
+    [[ "${size}" =~ ^[0-9]+$ ]] || size=0
+    if docker image rm "${candidate}" >/dev/null 2>&1; then
+      deleted_images+=("${candidate}")
+      released=$((released + size))
+    fi
+  done < <({
+    docker image ls -q --no-trunc --filter 'label=org.opencontainers.image.title=NewSzxcn Email all-in-one' 2>/dev/null
+    docker image ls -q --no-trunc --filter 'label=org.opencontainers.image.title=NewSzxcn Email updater' 2>/dev/null
+  } | sort -u)
+
+  if [[ ${#deleted_images[@]} -gt 0 ]]; then
+    log "已删除的 NewSzxcn Email / Updater 无标签旧镜像：${deleted_images[*]}"
+  else
+    log "没有需要删除的 NewSzxcn Email 无标签旧镜像。"
+  fi
+  log "按镜像逻辑大小估算释放：${released} bytes（共享层以 docker system df 为准）"
+  after="$(docker system df 2>&1 || true)"
+  log "镜像清理后 Docker 磁盘占用："
+  printf '%s\n' "${after}"
+}
+
 sqlite_integrity_check() {
   local database="$1" image="$2" relative result
   if command -v sqlite3 >/dev/null 2>&1; then
@@ -1020,7 +1112,7 @@ do_repair_install() {
   fi
   stage_assets
   clear_runtime_image_pin
-  if ! apply_staged_assets || ! ensure_update_token || ! ensure_admin_email_config || ! configure_runtime_bindings; then
+  if ! apply_staged_assets || ! ensure_update_runtime_config || ! ensure_admin_email_config || ! configure_runtime_bindings; then
     if [[ "${snapshot_created}" == "true" ]]; then
       restore_update_snapshot "" false || true
       fail "修复准备失败，已恢复原安装。"
@@ -1080,7 +1172,7 @@ do_install() {
 
   refresh_assets
   configure_first_install
-  ensure_update_token
+  ensure_update_runtime_config
   configure_runtime_bindings
   ensure_docker
   configure_firewall
@@ -1329,7 +1421,7 @@ do_restore_backup() {
 
   if ! (
     refresh_assets
-    ensure_update_token
+    ensure_update_runtime_config
     ensure_admin_email_config
     configure_runtime_bindings
     ensure_docker
@@ -1371,10 +1463,12 @@ do_restore_backup() {
 do_update() {
   require_installation
   ensure_docker
+  acquire_update_lock
   create_update_snapshot || fail "更新前备份失败，未修改现有安装。"
+  preserve_rollback_image || fail "无法保留当前回滚镜像，更新已取消。"
   stage_assets
   clear_runtime_image_pin
-  if ! apply_staged_assets || ! ensure_update_token || ! ensure_admin_email_config; then
+  if ! apply_staged_assets || ! ensure_update_runtime_config || ! ensure_admin_email_config; then
     restore_update_snapshot "" false || true
     fail "更新文件替换失败，已恢复原安装。"
   fi
@@ -1393,9 +1487,11 @@ do_update() {
     restore_update_snapshot || fail "更新失败，且自动恢复未完成，请使用回滚快照手动恢复。"
     fail "更新失败，已恢复到更新前版本。"
   fi
+  cleanup_project_images
   ensure_cli_alias
   generate_guide >/dev/null || warn "更新成功，但邮箱后台配置指南生成失败，可稍后执行 newszxcn-email guide 重试。"
   success "系统已更新，配置、邮件、证书和数据库均已保留。"
+  release_update_lock
 }
 
 do_rollback() {
@@ -1406,6 +1502,7 @@ do_rollback() {
     read -r -p "回滚会用更新前数据库覆盖当前数据库，确认继续吗？[y/N]: " confirm </dev/tty
   fi
   [[ "${confirm}" =~ ^([Yy]|[Yy][Ee][Ss])$ ]] || { success "已取消回滚。"; return 0; }
+  acquire_update_lock
   image="$(current_image_id || true)"
   [[ -n "${image}" ]] || fail "无法确定当前镜像，已取消回滚。"
   timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -1414,6 +1511,7 @@ do_rollback() {
   restore_update_snapshot || fail "完整回滚失败，请检查回滚快照和服务日志。"
   log "回滚前数据库已保留：${emergency_backup}"
   success "已恢复镜像、数据库、Compose、环境配置、安装脚本和 Nginx 配置。"
+  release_update_lock
 }
 
 reload_services() {

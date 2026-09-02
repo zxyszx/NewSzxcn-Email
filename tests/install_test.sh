@@ -124,7 +124,32 @@ test_compose_configuration() {
   grep -Fq '${LANQIN_HTTP_BIND:-80}:80' "${ROOT_DIR}/deploy/docker-compose.yml" || fail_test "HTTP port mapping missing"
   ! grep -Fq 'LANQIN_HTTPS_BIND' "${ROOT_DIR}/deploy/docker-compose.yml" || fail_test "dead container HTTPS mapping remains"
   grep -Fq './certs:/certs:ro' "${ROOT_DIR}/deploy/docker-compose.yml" || fail_test "certificate mount missing"
+  grep -Fq 'newszxcn-email-updater:latest' "${ROOT_DIR}/deploy/docker-compose.yml" || fail_test "controlled updater image missing"
+  ! grep -Fq -- '--cleanup' "${ROOT_DIR}/deploy/docker-compose.yml" || fail_test "unsafe Watchtower cleanup enabled"
+  grep -Fq 'LANQIN_UPDATE_HEALTH_URL' "${ROOT_DIR}/deploy/docker-compose.yml" || fail_test "updater health check missing"
+  grep -Fq "\${LANQIN_INSTALL_DIR:-/opt/newszxcn-email}:\${LANQIN_INSTALL_DIR:-/opt/newszxcn-email}" "${ROOT_DIR}/deploy/docker-compose.yml" || fail_test "updater installation mount missing"
+  ! grep -Eq 'docker[[:space:]]+(system|image)[[:space:]]+prune|--volumes' "${ROOT_DIR}/install.sh" || fail_test "installer contains a destructive global cleanup command"
+  grep -Fq 'image ls -q --no-trunc' "${ROOT_DIR}/install.sh" || fail_test "cleanup does not compare full image IDs"
 }
+
+test_update_runtime_configuration() (
+  local temp_dir
+  temp_dir="$(mktemp -d)"
+  INSTALL_DIR="${temp_dir}/custom-install"
+  mkdir -p "${INSTALL_DIR}"
+  cp "${ROOT_DIR}/deploy/.env.example" "${INSTALL_DIR}/.env"
+  ensure_update_runtime_config
+  assert_eq "${INSTALL_DIR}" "$(env_value LANQIN_INSTALL_DIR)" "updater installation directory"
+  [[ -n "$(env_value LANQIN_UPDATE_TOKEN)" ]] || fail_test "update token was not generated"
+)
+
+test_rollback_image_reference() (
+  local temp_dir
+  temp_dir="$(mktemp -d)"
+  INSTALL_DIR="${temp_dir}"
+  printf 'LANQIN_IMAGE=registry.example.test:5000/team/mail:v9\n' > "${INSTALL_DIR}/.env"
+  assert_eq "registry.example.test:5000/team/mail:rollback-previous" "$(rollback_image_ref)" "rollback image reference"
+)
 
 test_legacy_configuration_is_preserved() {
   local temp_dir
@@ -835,6 +860,8 @@ test_install_configuration 1 1 "127.0.0.1:8088" "https://mail.example.com" "fals
 test_install_configuration 2 2 "127.0.0.1:8088" "https://mail.example.com" "false"
 test_nginx_configuration
 test_compose_configuration
+test_update_runtime_configuration
+test_rollback_image_reference
 test_legacy_configuration_is_preserved
 test_menu_choice
 test_menu_rendering
