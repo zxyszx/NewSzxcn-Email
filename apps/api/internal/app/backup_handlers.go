@@ -2,6 +2,7 @@ package app
 
 import (
 	"archive/tar"
+	"bytes"
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
@@ -275,9 +276,6 @@ func (a *App) handleCreateBackup(w http.ResponseWriter, r *http.Request) {
 		password = ""
 		var deliveryMessages []string
 		if err == nil {
-			if markErr := a.markBackupScheduleRun(ctx); markErr != nil {
-				a.log.Warn("mark manual backup schedule", "error", markErr)
-			}
 			var deliveryErrors []error
 			if uploadGoogleDrive {
 				a.queueBackupTransfer("googleDrive", path)
@@ -305,6 +303,11 @@ func (a *App) handleCreateBackup(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			err = errors.Join(deliveryErrors...)
+			if err == nil {
+				if markErr := a.markBackupScheduleRun(ctx); markErr != nil {
+					a.log.Warn("mark manual backup schedule", "error", markErr)
+				}
+			}
 		}
 		a.backupMu.Lock()
 		if err != nil {
@@ -707,11 +710,29 @@ func (a *App) createDisasterBackup(ctx context.Context, password string) (string
 			return "", err
 		}
 	}
+	dataSkip := map[string]bool{"lanqin.db": true, "lanqin.db-wal": true, "lanqin.db-shm": true, "backups": true, "disaster-backups": true}
+	// Copy immutable payloads before and after the database snapshot. The first
+	// pass preserves files deleted concurrently; the second captures files that
+	// were created immediately before the snapshot.
+	if err := copyTree(cfg.DataDir, filepath.Join(root, "data"), dataSkip); err != nil {
+		return "", err
+	}
+	if cfg.MaildirRoot != "" {
+		if err := copyTree(cfg.MaildirRoot, filepath.Join(root, "mail"), nil); err != nil {
+			return "", err
+		}
+		if _, err := a.syncMaildirOnce(ctx); err != nil {
+			return "", fmt.Errorf("sync maildir before snapshot: %w", err)
+		}
+	}
 	quoted := strings.ReplaceAll(filepath.Join(root, "data", "lanqin.db"), "'", "''")
 	if _, err := a.db.ExecContext(ctx, "VACUUM INTO '"+quoted+"'"); err != nil {
 		return "", err
 	}
-	if err := copyTree(cfg.DataDir, filepath.Join(root, "data"), map[string]bool{"lanqin.db": true, "lanqin.db-wal": true, "lanqin.db-shm": true, "backups": true, "disaster-backups": true}); err != nil {
+	if err := verifySQLiteBackup(filepath.Join(root, "data", "lanqin.db")); err != nil {
+		return "", fmt.Errorf("verify sqlite snapshot: %w", err)
+	}
+	if err := copyTree(cfg.DataDir, filepath.Join(root, "data"), dataSkip); err != nil {
 		return "", err
 	}
 	if cfg.MaildirRoot != "" {
@@ -759,6 +780,10 @@ func (a *App) createDisasterBackup(ctx context.Context, password string) (string
 	if err := os.Chmod(outPath, 0o600); err != nil {
 		_ = os.Remove(outPath)
 		return "", err
+	}
+	if err := verifyEncryptedBackup(ctx, outPath, password); err != nil {
+		_ = os.Remove(outPath)
+		return "", fmt.Errorf("verify encrypted backup: %w", err)
 	}
 	sum, err := fileSHA256(outPath)
 	if err != nil {
@@ -854,15 +879,21 @@ func (a *App) handleDeleteBackup(w http.ResponseWriter, r *http.Request) {
 		respondError(w, 404, "备份不存在")
 		return
 	}
+	a.backupMu.Lock()
+	defer a.backupMu.Unlock()
+	for _, provider := range []string{"telegram", "googleDrive"} {
+		if transfer := a.backupTransfers[backupTransferKey(provider, path)]; transfer != nil && (transfer.Status == "queued" || transfer.Status == "running") {
+			respondError(w, http.StatusConflict, "备份正在传输，完成后才能删除")
+			return
+		}
+	}
 	if err := os.Remove(path); err != nil {
 		respondError(w, 500, "删除失败")
 		return
 	}
 	_ = os.Remove(path + ".sha256")
-	a.backupMu.Lock()
 	delete(a.backupTransfers, backupTransferKey("telegram", path))
 	delete(a.backupTransfers, backupTransferKey("googleDrive", path))
-	a.backupMu.Unlock()
 	respondJSON(w, 200, map[string]any{"ok": true})
 }
 
@@ -924,14 +955,14 @@ func backupTransferKey(provider, path string) string {
 }
 
 func (a *App) startBackupTransfer(provider, path string) bool {
-	info, err := os.Stat(path)
-	if err != nil {
-		return false
-	}
 	key := backupTransferKey(provider, path)
 	a.backupMu.Lock()
 	defer a.backupMu.Unlock()
 	if transfer := a.backupTransfers[key]; transfer != nil && transfer.Status == "running" {
+		return false
+	}
+	info, err := os.Stat(path)
+	if err != nil {
 		return false
 	}
 	a.backupTransfers[key] = &backupTransfer{Provider: provider, Name: filepath.Base(path), Status: "running", Total: info.Size(), StartedAt: a.now().UTC()}
@@ -1407,7 +1438,7 @@ func (a *App) pruneDisasterBackups(keep int) error {
 	}
 	for _, item := range items[minimumInt(keep, len(items)):] {
 		path, ok := a.backupPath(item.Name)
-		if !ok {
+		if !ok || a.backupTransferActive(path) {
 			continue
 		}
 		if err := os.Remove(path); err != nil {
@@ -1473,7 +1504,7 @@ func (a *App) loadBackupSchedule(ctx context.Context) (backupSchedule, error) {
 	if err := rows.Err(); err != nil {
 		return result, err
 	}
-	if result.LastBackupAt == nil {
+	if result.LastBackupAt == nil && !result.Enabled {
 		if latest, ok := a.latestBackupTime(); ok {
 			result.LastBackupAt = &latest
 		}
@@ -1551,9 +1582,6 @@ func (a *App) runScheduledBackup(ctx context.Context) {
 	localBackupSucceeded := runErr == nil
 	var deliveryMessages []string
 	if localBackupSucceeded {
-		if markErr := a.markBackupScheduleRun(ctx); markErr != nil {
-			a.log.Warn("mark scheduled backup", "error", markErr)
-		}
 		var deliveryErrors []error
 		if schedule.GoogleDriveEnabled {
 			a.queueBackupTransfer("googleDrive", path)
@@ -1581,6 +1609,11 @@ func (a *App) runScheduledBackup(ctx context.Context) {
 			}
 		}
 		runErr = errors.Join(deliveryErrors...)
+		if runErr == nil {
+			if markErr := a.markBackupScheduleRun(ctx); markErr != nil {
+				a.log.Warn("mark scheduled backup", "error", markErr)
+			}
+		}
 	}
 	status := "success"
 	publicError := ""
@@ -1658,8 +1691,100 @@ func (a *App) backupPath(name string) (string, bool) {
 		return "", false
 	}
 	path := filepath.Join(a.config().BackupDir, name)
-	info, err := os.Stat(path)
-	return path, err == nil && !info.IsDir()
+	info, err := os.Lstat(path)
+	return path, err == nil && info.Mode().IsRegular()
+}
+
+func (a *App) backupTransferActive(path string) bool {
+	a.backupMu.Lock()
+	defer a.backupMu.Unlock()
+	for _, provider := range []string{"telegram", "googleDrive"} {
+		if transfer := a.backupTransfers[backupTransferKey(provider, path)]; transfer != nil && (transfer.Status == "queued" || transfer.Status == "running") {
+			return true
+		}
+	}
+	return false
+}
+
+func verifySQLiteBackup(path string) error {
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	var result string
+	if err := db.QueryRow(`PRAGMA integrity_check`).Scan(&result); err != nil {
+		return err
+	}
+	if result != "ok" {
+		return fmt.Errorf("integrity_check returned %q", result)
+	}
+	return nil
+}
+
+func verifyEncryptedBackup(ctx context.Context, encrypted, password string) error {
+	var decryptStderr, zstdStderr bytes.Buffer
+	decrypt := exec.CommandContext(ctx, "openssl", "enc", "-d", "-aes-256-cbc", "-pbkdf2", "-iter", "200000", "-md", "sha256", "-in", encrypted, "-pass", "stdin")
+	decrypt.Stdin = strings.NewReader(password)
+	decrypt.Stderr = &decryptStderr
+	decrypted, err := decrypt.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	zstd := exec.CommandContext(ctx, "zstd", "-q", "-d", "-c")
+	zstd.Stdin = decrypted
+	zstd.Stderr = &zstdStderr
+	tarStream, err := zstd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	if err := zstd.Start(); err != nil {
+		return err
+	}
+	if err := decrypt.Start(); err != nil {
+		_ = zstd.Process.Kill()
+		_ = zstd.Wait()
+		return err
+	}
+	required := map[string]bool{
+		"newszxcn-backup/data/lanqin.db":     false,
+		"newszxcn-backup/.env":               false,
+		"newszxcn-backup/docker-compose.yml": false,
+		"newszxcn-backup/manifest.json":      false,
+	}
+	reader := tar.NewReader(tarStream)
+	var archiveErr error
+	for {
+		header, nextErr := reader.Next()
+		if errors.Is(nextErr, io.EOF) {
+			break
+		}
+		if nextErr != nil {
+			archiveErr = nextErr
+			_, _ = io.Copy(io.Discard, tarStream)
+			break
+		}
+		if _, ok := required[header.Name]; ok && header.Typeflag == tar.TypeReg && header.Size > 0 {
+			required[header.Name] = true
+		}
+	}
+	decryptErr := decrypt.Wait()
+	zstdErr := zstd.Wait()
+	if decryptErr != nil {
+		return fmt.Errorf("openssl: %w: %s", decryptErr, decryptStderr.String())
+	}
+	if zstdErr != nil {
+		return fmt.Errorf("zstd: %w: %s", zstdErr, zstdStderr.String())
+	}
+	if archiveErr != nil {
+		return archiveErr
+	}
+	for name, present := range required {
+		if !present {
+			return fmt.Errorf("required archive entry missing: %s", name)
+		}
+	}
+	return nil
 }
 
 func copyTree(src, dst string, skip map[string]bool) error {

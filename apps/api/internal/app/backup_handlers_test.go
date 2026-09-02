@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -351,6 +352,103 @@ func TestBackupScheduleCountdownResetsFromSuccessfulBackup(t *testing.T) {
 	}
 	if !schedule.LastBackupAt.Equal(fixed) || !schedule.NextBackupAt.Equal(fixed.Add(7*24*time.Hour)) {
 		t.Fatalf("schedule did not reset from successful backup: last=%v next=%v", schedule.LastBackupAt, schedule.NextBackupAt)
+	}
+}
+
+func TestEnabledBackupScheduleWithoutSuccessfulRunIsImmediatelyDue(t *testing.T) {
+	a := newTestApp(t)
+	stopTestWorkers(a)
+	fixed := time.Date(2026, 9, 3, 8, 30, 0, 0, time.UTC)
+	a.now = func() time.Time { return fixed }
+	now := fixed.Format(time.RFC3339Nano)
+	if _, err := a.db.Exec(`INSERT INTO system_settings(key,value,updated_at) VALUES('backupScheduleEnabled','true',?)`, now); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	a.updateConfig(func(cfg *Config) { cfg.BackupDir = dir })
+	path := filepath.Join(dir, "newszxcn-backup-20260902-120000-1.2.80.tar.zst.enc")
+	if err := os.WriteFile(path, []byte("local backup without remote delivery"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	schedule, err := a.loadBackupSchedule(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if schedule.LastBackupAt != nil || schedule.NextBackupAt == nil || !schedule.NextBackupAt.Equal(fixed) {
+		t.Fatalf("failed delivery was treated as completed: %+v", schedule)
+	}
+}
+
+func TestEncryptedBackupStreamingVerification(t *testing.T) {
+	for _, binary := range []string{"openssl", "zstd"} {
+		if _, err := exec.LookPath(binary); err != nil {
+			t.Skipf("%s is not installed", binary)
+		}
+	}
+	dir := t.TempDir()
+	root := filepath.Join(dir, "newszxcn-backup")
+	for _, path := range []string{"data/lanqin.db", ".env", "docker-compose.yml", "manifest.json"} {
+		full := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte("required\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tarPath := filepath.Join(dir, "backup.tar")
+	zstPath := tarPath + ".zst"
+	encrypted := zstPath + ".enc"
+	if err := writeTar(tarPath, root); err != nil {
+		t.Fatal(err)
+	}
+	if output, err := exec.Command("zstd", "-q", "-f", tarPath, "-o", zstPath).CombinedOutput(); err != nil {
+		t.Fatalf("zstd: %v: %s", err, output)
+	}
+	password := "BackupPassword123!"
+	encrypt := exec.Command("openssl", "enc", "-aes-256-cbc", "-salt", "-pbkdf2", "-iter", "200000", "-md", "sha256", "-in", zstPath, "-out", encrypted, "-pass", "stdin")
+	encrypt.Stdin = strings.NewReader(password)
+	if output, err := encrypt.CombinedOutput(); err != nil {
+		t.Fatalf("openssl: %v: %s", err, output)
+	}
+	if err := verifyEncryptedBackup(context.Background(), encrypted, password); err != nil {
+		t.Fatalf("valid encrypted backup rejected: %v", err)
+	}
+	if err := verifyEncryptedBackup(context.Background(), encrypted, "wrong-password"); err == nil {
+		t.Fatal("encrypted backup accepted with wrong password")
+	}
+}
+
+func TestBackupPruningSkipsActiveTransfer(t *testing.T) {
+	a := newTestApp(t)
+	stopTestWorkers(a)
+	dir := t.TempDir()
+	a.updateConfig(func(cfg *Config) { cfg.BackupDir = dir })
+	oldest := filepath.Join(dir, "newszxcn-backup-20260901-120000-1.2.80.tar.zst.enc")
+	newest := filepath.Join(dir, "newszxcn-backup-20260903-120000-1.2.80.tar.zst.enc")
+	for _, path := range []string{oldest, newest} {
+		if err := os.WriteFile(path, []byte("backup"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldTime := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	newTime := oldTime.Add(48 * time.Hour)
+	if err := os.Chtimes(oldest, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(newest, newTime, newTime); err != nil {
+		t.Fatal(err)
+	}
+	a.backupMu.Lock()
+	a.backupTransfers[backupTransferKey("telegram", oldest)] = &backupTransfer{Status: "running"}
+	a.backupMu.Unlock()
+	if err := a.pruneDisasterBackups(1); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{oldest, newest} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("backup %s was unexpectedly pruned: %v", filepath.Base(path), err)
+		}
 	}
 }
 

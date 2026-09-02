@@ -41,7 +41,13 @@ curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/install.
 ==================================================
 ```
 
-进入备份恢复菜单后，输入 `1` 选择“本地上传”。脚本会自动扫描 `/root/newszxcn-backup-*`：只有一份时直接选中；多份时按日期从新到旧显示为 `1、2、3` 等序号，输入对应序号，例如输入 `1` 恢复第 1 份。没有找到时才要求手动输入完整路径。选定后输入备份密码，脚本会检查压缩包路径、SQLite 完整性和必要目录，再启动服务。
+进入备份恢复菜单后，输入 `1` 选择“本地上传”。脚本会自动扫描 `/root/newszxcn-backup-*`：只有一份时直接选中；多份时按日期从新到旧显示为 `1、2、3` 等序号，输入对应序号，例如输入 `1` 恢复第 1 份。没有找到时才要求手动输入完整路径。选定后输入备份密码，脚本会检查可用磁盘空间、压缩包路径与文件类型、SQLite 完整性和必要目录，再启动服务。默认只接受 `.tar.zst.enc` 加密备份，并会忽略备份内的镜像地址，强制从官方 GHCR 拉取当前版本。
+
+如果附件旁有同名 `.sha256` 文件，脚本会自动核对；也可以把 Telegram 消息里的 SHA-256 作为环境变量传入：
+
+```bash
+sudo LANQIN_RESTORE_SHA256=消息中的64位SHA256 newszxcn-email restore
+```
 
 恢复完成后：
 
@@ -53,7 +59,9 @@ curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/install.
 
 ## 备份内容
 
-完整备份包括 SQLite 数据库、附件、Maildir 原始邮件、DKIM 私钥、TLS 证书、`.env`、Compose 配置、版本清单和 SHA-256 校验文件。备份使用 Zstandard 压缩，并以 AES-256-CBC、PBKDF2 200000 次迭代和 SHA-256 加密。
+完整备份包括 SQLite 数据库、附件、Maildir 原始邮件、DKIM 私钥、TLS 证书、`.env`、Compose 配置、版本清单和 SHA-256 校验文件。备份使用 Zstandard 压缩，并以 AES-256-CBC、PBKDF2 200000 次迭代和 SHA-256 加密。创建过程中会先同步 Maildir，分别在数据库快照前后复制邮件与附件，执行 SQLite `integrity_check`，并在返回成功前实际解密、解压和检查归档必要文件。
+
+本地最多保留 10 份完整加密备份，正在上传到 Telegram 或 Google 云端硬盘的文件不会被自动清理，也不能从后台删除。定时备份只有在所有已选择的远程推送都成功后才记录本次成功时间；推送失败会在下一轮调度中重试，不会等待整个备份周期。命令行更新回滚快照保留 3 份，密码重置、2FA 重置和回滚前数据库备份各保留最近 5 份。
 
 Telegram 适合保存体积较小的应急副本，不应作为唯一备份位置。超过 Telegram 发送上限的文件请从后台下载，并保存到 Google 云端硬盘、另一台服务器、对象存储或离线磁盘。
 

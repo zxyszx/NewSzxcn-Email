@@ -28,7 +28,7 @@ NewSzxcn Email 管理命令
 用法：newszxcn-email <command>
 
   menu        显示安装与运维菜单
-  install     首次安装；已有安装会先完整备份再重新安装
+  install     首次安装；已有安装会重建运行环境并保留全部数据
   restore     从完整备份目录或压缩包恢复到新服务器
   update      备份数据库并更新到最新版
   repair      检查并修复现有安装
@@ -426,7 +426,7 @@ prompt_admin_password() {
   local password="${LANQIN_ADMIN_PASSWORD:-}" confirm=""
   local safe_password_re='^[A-Za-z0-9][A-Za-z0-9._!@#%+,=:;?*/()^-]*$'
   if [[ -n "${password}" ]]; then
-    [[ ${#password} -ge 6 ]] || fail "管理员密码至少需要 6 个字符。"
+    [[ ${#password} -ge 12 ]] || fail "管理员密码至少需要 12 个字符。"
     [[ "${password}" =~ ${safe_password_re} ]] || fail "管理员密码包含安装配置不支持的字符。"
     printf '%s' "${password}"
     return
@@ -438,7 +438,7 @@ prompt_admin_password() {
     return
   fi
   while true; do
-    read -r -s -p "管理员密码（回车自动生成 12 位，或输入至少 6 位）: " password </dev/tty
+    read -r -s -p "管理员密码（回车自动生成 12 位，或输入至少 12 位）: " password </dev/tty
     printf '\n' >/dev/tty
     if [[ -z "${password}" ]]; then
       password="$(random_admin_password)"
@@ -446,8 +446,8 @@ prompt_admin_password() {
       printf '%s' "${password}"
       return
     fi
-    if [[ ${#password} -lt 6 ]]; then
-      prompt_text "[提示] 管理员密码至少需要 6 个字符。\n"
+    if [[ ${#password} -lt 12 ]]; then
+      prompt_text "[提示] 管理员密码至少需要 12 个字符。\n"
       continue
     fi
     if [[ ! "${password}" =~ ${safe_password_re} ]]; then
@@ -469,7 +469,7 @@ prompt_reset_password() {
   local password="${LANQIN_RESET_PASSWORD:-}" confirm=""
   local safe_password_re='^[A-Za-z0-9][A-Za-z0-9._!@#%+,=:;?*/()^-]*$'
   if [[ -n "${password}" ]]; then
-    [[ ${#password} -ge 6 ]] || fail "新密码至少需要 6 个字符。"
+    [[ ${#password} -ge 12 ]] || fail "新密码至少需要 12 个字符。"
     [[ "${password}" =~ ${safe_password_re} ]] || fail "新密码包含安装配置不支持的字符。"
     printf '%s' "${password}"
     return
@@ -481,7 +481,7 @@ prompt_reset_password() {
     return
   fi
   while true; do
-    read -r -s -p "新密码（回车自动生成 12 位，或输入至少 6 位）: " password </dev/tty
+    read -r -s -p "新密码（回车自动生成 12 位，或输入至少 12 位）: " password </dev/tty
     printf '\n' >/dev/tty
     if [[ -z "${password}" ]]; then
       password="$(random_admin_password)"
@@ -489,8 +489,8 @@ prompt_reset_password() {
       printf '%s' "${password}"
       return
     fi
-    if [[ ${#password} -lt 6 ]]; then
-      prompt_text "[提示] 新密码至少需要 6 个字符。\n"
+    if [[ ${#password} -lt 12 ]]; then
+      prompt_text "[提示] 新密码至少需要 12 个字符。\n"
       continue
     fi
     if [[ ! "${password}" =~ ${safe_password_re} ]]; then
@@ -570,9 +570,42 @@ ensure_update_runtime_config() {
 	chmod 0600 "${INSTALL_DIR}/.env"
 }
 
+sanitize_restored_runtime_config() {
+  set_env LANQIN_IMAGE "ghcr.io/zxyszx/newszxcn-email:latest"
+  set_env LANQIN_UPDATER_IMAGE "ghcr.io/zxyszx/newszxcn-email:updater-latest"
+  set_env LANQIN_INSTALL_DIR "${INSTALL_DIR}"
+  ensure_update_token
+  chmod 0600 "${INSTALL_DIR}/.env"
+}
+
 prepare_directories() {
   install -d -m 0755 "${INSTALL_DIR}/data" "${INSTALL_DIR}/mail" "${INSTALL_DIR}/dkim" "${CERT_DIR}"
   install -d -m 0700 "${INSTALL_DIR}/data/backups"
+}
+
+prune_managed_backups() {
+  local root="$1" pattern="$2" keep="$3" type="$4" path index=0
+  [[ -d "${root}" && "${keep}" =~ ^[0-9]+$ ]] || return 0
+  while IFS= read -r path; do
+    [[ -n "${path}" && "$(dirname "${path}")" == "${root}" ]] || continue
+    index=$((index + 1))
+    (( index > keep )) || continue
+    if [[ "${type}" == "directory" && -d "${path}" ]]; then
+      rm -rf -- "${path}"
+    elif [[ "${type}" == "file" && -f "${path}" ]]; then
+      rm -f -- "${path}"
+    fi
+  done < <(find "${root}" -mindepth 1 -maxdepth 1 -name "${pattern}" -print 2>/dev/null | LC_ALL=C sort -r)
+}
+
+prune_cli_backup_history() {
+  local root="${INSTALL_DIR}/data/backups"
+  prune_managed_backups "${root}" 'cli-rollback-*' 3 directory
+  prune_managed_backups "${root}" 'pre-rollback-*.db' 5 file
+  prune_managed_backups "${root}" 'password-reset-*.db' 5 file
+  prune_managed_backups "${root}" '2fa-reset-*.db' 5 file
+  prune_managed_backups "$(dirname "${INSTALL_DIR}")" "$(basename "${INSTALL_DIR}").backup-*" 2 directory
+  prune_managed_backups "$(dirname "${INSTALL_DIR}")" "$(basename "${INSTALL_DIR}").failed-*" 2 directory
 }
 
 configure_runtime_bindings() {
@@ -1045,6 +1078,7 @@ EOF
   printf '%s\n' "${snapshot}" > "${pointer_tmp}"
   mv "${pointer_tmp}" "${ROLLBACK_POINTER}"
   printf '%s\n' "${image}" > "${ROLLBACK_FILE}"
+  prune_cli_backup_history
   log "更新回滚快照已创建：${snapshot}"
 }
 
@@ -1109,6 +1143,7 @@ do_repair_install() {
   installation_configured || fail "尚未安装，无法执行修复。"
   local snapshot_created="false"
   ensure_docker
+  acquire_update_lock
   if [[ -f "${INSTALL_DIR}/docker-compose.yml" ]]; then
     create_update_snapshot || fail "修复前备份失败，未修改现有安装。"
     snapshot_created="true"
@@ -1167,14 +1202,10 @@ do_repair_install() {
   success "修复完成：$(env_value LANQIN_PUBLIC_BASE_URL)"
   warn "下一步请配置 MX、SPF、DKIM、DMARC，并确认 25/465/587/993/995 端口可访问。"
   warn "输入 ns 可打开管理菜单；输入 newszxcn-email guide 可查看邮箱后台配置指南。"
+  release_update_lock
 }
 
-do_install() {
-  if [[ -f "${INSTALL_DIR}/.env" ]]; then
-    do_backup_reinstall
-    return
-  fi
-
+do_fresh_install() {
   refresh_assets
   configure_first_install
   ensure_update_runtime_config
@@ -1194,6 +1225,47 @@ do_install() {
   warn "输入 ns 可打开管理菜单；输入 newszxcn-email guide 可查看邮箱后台配置指南。"
 }
 
+do_install() {
+  local failed_dir diagnostic_dir cleanup_note="残留容器已停止" nginx_backup=""
+  if [[ -f "${INSTALL_DIR}/.env" ]]; then
+    warn "检测到现有安装，将重建运行文件和容器，并完整保留数据库、邮件、证书与配置。"
+    do_repair_install
+    return
+  fi
+  failed_dir="${INSTALL_DIR}.failed-$(date -u +%Y%m%dT%H%M%SZ)"
+  if [[ -f "${NGINX_CONFIG}" ]]; then
+    nginx_backup="$(mktemp)"
+    cp -a "${NGINX_CONFIG}" "${nginx_backup}"
+  fi
+  if (do_fresh_install); then
+    rm -f "${nginx_backup}"
+    return 0
+  fi
+  warn "首次安装未完成，正在清理半安装状态。"
+  if [[ -f "${INSTALL_DIR}/docker-compose.yml" ]]; then
+    if ! compose down --remove-orphans >/dev/null 2>&1; then
+      cleanup_note="容器停止命令失败，请修复 Docker 后执行 newszxcn-email uninstall"
+    fi
+  fi
+  if [[ -d "${INSTALL_DIR}" ]]; then
+    if mv "${INSTALL_DIR}" "${failed_dir}"; then
+      diagnostic_dir="${failed_dir}"
+    else
+      diagnostic_dir="${INSTALL_DIR}"
+    fi
+    chmod 0700 "${diagnostic_dir}" || true
+  fi
+  if [[ -n "${nginx_backup}" && -f "${nginx_backup}" ]]; then
+    install -m 0644 "${nginx_backup}" "${NGINX_CONFIG}"
+  else
+    rm -f "${NGINX_CONFIG}"
+  fi
+  rm -f "${nginx_backup}"
+  reload_nginx || true
+  prune_cli_backup_history
+  fail "首次安装失败（${cleanup_note}）；诊断文件保存在 ${diagnostic_dir:-${failed_dir}}。修复网络或配置后可重新执行安装。"
+}
+
 validate_restore_source() {
   local source="$1"
   [[ -f "${source}/.env" ]] || { warn "备份缺少 .env。"; return 1; }
@@ -1202,6 +1274,29 @@ validate_restore_source() {
   [[ -d "${source}/mail" ]] || { warn "备份缺少 mail 邮件目录。"; return 1; }
   [[ -d "${source}/dkim" ]] || { warn "备份缺少 dkim 密钥目录。"; return 1; }
   [[ -d "${source}/certs" ]] || { warn "备份缺少 certs 证书目录。"; return 1; }
+}
+
+restore_tree_has_unsafe_types() {
+  local source="$1"
+  [[ -z "$(find -P "${source}" -mindepth 1 ! -type f ! -type d -print -quit 2>/dev/null)" ]]
+}
+
+verify_restore_checksum() {
+  local source="$1" expected="${LANQIN_RESTORE_SHA256:-}" actual checksum_file
+  checksum_file="${source}.sha256"
+  if [[ -z "${expected}" && -f "${checksum_file}" ]]; then
+    expected="$(awk 'NR == 1 { print $1 }' "${checksum_file}")"
+  fi
+  if [[ -z "${expected}" ]]; then
+    warn "未提供备份 SHA-256；仍会校验加密、压缩包结构和 SQLite 完整性。"
+    return 0
+  fi
+  [[ "${expected}" =~ ^[A-Fa-f0-9]{64}$ ]] || fail "备份 SHA-256 格式无效，已取消恢复。"
+  actual="$(sha256sum "${source}" | awk '{ print $1 }')"
+  actual="$(printf '%s' "${actual}" | tr '[:upper:]' '[:lower:]')"
+  expected="$(printf '%s' "${expected}" | tr '[:upper:]' '[:lower:]')"
+  [[ "${actual}" == "${expected}" ]] || fail "备份 SHA-256 不匹配，文件可能损坏或被替换，已取消恢复。"
+  success "备份 SHA-256 校验通过。"
 }
 
 validate_restore_database() {
@@ -1383,6 +1478,16 @@ extract_restore_archive() {
   esac
 }
 
+require_restore_disk_space() {
+  local source="$1" destination="$2" source_bytes available_kb required_bytes
+  source_bytes="$(wc -c < "${source}" | tr -d '[:space:]')"
+  available_kb="$(df -Pk "${destination}" | awk 'NR==2 {print $4}')"
+  [[ "${source_bytes}" =~ ^[0-9]+$ && "${available_kb}" =~ ^[0-9]+$ ]] || fail "无法确认恢复所需磁盘空间。"
+  required_bytes=$((source_bytes * 3 + 536870912))
+  (( available_kb * 1024 >= required_bytes )) \
+    || fail "服务器剩余空间不足；恢复至少需要约 $((required_bytes / 1024 / 1024)) MB 可用空间。"
+}
+
 do_restore_backup() {
   local source="${LANQIN_RESTORE_SOURCE:-}" extracted="" restore_root staging image_ref image nginx_backup=""
   ! installation_configured || fail "当前服务器已经存在安装配置；为防止覆盖运行数据，只能在空白新服务器执行完整恢复。"
@@ -1391,11 +1496,18 @@ do_restore_backup() {
   source="$(readlink -f "${source}" 2>/dev/null || true)"
   [[ -e "${source}" ]] || fail "备份不存在：${source}"
 
+  if [[ "${source}" != *.tar.zst.enc && "${LANQIN_ALLOW_UNENCRYPTED_RESTORE:-false}" != "true" ]]; then
+    fail "为保护服务器安全，默认只允许恢复 .tar.zst.enc 加密备份；旧版未加密备份需显式设置 LANQIN_ALLOW_UNENCRYPTED_RESTORE=true。"
+  fi
+
   if [[ -d "${source}" ]]; then
+    restore_tree_has_unsafe_types "${source}" || fail "备份目录包含符号链接或特殊文件，已拒绝恢复。"
     restore_root="${source}"
   else
+    verify_restore_checksum "${source}"
     command -v tar >/dev/null 2>&1 || install_packages tar
     extracted="$(mktemp -d)"
+    require_restore_disk_space "${source}" "${extracted}"
     extract_restore_archive "${source}" "${extracted}"
     restore_root="$(locate_extracted_restore_root "${extracted}" || true)"
   fi
@@ -1418,6 +1530,7 @@ do_restore_backup() {
   rm -rf "${INSTALL_DIR}"
   mv "${staging}" "${INSTALL_DIR}"
   chmod 0600 "${INSTALL_DIR}/.env"
+  sanitize_restored_runtime_config
 
   if [[ -f "${NGINX_CONFIG}" ]]; then
     nginx_backup="$(mktemp)"
@@ -1513,6 +1626,7 @@ do_rollback() {
   timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
   emergency_backup="${INSTALL_DIR}/data/backups/pre-rollback-${timestamp}.db"
   backup_database "${emergency_backup}" "${image}" || fail "当前数据库备份失败，已取消回滚。"
+  prune_cli_backup_history
   restore_update_snapshot || fail "完整回滚失败，请检查回滚快照和服务日志。"
   log "回滚前数据库已保留：${emergency_backup}"
   success "已恢复镜像、数据库、Compose、环境配置、安装脚本和 Nginx 配置。"
@@ -1529,14 +1643,18 @@ reload_services() {
 }
 
 do_restart() {
+  require_installation
+  acquire_update_lock
   reload_services
   wait_for_health 90 || fail "重启后服务未通过健康检查。"
   success "邮局服务已重启。"
+  release_update_lock
 }
 
 do_certificate() {
   require_installation
   [[ "$(env_value LANQIN_INSTALL_WEB_MODE || true)" == "1" ]] || fail "只有自动 Nginx + SSL 模式可使用此命令。"
+  acquire_update_lock
   ensure_nginx
   write_nginx_http_config
   install_certificate
@@ -1544,6 +1662,7 @@ do_certificate() {
   reload_services
   generate_guide >/dev/null || warn "证书已应用，但邮箱后台配置指南生成失败，可稍后执行 newszxcn-email guide 重试。"
   success "SSL 证书已安装并应用。"
+  release_update_lock
 }
 
 generate_guide() {
@@ -1706,6 +1825,7 @@ do_reset_admin_password() {
   require_installation
   local admin_email password user_id hash image timestamp backup env_backup result user_changes mailbox_changes
   ensure_docker
+  acquire_update_lock
   ensure_admin_email_config
   admin_email="$(env_value LANQIN_ADMIN_EMAIL || true)"
   valid_email_address "${admin_email}" || fail "管理员邮箱配置无效，无法安全重置。"
@@ -1718,6 +1838,7 @@ do_reset_admin_password() {
   timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
   backup="${INSTALL_DIR}/data/backups/password-reset-${timestamp}.db"
   backup_database "${backup}" "${image}" || fail "数据库备份失败，管理员密码未修改。"
+  prune_cli_backup_history
 
   env_backup="$(mktemp)"
   install -m 0600 "${INSTALL_DIR}/.env" "${env_backup}"
@@ -1744,12 +1865,14 @@ do_reset_admin_password() {
   log "重置前数据库备份：${backup}"
   log "已同步 ${mailbox_changes} 个管理员邮箱的 SMTP/IMAP 密码。"
   warn "此次操作只修改管理员账号及其名下邮箱，不会修改普通用户或其邮箱密码。"
+  release_update_lock
 }
 
 do_reset_admin_two_factor() {
   require_installation
   local admin_email user_id image timestamp backup result user_changes recovery_changes challenge_changes
   ensure_docker
+  acquire_update_lock
   ensure_admin_email_config
   admin_email="$(env_value LANQIN_ADMIN_EMAIL || true)"
   valid_email_address "${admin_email}" || fail "管理员邮箱配置无效，无法安全关闭双因素认证。"
@@ -1760,6 +1883,7 @@ do_reset_admin_two_factor() {
   timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
   backup="${INSTALL_DIR}/data/backups/2fa-reset-${timestamp}.db"
   backup_database "${backup}" "${image}" || fail "数据库备份失败，管理员双因素认证未修改。"
+  prune_cli_backup_history
   if ! result="$(compose exec -T lanqin-email sqlite3 -batch -noheader /data/lanqin.db "BEGIN IMMEDIATE; UPDATE users SET two_factor_secret='', two_factor_enabled=0, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id='${user_id}' AND email='${admin_email}' AND role='admin'; SELECT 'user=' || changes(); DELETE FROM two_factor_recovery_codes WHERE user_id='${user_id}'; SELECT 'recovery=' || changes(); DELETE FROM login_challenges WHERE user_id='${user_id}'; SELECT 'challenges=' || changes(); COMMIT;" | tr -d '\r')"; then
     fail "管理员双因素认证关闭失败，数据库未确认修改。"
   fi
@@ -1773,6 +1897,7 @@ do_reset_admin_two_factor() {
   log "重置前数据库备份：${backup}"
   log "已删除 ${recovery_changes} 个恢复码和 ${challenge_changes} 个登录挑战。"
   warn "请管理员登录后重新绑定双因素认证并妥善保存新的恢复码。"
+  release_update_lock
 }
 
 do_status() {
@@ -1800,6 +1925,7 @@ do_uninstall() {
     read -r -p "确认停止并卸载服务吗？邮件和配置将保留。[y/N]: " confirm </dev/tty
   fi
   [[ "${confirm}" =~ ^([Yy]|[Yy][Ee][Ss])$ ]] || { success "已取消卸载。"; return 0; }
+  acquire_update_lock
   hostname="$(env_value LANQIN_PUBLIC_HOSTNAME || true)"
   compose down --remove-orphans
   if [[ -f "${NGINX_CONFIG}" ]]; then
@@ -1820,77 +1946,7 @@ do_uninstall() {
     fi
   fi
   success "容器和自动生成的 Nginx 配置已移除，${INSTALL_DIR} 中的邮件、证书、配置和数据库仍然保留。"
-}
-
-do_backup_reinstall() {
-  local backup_dir failed_dir old_image
-  backup_dir="${INSTALL_DIR}.backup-$(date -u +%Y%m%dT%H%M%SZ)"
-  failed_dir="${INSTALL_DIR}.failed-$(date -u +%Y%m%dT%H%M%SZ)"
-
-  [[ -f "${INSTALL_DIR}/docker-compose.yml" ]] || fail "旧安装缺少 docker-compose.yml，请先选择修复现有安装。"
-  ensure_docker
-  old_image="$(current_image_id || true)"
-  [[ -n "${old_image}" ]] || fail "无法确定旧安装镜像，已取消重新安装。"
-  printf '%s\n' "${old_image}" > "${INSTALL_DIR}/.reinstall-image"
-  if [[ -f "${CLI_PATH}" ]]; then
-    cp -p "${CLI_PATH}" "${INSTALL_DIR}/.reinstall-installer"
-  fi
-  if [[ -f "${NGINX_CONFIG}" ]]; then
-    cp -p "${NGINX_CONFIG}" "${INSTALL_DIR}/.reinstall-nginx.conf"
-  else
-    : > "${INSTALL_DIR}/.reinstall-nginx.absent"
-  fi
-  compose down --remove-orphans
-  if [[ -f "${NGINX_CONFIG}" ]]; then
-    rm -f "${NGINX_CONFIG}"
-    if ! reload_nginx; then
-      install -m 0644 "${INSTALL_DIR}/.reinstall-nginx.conf" "${NGINX_CONFIG}"
-      reload_nginx || true
-      LANQIN_IMAGE="${old_image}" compose up -d --remove-orphans --force-recreate \
-        || fail "Nginx 配置已恢复，但旧容器启动失败，请检查 ${INSTALL_DIR}。"
-      wait_for_health 90 || fail "Nginx 配置已恢复，但旧服务健康检查失败，请查看日志。"
-      fail "Nginx 重载失败，已恢复旧配置并取消重新安装。"
-    fi
-  fi
-
-  if ! mv "${INSTALL_DIR}" "${backup_dir}"; then
-    if [[ -f "${INSTALL_DIR}/.reinstall-nginx.conf" ]]; then
-      install -m 0644 "${INSTALL_DIR}/.reinstall-nginx.conf" "${NGINX_CONFIG}"
-    fi
-    LANQIN_IMAGE="${old_image}" compose up -d --remove-orphans --force-recreate || true
-    reload_nginx || true
-    fail "旧安装目录备份失败，已取消重新安装。"
-  fi
-  success "旧安装已完整备份到 ${backup_dir}。"
-  log "现在开始全新安装。"
-  if (do_install); then
-    success "重新安装完成；旧安装备份保留在 ${backup_dir}。"
-    return 0
-  fi
-
-  warn "重新安装失败，正在自动恢复旧安装。"
-  if [[ -d "${INSTALL_DIR}" ]]; then
-    if [[ -f "${INSTALL_DIR}/docker-compose.yml" ]]; then
-      compose down --remove-orphans >/dev/null 2>&1 || true
-    fi
-    mv "${INSTALL_DIR}" "${failed_dir}"
-  fi
-  mv "${backup_dir}" "${INSTALL_DIR}" || fail "无法恢复旧安装目录，备份仍位于 ${backup_dir}。"
-  old_image="$(tr -d '\r\n' < "${INSTALL_DIR}/.reinstall-image")"
-  if [[ -f "${INSTALL_DIR}/.reinstall-installer" ]]; then
-    install -m 0755 "${INSTALL_DIR}/.reinstall-installer" "${CLI_PATH}"
-  fi
-  if [[ -f "${INSTALL_DIR}/.reinstall-nginx.conf" ]]; then
-    install -m 0644 "${INSTALL_DIR}/.reinstall-nginx.conf" "${NGINX_CONFIG}"
-  elif [[ -f "${INSTALL_DIR}/.reinstall-nginx.absent" ]]; then
-    rm -f "${NGINX_CONFIG}"
-  fi
-  LANQIN_IMAGE="${old_image}" compose up -d --remove-orphans --force-recreate \
-    || fail "旧安装目录已恢复，但旧容器启动失败，请检查 ${INSTALL_DIR}。"
-  reload_nginx || fail "旧安装目录和容器已恢复，但 Nginx 重载失败，请手动检查。"
-  wait_for_health 90 || fail "旧安装已恢复，但健康检查失败，请查看日志。"
-  ensure_cli_alias
-  fail "重新安装失败，旧安装已自动恢复。失败的新安装保存在 ${failed_dir}。"
+  release_update_lock
 }
 
 menu_service_status() {
@@ -1947,7 +2003,7 @@ render_installed_menu() {
   prompt_text "地址：${public_url:-未配置}\n"
   prompt_text '--------------------------------------------------\n'
   prompt_text '安装与维护\n'
-  prompt_text '1. 重新安装（完整备份，失败自动恢复）\n'
+  prompt_text '1. 重建运行环境（保留全部数据）\n'
   prompt_text '2. 更新系统（自动备份，失败自动回滚）\n'
   prompt_text '3. 检查并修复现有安装\n\n'
   prompt_text '服务管理\n'
@@ -1968,7 +2024,7 @@ render_installed_menu() {
 }
 
 do_menu() {
-  local default_choice="2" public_url="" choice status version
+  local default_choice="4" public_url="" choice status version
   if ! installation_configured; then
     render_uninstalled_menu
     choice="$(prompt_menu_choice "1" "3")" || return 1
@@ -1989,7 +2045,7 @@ do_menu() {
   choice="$(prompt_menu_choice "${default_choice}" "12")" || return 1
   case "${choice}" in
     0) success "已退出，未作任何修改。" ;;
-    1) do_install ;;
+    1) do_repair_install ;;
     2) do_update ;;
     3) do_repair_install ;;
     4) do_status ;;

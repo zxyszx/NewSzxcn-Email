@@ -23,7 +23,9 @@ curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/install.
 
 The installer configures `/opt/newszxcn-email`, starts the Docker services, and waits for the health check. DNS records and provider port restrictions must still be configured by the operator.
 
-During first installation it prompts for the firewall policy, mail hostname, administrator username/password, and Web mode. Automatic mode configures host Nginx and obtains a Let's Encrypt certificate with the official `acme.sh` client. The default username is `admin`; an empty password generates 12 characters, while a custom password requires at least 6 characters.
+During first installation it prompts for the firewall policy, mail hostname, administrator username/password, and Web mode. Automatic mode configures host Nginx and obtains a Let's Encrypt certificate with the official `acme.sh` client. The default username is `admin`; an empty password generates 12 characters, while a custom password requires at least 12 characters. After installation or disaster recovery, one summary prints the mail URL, admin URL, mail domain, administrator address, recorded password, and the `ns` management command.
+
+Running the installer on an existing instance rebuilds only runtime files and containers while preserving the database, messages, certificates, and configuration. The installed menu defaults to the read-only status action.
 
 ## Update
 

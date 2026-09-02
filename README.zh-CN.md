@@ -34,7 +34,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/i
 
 - 安装或检查 Docker Engine 与 Docker Compose v2
 - 选择自动添加邮局必要端口规则，或保留现有防火墙由用户自行配置；不会清空已有防火墙规则
-- 分开确认邮件服务器域名和邮箱地址域名，创建唯一管理员邮箱；默认 `admin@邮箱地址域名`，回车自动生成 12 位密码，自定义密码最少 6 位
+- 分开确认邮件服务器域名和邮箱地址域名，创建唯一管理员邮箱；默认 `admin@邮箱地址域名`，回车自动生成 12 位密码，自定义密码最少 12 位
 - 选择自动 Nginx + SSL、宝塔/已有 Nginx 反代或 HTTP 测试模式
 - 自动模式使用官方 `acme.sh` 签发和续期证书，不会强制停止占用 80 端口的进程
 - 创建 `/opt/newszxcn-email` 持久化目录
@@ -42,7 +42,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/i
 - 生成后台在线更新所需的内部鉴权令牌
 - 等待 Web 与 API 健康检查通过
 
-安装完成后访问配置的 `LANQIN_PUBLIC_BASE_URL`。首次登录后，在后台添加邮件域名并按照 DNS 检测页配置记录。
+安装或恢复成功后，终端会一次显示邮箱登录地址、管理后台地址、邮局域名、管理员邮箱、安装时记录的密码和管理命令 `ns`。首次登录后，在后台添加邮件域名并按照 DNS 检测页配置记录。
 
 > 一键安装不会替你修改 DNS，也不能绕过云厂商对 25 端口的限制。公网收信前必须确认 25 端口可入站，公网发信前需确认 25 端口可出站。
 

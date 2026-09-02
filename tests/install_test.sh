@@ -25,21 +25,21 @@ test_hostname_validation() {
 }
 
 test_password_validation() {
-  LANQIN_ADMIN_PASSWORD="abc123"
-  assert_eq "abc123" "$(prompt_admin_password)" "six-character password"
-  if (LANQIN_ADMIN_PASSWORD="abc12" prompt_admin_password >/dev/null 2>&1); then
-    fail_test "five-character password accepted"
+  LANQIN_ADMIN_PASSWORD="StrongPass12"
+  assert_eq "StrongPass12" "$(prompt_admin_password)" "twelve-character password"
+  if (LANQIN_ADMIN_PASSWORD="ShortPass1" prompt_admin_password >/dev/null 2>&1); then
+    fail_test "short password accepted"
   fi
-  if (LANQIN_ADMIN_PASSWORD="abc\$123" prompt_admin_password >/dev/null 2>&1); then
+  if (LANQIN_ADMIN_PASSWORD="Unsafe\$Pass12" prompt_admin_password >/dev/null 2>&1); then
     fail_test "unsafe env-file password accepted"
   fi
-  if (LANQIN_ADMIN_PASSWORD="#abc123" prompt_admin_password >/dev/null 2>&1); then
+  if (LANQIN_ADMIN_PASSWORD="#UnsafePass12" prompt_admin_password >/dev/null 2>&1); then
     fail_test "password beginning with an env-file comment marker accepted"
   fi
-  LANQIN_RESET_PASSWORD="reset1"
-  assert_eq "reset1" "$(prompt_reset_password)" "six-character reset password"
-  if (LANQIN_RESET_PASSWORD="reset" prompt_reset_password >/dev/null 2>&1); then
-    fail_test "five-character reset password accepted"
+  LANQIN_RESET_PASSWORD="ResetPass123"
+  assert_eq "ResetPass123" "$(prompt_reset_password)" "twelve-character reset password"
+  if (LANQIN_RESET_PASSWORD="ResetPass1" prompt_reset_password >/dev/null 2>&1); then
+    fail_test "short reset password accepted"
   fi
 }
 
@@ -74,7 +74,7 @@ test_install_configuration() {
   export LANQIN_PUBLIC_HOSTNAME="mail.example.com"
   export LANQIN_MAIL_DOMAIN="example.com"
   export LANQIN_ADMIN_EMAIL="admin@example.com"
-  export LANQIN_ADMIN_PASSWORD="abc123"
+  export LANQIN_ADMIN_PASSWORD="StrongPass12"
   export LANQIN_INSTALL_WEB_MODE="${web_mode}"
   configure_first_install
   configure_runtime_bindings
@@ -87,7 +87,7 @@ test_install_configuration() {
   assert_eq "example.com" "$(env_value LANQIN_MAIL_DOMAIN)" "mail address domain"
   assert_eq "admin@example.com" "$(env_value LANQIN_ADMIN_EMAIL)" "administrator email"
   assert_eq "admin" "$(env_value LANQIN_ADMIN_USERNAME)" "legacy administrator username prefix"
-  assert_eq "abc123" "$(env_value LANQIN_ADMIN_PASSWORD)" "administrator password"
+  assert_eq "StrongPass12" "$(env_value LANQIN_ADMIN_PASSWORD)" "administrator password"
 }
 
 test_nginx_configuration() {
@@ -163,6 +163,42 @@ test_update_runtime_configuration() {
   [[ -n "$(env_value LANQIN_UPDATE_TOKEN)" ]] || fail_test "update token was not generated"
 }
 
+test_restored_runtime_configuration_is_sanitized() {
+  local temp_dir
+  temp_dir="$(mktemp -d)"
+  INSTALL_DIR="${temp_dir}/install"
+  mkdir -p "${INSTALL_DIR}"
+  cat > "${INSTALL_DIR}/.env" <<'EOF'
+LANQIN_IMAGE=registry.example.test/untrusted-mail:latest
+LANQIN_UPDATER_IMAGE=registry.example.test/untrusted-updater:latest
+LANQIN_INSTALL_DIR=/tmp/untrusted
+LANQIN_UPDATE_TOKEN=existing-token
+EOF
+  sanitize_restored_runtime_config
+  assert_eq "ghcr.io/zxyszx/newszxcn-email:latest" "$(env_value LANQIN_IMAGE)" "restored mail image"
+  assert_eq "ghcr.io/zxyszx/newszxcn-email:updater-latest" "$(env_value LANQIN_UPDATER_IMAGE)" "restored updater image"
+  assert_eq "${INSTALL_DIR}" "$(env_value LANQIN_INSTALL_DIR)" "restored install directory"
+}
+
+test_managed_backup_retention() {
+  local temp_dir index count
+  temp_dir="$(mktemp -d)"
+  INSTALL_DIR="${temp_dir}/newszxcn-email"
+  mkdir -p "${INSTALL_DIR}/data/backups"
+  for index in 1 2 3 4 5; do
+    mkdir -p "${INSTALL_DIR}/data/backups/cli-rollback-2026010${index}T000000Z"
+    printf 'db\n' > "${INSTALL_DIR}/data/backups/password-reset-2026010${index}T000000Z.db"
+    mkdir -p "${temp_dir}/newszxcn-email.failed-2026010${index}T000000Z"
+  done
+  prune_cli_backup_history
+  count="$(find "${INSTALL_DIR}/data/backups" -maxdepth 1 -type d -name 'cli-rollback-*' | wc -l | tr -d ' ')"
+  assert_eq "3" "${count}" "CLI rollback retention"
+  count="$(find "${INSTALL_DIR}/data/backups" -maxdepth 1 -type f -name 'password-reset-*.db' | wc -l | tr -d ' ')"
+  assert_eq "5" "${count}" "password reset retention"
+  count="$(find "${temp_dir}" -maxdepth 1 -type d -name 'newszxcn-email.failed-*' | wc -l | tr -d ' ')"
+  assert_eq "2" "${count}" "failed install retention"
+}
+
 test_rollback_image_reference() {
   local temp_dir INSTALL_DIR
   temp_dir="$(mktemp -d)"
@@ -187,7 +223,7 @@ test_menu_choice() {
   export LANQIN_MENU_ACTION=0
   assert_eq "0" "$(prompt_menu_choice 1)" "menu exit action"
   export LANQIN_MENU_ACTION=1
-  assert_eq "1" "$(prompt_menu_choice 2)" "menu install action"
+  assert_eq "1" "$(prompt_menu_choice 4)" "menu install action"
   export LANQIN_MENU_ACTION=12
   assert_eq "12" "$(prompt_menu_choice 1 12)" "menu uninstall action"
   if (has_tty() { return 1; }; LANQIN_MENU_ACTION=13 prompt_menu_choice 1 12 >/dev/null 2>&1); then
@@ -215,6 +251,7 @@ test_menu_rendering() (
     '版本：v1.2.19' \
     '地址：https://mail.example.com' \
     '安装与维护' \
+    '1. 重建运行环境（保留全部数据）' \
     '服务管理' \
     '证书与恢复' \
     '账号与帮助' \
@@ -248,10 +285,52 @@ test_menu_dispatch() (
   menu_service_status() { printf '运行中'; }
   menu_installed_version() { printf 'v1.2.19'; }
   do_update() { printf 'update\n' > "${action_file}"; }
+  do_repair_install() { printf 'repair\n' > "${action_file}"; }
+  LANQIN_MENU_ACTION=1
+  do_menu
+  grep -Fq 'repair' "${action_file}" || fail_test "installed menu did not dispatch safe rebuild"
   LANQIN_MENU_ACTION=2
   do_menu
   grep -Fq 'update' "${action_file}" || fail_test "installed menu did not dispatch update"
   unset LANQIN_MENU_ACTION
+)
+
+test_installed_menu_defaults_to_status() (
+  local temp_dir default_file
+  temp_dir="$(mktemp -d)"
+  INSTALL_DIR="${temp_dir}/install"
+  default_file="${temp_dir}/default"
+  mkdir -p "${INSTALL_DIR}"
+  printf 'LANQIN_PUBLIC_BASE_URL=https://mail.example.com\n' > "${INSTALL_DIR}/.env"
+  printf 'services: {}\n' > "${INSTALL_DIR}/docker-compose.yml"
+  prompt_text() { :; }
+  menu_service_status() { printf '运行中'; }
+  menu_installed_version() { printf 'v1.2.81'; }
+  prompt_menu_choice() { printf '%s\n' "$1" > "${default_file}"; printf '0'; }
+  do_menu
+  assert_eq "4" "$(cat "${default_file}")" "installed menu default"
+)
+
+test_failed_first_install_cleans_partial_state() (
+  local temp_dir failed_dir
+  temp_dir="$(mktemp -d)"
+  INSTALL_DIR="${temp_dir}/newszxcn-email"
+  NGINX_CONFIG="${temp_dir}/newszxcn-email.conf"
+  mkdir -p "${INSTALL_DIR}"
+  do_fresh_install() {
+    printf 'LANQIN_ADMIN_PASSWORD=secret\n' > "${INSTALL_DIR}/.env"
+    printf 'services: {}\n' > "${INSTALL_DIR}/docker-compose.yml"
+    return 1
+  }
+  compose() { return 0; }
+  reload_nginx() { return 0; }
+  if (do_install >/dev/null 2>&1); then
+    fail_test "failed first install unexpectedly succeeded"
+  fi
+  [[ ! -e "${INSTALL_DIR}" ]] || fail_test "failed first install left configured install directory"
+  failed_dir="$(find "${temp_dir}" -maxdepth 1 -type d -name 'newszxcn-email.failed-*' -print -quit)"
+  [[ -n "${failed_dir}" && -f "${failed_dir}/.env" ]] || fail_test "failed first install diagnostics missing"
+  [[ "$(stat -c '%a' "${failed_dir}" 2>/dev/null || stat -f '%Lp' "${failed_dir}")" == "700" ]] || fail_test "failed install diagnostics permissions are not private"
 )
 
 test_menu_runtime_metadata() (
@@ -388,6 +467,8 @@ EOF
   printf 'database\n' > "${INSTALL_DIR}/data/lanqin.db"
 
   ensure_docker() { return 0; }
+  acquire_update_lock() { return 0; }
+  release_update_lock() { return 0; }
   current_image_id() { printf 'sha256:test-image\n'; }
   backup_database() {
     backup_path="$1"
@@ -429,6 +510,8 @@ EOF
   printf 'database\n' > "${INSTALL_DIR}/data/lanqin.db"
 
   ensure_docker() { return 0; }
+  acquire_update_lock() { return 0; }
+  release_update_lock() { return 0; }
   current_image_id() { printf 'sha256:test-image\n'; }
   backup_database() {
     backup_path="$1"
@@ -515,6 +598,12 @@ test_restore_source_validation() (
   printf 'services: {}\n' > "${temp_dir}/docker-compose.yml"
   sqlite3 "${temp_dir}/data/lanqin.db" 'CREATE TABLE restore_test (id INTEGER PRIMARY KEY);'
   validate_restore_source "${temp_dir}" || fail_test "valid restore source rejected"
+  restore_tree_has_unsafe_types "${temp_dir}" || fail_test "regular restore tree rejected"
+  ln -s /etc/passwd "${temp_dir}/unsafe-link"
+  if restore_tree_has_unsafe_types "${temp_dir}"; then
+    fail_test "restore tree symlink accepted"
+  fi
+  rm -f "${temp_dir}/unsafe-link"
   validate_restore_database "${temp_dir}/data/lanqin.db" || fail_test "valid restore database rejected"
   printf 'damaged\n' > "${temp_dir}/data/lanqin.db"
   if validate_restore_database "${temp_dir}/data/lanqin.db" >/dev/null 2>&1; then
@@ -524,6 +613,23 @@ test_restore_source_validation() (
   if validate_restore_source "${temp_dir}" >/dev/null 2>&1; then
     fail_test "restore source without database accepted"
   fi
+)
+
+test_restore_checksum_validation() (
+  local temp_dir archive expected
+  temp_dir="$(mktemp -d)"
+  archive="${temp_dir}/newszxcn-backup-test.tar.zst.enc"
+  printf 'encrypted-backup\n' > "${archive}"
+  sha256sum() {
+    printf '%s  %s\n' 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' "$1"
+  }
+  expected='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+  LANQIN_RESTORE_SHA256="${expected}" verify_restore_checksum "${archive}" >/dev/null
+  if (LANQIN_RESTORE_SHA256='bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' verify_restore_checksum "${archive}" >/dev/null 2>&1); then
+    fail_test "mismatched restore checksum accepted"
+  fi
+  printf '%s  %s\n' "${expected}" "$(basename "${archive}")" > "${archive}.sha256"
+  LANQIN_RESTORE_SHA256='' verify_restore_checksum "${archive}" >/dev/null
 )
 
 test_restore_menu_rendering_and_dispatch() (
@@ -829,77 +935,6 @@ test_failed_asset_validation_preserves_production() (
   grep -Fq 'sha256:pinned-image' "${RUNTIME_IMAGE_PIN}" || fail_test "runtime image pin changed after failed validation"
 )
 
-test_backup_reinstall_restores_on_failure() (
-  local temp_dir failed_dir
-  temp_dir="$(mktemp -d)"
-  INSTALL_DIR="${temp_dir}/newszxcn-email"
-  NGINX_CONFIG="${temp_dir}/newszxcn-email.conf"
-  CLI_PATH="${temp_dir}/newszxcn-email-cli"
-  CLI_ALIAS_PATH="${temp_dir}/ns"
-  mkdir -p "${INSTALL_DIR}"
-  printf 'existing-data\n' > "${INSTALL_DIR}/marker"
-  printf 'services: {}\n' > "${INSTALL_DIR}/docker-compose.yml"
-  printf 'old-nginx\n' > "${NGINX_CONFIG}"
-  printf '#!/bin/sh\nexit 0\n' > "${CLI_PATH}"
-  chmod 0755 "${CLI_PATH}"
-
-  ensure_docker() { return 0; }
-  current_image_id() { printf 'sha256:old-image\n'; }
-  compose() { return 0; }
-  nginx() { return 0; }
-  systemctl() { return 0; }
-  wait_for_health() { return 0; }
-  ensure_cli_alias() { return 0; }
-  do_install() {
-    mkdir -p "${INSTALL_DIR}"
-    printf 'failed-install\n' > "${INSTALL_DIR}/failed-marker"
-    return 1
-  }
-
-  if (do_backup_reinstall); then
-    fail_test "failed reinstall unexpectedly succeeded"
-  fi
-  grep -Fq 'existing-data' "${INSTALL_DIR}/marker" || fail_test "old install directory was not restored"
-  grep -Fq 'old-nginx' "${NGINX_CONFIG}" || fail_test "old Nginx configuration was not restored"
-  failed_dir="$(find "${temp_dir}" -maxdepth 1 -type d -name 'newszxcn-email.failed-*' -print -quit)"
-  [[ -n "${failed_dir}" ]] || fail_test "failed reinstall directory was not preserved"
-)
-
-test_backup_reinstall_recovers_from_nginx_reload_failure() (
-  local temp_dir compose_calls reload_count_file
-  temp_dir="$(mktemp -d)"
-  INSTALL_DIR="${temp_dir}/newszxcn-email"
-  NGINX_CONFIG="${temp_dir}/newszxcn-email.conf"
-  CLI_PATH="${temp_dir}/newszxcn-email-cli"
-  CLI_ALIAS_PATH="${temp_dir}/ns"
-  compose_calls="${temp_dir}/compose-calls"
-  reload_count_file="${temp_dir}/reload-count"
-  mkdir -p "${INSTALL_DIR}"
-  printf 'existing-data\n' > "${INSTALL_DIR}/marker"
-  printf 'services: {}\n' > "${INSTALL_DIR}/docker-compose.yml"
-  printf 'old-nginx\n' > "${NGINX_CONFIG}"
-  printf '0\n' > "${reload_count_file}"
-
-  ensure_docker() { return 0; }
-  current_image_id() { printf 'sha256:old-image\n'; }
-  compose() { printf '%s\n' "$*" >> "${compose_calls}"; return 0; }
-  reload_nginx() {
-    local count
-    count="$(cat "${reload_count_file}")"
-    printf '%s\n' "$((count + 1))" > "${reload_count_file}"
-    [[ "${count}" -gt 0 ]]
-  }
-  wait_for_health() { return 0; }
-  do_install() { fail_test "fresh install started after Nginx reload failure"; }
-
-  if (do_backup_reinstall >/dev/null 2>&1); then
-    fail_test "reinstall continued after Nginx reload failure"
-  fi
-  grep -Fq 'existing-data' "${INSTALL_DIR}/marker" || fail_test "old install changed after Nginx reload failure"
-  grep -Fq 'old-nginx' "${NGINX_CONFIG}" || fail_test "Nginx configuration was not restored after reload failure"
-  grep -Fq 'up -d --remove-orphans --force-recreate' "${compose_calls}" || fail_test "old containers were not restarted after Nginx reload failure"
-)
-
 test_hostname_validation
 test_password_validation
 test_mail_domain_and_admin_email_validation
@@ -909,11 +944,15 @@ test_nginx_configuration
 test_compose_configuration
 test_updater_image_migration
 test_update_runtime_configuration
+test_restored_runtime_configuration_is_sanitized
+test_managed_backup_retention
 test_rollback_image_reference
 test_legacy_configuration_is_preserved
 test_menu_choice
 test_menu_rendering
 test_menu_dispatch
+test_installed_menu_defaults_to_status
+test_failed_first_install_cleans_partial_state
 test_menu_runtime_metadata
 test_incomplete_install_defaults_to_repair
 test_service_commands_require_complete_installation
@@ -927,6 +966,7 @@ test_guide_generation
 test_acme_cron_detection
 test_cli_alias_safety
 test_restore_source_validation
+test_restore_checksum_validation
 test_restore_menu_rendering_and_dispatch
 test_restore_backup_discovery
 test_encrypted_restore_archive
@@ -937,7 +977,5 @@ test_update_snapshot_restore
 test_snapshot_restores_absent_optional_files
 test_pre_start_restore_preserves_current_database
 test_failed_asset_validation_preserves_production
-test_backup_reinstall_restores_on_failure
-test_backup_reinstall_recovers_from_nginx_reload_failure
 
 printf 'install.sh tests passed\n'
