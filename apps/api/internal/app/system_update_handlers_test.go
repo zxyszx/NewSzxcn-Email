@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -166,6 +167,36 @@ func TestSystemVersionHandlesReleaseFailure(t *testing.T) {
 	}
 	if !strings.Contains(info.CheckError, "版本服务") || info.CurrentVersion != "v0.1.0" {
 		t.Fatalf("unexpected response: %+v", info)
+	}
+}
+
+func TestReleaseFromRedirect(t *testing.T) {
+	tests := []struct {
+		name     string
+		location string
+		wantTag  string
+		wantErr  bool
+	}{
+		{name: "release", location: "https://github.com/zxyszx/NewSzxcn-Email/releases/tag/v1.2.80", wantTag: "v1.2.80"},
+		{name: "cross host", location: "https://example.test/zxyszx/NewSzxcn-Email/releases/tag/v9.9.9", wantErr: true},
+		{name: "wrong repository", location: "https://github.com/other/project/releases/tag/v9.9.9", wantErr: true},
+		{name: "non version tag", location: "https://github.com/zxyszx/NewSzxcn-Email/releases/tag/latest", wantErr: true},
+		{name: "nested tag", location: "https://github.com/zxyszx/NewSzxcn-Email/releases/tag/v1.2.80/extra", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			location, err := url.Parse(tt.location)
+			if err != nil {
+				t.Fatal(err)
+			}
+			release, err := releaseFromRedirect(location)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("error=%v wantErr=%v", err, tt.wantErr)
+			}
+			if release.TagName != tt.wantTag {
+				t.Fatalf("tag=%q want=%q", release.TagName, tt.wantTag)
+			}
+		})
 	}
 }
 

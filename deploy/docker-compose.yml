@@ -27,7 +27,7 @@ services:
     restart: unless-stopped
 
   updater:
-    image: ${LANQIN_UPDATER_IMAGE:-ghcr.io/zxyszx/newszxcn-email-updater:latest}
+    image: ${LANQIN_UPDATER_IMAGE:-ghcr.io/zxyszx/newszxcn-email:updater-latest}
     environment:
       WATCHTOWER_HTTP_API_TOKEN: ${LANQIN_UPDATE_TOKEN:?请在 .env 设置 LANQIN_UPDATE_TOKEN}
       LANQIN_INSTALL_DIR: ${LANQIN_INSTALL_DIR:-/opt/newszxcn-email}

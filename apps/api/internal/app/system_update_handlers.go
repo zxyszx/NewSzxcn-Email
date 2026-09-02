@@ -23,6 +23,11 @@ var (
 	BuildDate    = ""
 )
 
+const (
+	defaultReleaseAPIURL = "https://api.github.com/repos/zxyszx/NewSzxcn-Email/releases/latest"
+	githubLatestURL      = "https://github.com/zxyszx/NewSzxcn-Email/releases/latest"
+)
+
 type systemVersionInfo struct {
 	CurrentVersion  string     `json:"currentVersion"`
 	CurrentCommit   string     `json:"currentCommit,omitempty"`
@@ -114,6 +119,18 @@ func (a *App) systemVersion(ctx context.Context) (systemVersionInfo, error) {
 
 func (a *App) fetchLatestRelease(ctx context.Context) (githubRelease, error) {
 	endpoint := strings.TrimSpace(a.config().ReleaseAPIURL)
+	release, err := fetchReleaseAPI(ctx, endpoint, a.config().AppVersion)
+	if err == nil || endpoint != defaultReleaseAPIURL {
+		return release, err
+	}
+	fallback, fallbackErr := fetchReleaseRedirect(ctx, githubLatestURL, a.config().AppVersion)
+	if fallbackErr != nil {
+		return githubRelease{}, fmt.Errorf("release API failed: %v; release fallback failed: %w", err, fallbackErr)
+	}
+	return fallback, nil
+}
+
+func fetchReleaseAPI(ctx context.Context, endpoint, appVersion string) (githubRelease, error) {
 	parsed, err := url.Parse(endpoint)
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return githubRelease{}, errors.New("invalid release API URL")
@@ -123,7 +140,7 @@ func (a *App) fetchLatestRelease(ctx context.Context) (githubRelease, error) {
 		return githubRelease{}, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "NewSzxcn-Email/"+strings.TrimPrefix(a.config().AppVersion, "v"))
+	req.Header.Set("User-Agent", "NewSzxcn-Email/"+strings.TrimPrefix(appVersion, "v"))
 	client := &http.Client{
 		Timeout: 8 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
@@ -147,6 +164,54 @@ func (a *App) fetchLatestRelease(ctx context.Context) (githubRelease, error) {
 		return githubRelease{}, errors.New("release API returned an empty tag")
 	}
 	return release, nil
+}
+
+func fetchReleaseRedirect(ctx context.Context, endpoint, appVersion string) (githubRelease, error) {
+	parsed, err := url.Parse(endpoint)
+	if err != nil || parsed.Scheme != "https" || parsed.Host != "github.com" {
+		return githubRelease{}, errors.New("invalid release fallback URL")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+	if err != nil {
+		return githubRelease{}, err
+	}
+	req.Header.Set("User-Agent", "NewSzxcn-Email/"+strings.TrimPrefix(appVersion, "v"))
+	client := &http.Client{
+		Timeout: 8 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return githubRelease{}, err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode < http.StatusMultipleChoices || resp.StatusCode >= http.StatusBadRequest {
+		return githubRelease{}, fmt.Errorf("release fallback returned %s", resp.Status)
+	}
+	location, err := resp.Location()
+	if err != nil {
+		return githubRelease{}, errors.New("release fallback omitted redirect location")
+	}
+	location = parsed.ResolveReference(location)
+	return releaseFromRedirect(location)
+}
+
+func releaseFromRedirect(location *url.URL) (githubRelease, error) {
+	const tagPrefix = "/zxyszx/NewSzxcn-Email/releases/tag/"
+	if location.Scheme != "https" || location.Host != "github.com" || !strings.HasPrefix(location.Path, tagPrefix) {
+		return githubRelease{}, errors.New("release fallback returned an unexpected redirect")
+	}
+	tag, err := url.PathUnescape(strings.TrimPrefix(location.EscapedPath(), tagPrefix))
+	if err != nil || strings.Contains(tag, "/") {
+		return githubRelease{}, errors.New("release fallback returned an invalid tag")
+	}
+	if _, _, ok := parseVersion(tag); !ok {
+		return githubRelease{}, errors.New("release fallback returned a non-version tag")
+	}
+	return githubRelease{TagName: tag, HTMLURL: location.String()}, nil
 }
 
 func (a *App) updateEnabled() bool {

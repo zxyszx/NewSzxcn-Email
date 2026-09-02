@@ -96,6 +96,7 @@ docker compose down
 
 ```text
 ghcr.io/zxyszx/newszxcn-email:latest
+ghcr.io/zxyszx/newszxcn-email:updater-latest
 ghcr.io/zxyszx/newszxcn-email-api:latest
 ghcr.io/zxyszx/newszxcn-email-web:latest
 ghcr.io/zxyszx/newszxcn-email-postfix:latest

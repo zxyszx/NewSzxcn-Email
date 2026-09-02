@@ -106,36 +106,43 @@ jobs:
         include:
           - name: all-in-one
             suffix: ""
+            tag_prefix: ""
             context: .
             file: ./deploy/all-in-one/Dockerfile
             platforms: linux/amd64,linux/arm64
           - name: api
             suffix: -api
+            tag_prefix: ""
             context: .
             file: ./deploy/api.Dockerfile
             platforms: linux/amd64,linux/arm64
           - name: web
             suffix: -web
+            tag_prefix: ""
             context: .
             file: ./deploy/web.Dockerfile
             platforms: linux/amd64,linux/arm64
           - name: postfix
             suffix: -postfix
+            tag_prefix: ""
             context: ./deploy/postfix
             file: ./deploy/postfix/Dockerfile
             platforms: linux/amd64
           - name: dovecot
             suffix: -dovecot
+            tag_prefix: ""
             context: ./deploy/dovecot
             file: ./deploy/dovecot/Dockerfile
             platforms: linux/amd64
           - name: rspamd
             suffix: -rspamd
+            tag_prefix: ""
             context: ./deploy/rspamd
             file: ./deploy/rspamd/Dockerfile
             platforms: linux/amd64
           - name: updater
-            suffix: -updater
+            suffix: ""
+            tag_prefix: updater-
             context: .
             file: ./deploy/updater/Dockerfile
             platforms: linux/amd64,linux/arm64
@@ -174,10 +181,10 @@ jobs:
         with:
           images: ${{ steps.image.outputs.name }}
           tags: |
-            type=raw,value=${{ steps.image.outputs.tag }}
-            type=raw,value=${{ steps.image.outputs.version }}
-            type=raw,value=latest
-            type=sha,prefix=sha-
+            type=raw,value=${{ matrix.tag_prefix }}${{ steps.image.outputs.tag }}
+            type=raw,value=${{ matrix.tag_prefix }}${{ steps.image.outputs.version }}
+            type=raw,value=${{ matrix.tag_prefix }}latest
+            type=sha,prefix=${{ matrix.tag_prefix }}sha-
           labels: |
             org.opencontainers.image.title=NewSzxcn Email ${{ matrix.name }}
             org.opencontainers.image.version=${{ steps.image.outputs.tag }}
@@ -196,12 +203,38 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
+  verify-public-images:
+    name: Verify public image access
+    runs-on: ubuntu-latest
+    needs: docker
+    strategy:
+      matrix:
+        manifest:
+          - latest
+          - updater-latest
+    steps:
+      - name: Verify anonymous pull access
+        env:
+          MANIFEST: ${{ matrix.manifest }}
+          OWNER: ${{ github.repository_owner }}
+        shell: bash
+        run: |
+          owner="${OWNER,,}"
+          repository="${owner}/newszxcn-email"
+          token="$(curl --fail --silent --show-error \
+            "https://ghcr.io/token?service=ghcr.io&scope=repository:${repository}:pull" \
+            | jq -er '.token')"
+          curl --fail --silent --show-error --head \
+            -H "Authorization: Bearer ${token}" \
+            -H "Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json" \
+            "https://ghcr.io/v2/${repository}/manifests/${MANIFEST}" >/dev/null
+
   github-release:
     name: Create GitHub release
     runs-on: ubuntu-latest
     needs:
       - release
-      - docker
+      - verify-public-images
     steps:
       - name: Checkout
         uses: actions/checkout@v4

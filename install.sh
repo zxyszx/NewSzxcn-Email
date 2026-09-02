@@ -560,9 +560,14 @@ ensure_update_token() {
 }
 
 ensure_update_runtime_config() {
-  ensure_update_token
-  set_env LANQIN_INSTALL_DIR "${INSTALL_DIR}"
-  chmod 0600 "${INSTALL_DIR}/.env"
+	local updater_image
+	ensure_update_token
+	set_env LANQIN_INSTALL_DIR "${INSTALL_DIR}"
+	updater_image="$(env_value LANQIN_UPDATER_IMAGE || true)"
+	if [[ -z "${updater_image}" || "${updater_image}" == "ghcr.io/zxyszx/newszxcn-email-updater:latest" ]]; then
+		set_env LANQIN_UPDATER_IMAGE "ghcr.io/zxyszx/newszxcn-email:updater-latest"
+	fi
+	chmod 0600 "${INSTALL_DIR}/.env"
 }
 
 prepare_directories() {
