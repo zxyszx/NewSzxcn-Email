@@ -58,6 +58,7 @@ import { useMe } from "@/hooks/use-me"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useToast } from "@/hooks/use-toast"
 import { hasPermission } from "@/lib/permissions"
+import { isDemoMode } from "@/lib/demo"
 
 const folderIcons: Record<string, React.ReactNode> = { inbox: <Inbox className="h-4 w-4" />, sent: <Send className="h-4 w-4" />, drafts: <FileText className="h-4 w-4" />, archive: <Archive className="h-4 w-4" />, spam: <Ban className="h-4 w-4" />, trash: <Trash2 className="h-4 w-4" /> }
 function NetflixFolderIcon({ className }: { className?: string }) {
@@ -844,6 +845,7 @@ export function MailPage() {
   }, [activeMailboxId, inboxProbe.data?.items, toast])
 
   React.useEffect(() => {
+    if (isDemoMode) return
     const events = new EventSource("/api/events", { withCredentials: true })
     events.addEventListener("sync", () => {
       qc.invalidateQueries({ queryKey: ["messages"] })
