@@ -226,7 +226,7 @@ export function MailPage() {
   const [composeDraft, setComposeDraft] = React.useState<ComposeDraft | undefined>()
   const sidebarCollapsed = false
   const [mailFilter, setMailFilter] = React.useState<MailFilter>("all")
-  const [selectedMailboxId, setSelectedMailboxId] = React.useState(() => localStorage.getItem("lanqin:selected-mailbox") || "all")
+  const [selectedMailboxId, setSelectedMailboxId] = React.useState("all")
   const [selectedExternalAccountId, setSelectedExternalAccountId] = React.useState("")
   const [expandedExternalAccountIds, setExpandedExternalAccountIds] = React.useState<string[]>([])
   const [foldersExpanded, setFoldersExpanded] = React.useState(true)
@@ -333,7 +333,7 @@ export function MailPage() {
   const selectedMailbox = React.useMemo(() => {
     const items = mailboxList.data?.items || []
     if (selectedMailboxId === "all") return undefined
-    return items.find((item) => item.id === selectedMailboxId) || items[0]
+    return items.find((item) => item.id === selectedMailboxId)
   }, [mailboxList.data?.items, selectedMailboxId])
   const isAllMailboxSelected = selectedMailboxId === "all"
   const activeMailboxId = selectedMailboxId === "all" ? "all" : selectedMailbox?.id || ""
@@ -720,7 +720,6 @@ export function MailPage() {
         setSelectedMailboxId("")
         setSelectedId(null)
       }
-      localStorage.removeItem("lanqin:selected-mailbox")
       return
     }
     if (!selectedMailboxId || (selectedMailboxId !== "all" && !items.some((item) => item.id === selectedMailboxId))) {
@@ -733,10 +732,6 @@ export function MailPage() {
       setMailFilter("all")
     }
   }, [mailboxList.isSuccess, mailboxList.data?.items, selectedMailboxId])
-
-  React.useEffect(() => {
-    if (selectedMailboxId) localStorage.setItem("lanqin:selected-mailbox", selectedMailboxId)
-  }, [selectedMailboxId])
 
   React.useEffect(() => {
     setSelectedId(null)

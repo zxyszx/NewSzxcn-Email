@@ -1180,7 +1180,7 @@ function SecuritySettingsSection({ user, password, passwordFormRef, twoFactorFor
                 </Field>
               </div>
             </div>
-            <Field label="验证码"><Input name="code" inputMode="numeric" autoComplete="one-time-code" minLength={6} maxLength={6} required /></Field>
+            <Field label="验证码"><Input name="code" inputMode="numeric" autoComplete="one-time-code" allowPasswordManager minLength={6} maxLength={6} required /></Field>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setupTwoFactor.reset()}>取消</Button>
               <Button disabled={enableTwoFactor.isPending}>{enableTwoFactor.isPending ? "启用中..." : "确认启用"}</Button>
@@ -1204,7 +1204,7 @@ function SecuritySettingsSection({ user, password, passwordFormRef, twoFactorFor
               </div>
             )}
             <form ref={twoFactorFormRef} className="space-y-4" onSubmit={(e) => { e.preventDefault(); disableTwoFactor.mutate(new FormData(e.currentTarget)) }}>
-              <Field label="当前验证码或恢复码"><Input name="code" autoComplete="one-time-code" minLength={6} required /></Field>
+              <Field label="当前验证码或恢复码"><Input name="code" autoComplete="one-time-code" allowPasswordManager minLength={6} required /></Field>
               <div className="flex justify-end">
                 <Button variant="destructive" disabled={disableTwoFactor.isPending}>{disableTwoFactor.isPending ? "关闭中..." : "关闭两步验证"}</Button>
               </div>

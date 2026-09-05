@@ -238,29 +238,41 @@ function LoginArtwork({ challengeToken, leaving, loginPending, openRegistration,
         <p className="space-auth-subtitle space-serif">{challengeToken ? "完成安全验证" : "登录你的邮箱"}</p>
 
         <form className="space-login-form mt-9 space-y-5" onSubmit={(event) => { event.preventDefault(); onSubmit(new FormData(event.currentTarget)) }}>
+          <div className={challengeToken ? "sr-only" : "space-y-2.5"} aria-hidden={challengeToken ? true : undefined}>
+            <Label htmlFor="email" className="space-auth-label">{demoMode ? "演示账号" : "邮箱地址"}</Label>
+            <div className="space-auth-field">
+              <Mail className="space-auth-field-icon" aria-hidden="true" />
+              <Input id="email" name="email" type={demoMode ? "text" : "email"} autoComplete="username" allowPasswordManager placeholder={demoMode ? "admin" : "请输入邮箱地址"} defaultValue={demoMode ? "admin" : ""} required={!challengeToken} autoFocus={!challengeToken} tabIndex={challengeToken ? -1 : undefined} className="space-auth-input" />
+            </div>
+          </div>
           {!challengeToken ? (
-            <>
-              <div className="space-y-2.5">
-                <Label htmlFor="email" className="space-auth-label">{demoMode ? "演示账号" : "邮箱地址"}</Label>
-                <div className="space-auth-field">
-                  <Mail className="space-auth-field-icon" aria-hidden="true" />
-                  <Input id="email" name="email" type={demoMode ? "text" : "email"} autoComplete="username" allowPasswordManager placeholder={demoMode ? "admin" : "请输入邮箱地址"} defaultValue={demoMode ? "admin" : ""} required autoFocus className="space-auth-input" />
-                </div>
+            <div className="space-y-2.5">
+              <Label htmlFor="password" className="space-auth-label">密码</Label>
+              <div className="space-auth-field">
+                <LockKeyhole className="space-auth-field-icon" aria-hidden="true" />
+                <PasswordInput id="password" name="password" autoComplete="current-password" allowPasswordManager placeholder={demoMode ? "admin" : "请输入密码"} defaultValue={demoMode ? "admin" : ""} required className="space-auth-input" />
               </div>
-              <div className="space-y-2.5">
-                <Label htmlFor="password" className="space-auth-label">密码</Label>
-                <div className="space-auth-field">
-                  <LockKeyhole className="space-auth-field-icon" aria-hidden="true" />
-                  <PasswordInput id="password" name="password" autoComplete="current-password" allowPasswordManager placeholder={demoMode ? "admin" : "请输入密码"} defaultValue={demoMode ? "admin" : ""} required className="space-auth-input" />
-                </div>
-              </div>
-            </>
+            </div>
           ) : (
             <div className="space-y-2.5">
               <Label htmlFor="twoFactorCode" className="space-auth-label">双因素验证码或恢复码</Label>
               <div className="space-auth-field">
                 <KeyRound className="space-auth-field-icon" aria-hidden="true" />
-                <Input id="twoFactorCode" name="twoFactorCode" autoComplete="one-time-code" minLength={6} required autoFocus className="space-auth-input text-center text-lg tracking-[0.25em]" />
+                <Input
+                  id="twoFactorCode"
+                  name="twoFactorCode"
+                  type="text"
+                  autoComplete="one-time-code"
+                  allowPasswordManager
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  enterKeyHint="done"
+                  minLength={6}
+                  required
+                  autoFocus
+                  className="space-auth-input text-center text-lg tracking-[0.25em]"
+                />
               </div>
             </div>
           )}
