@@ -16,6 +16,7 @@ import { validatePasswordConfirm } from "@/lib/validation"
 import { AuthError, AuthLoading } from "@/components/auth-states"
 import { BrandMark } from "@/components/brand-mark"
 import "./login.css"
+import { publicAsset } from "@/lib/demo"
 
 export function RegisterPage() {
   const me = useMe()
@@ -81,8 +82,8 @@ export function RegisterPage() {
   return (
     <main data-visual-theme={visualTheme} className="space-hero relative min-h-svh overflow-x-hidden bg-[#020617] text-white" onPointerMove={handlePointerMove}>
       <div className="space-backgrounds absolute inset-0" aria-hidden="true">
-        <img src="/space-anime-hero.jpg" alt="" className="space-background space-background-night absolute inset-0 size-full object-cover" />
-        <img src="/space-anime-day.jpg" alt="" className="space-background space-background-day absolute inset-0 size-full object-cover" />
+        <img src={publicAsset("space-anime-hero.jpg")} alt="" className="space-background space-background-night absolute inset-0 size-full object-cover" />
+        <img src={publicAsset("space-anime-day.jpg")} alt="" className="space-background space-background-day absolute inset-0 size-full object-cover" />
       </div>
       <div className="space-overlay absolute inset-0" aria-hidden="true" />
       <div className="relative z-10 flex min-h-svh flex-col px-5 py-5 sm:px-9 sm:py-7 lg:px-14 xl:px-20">

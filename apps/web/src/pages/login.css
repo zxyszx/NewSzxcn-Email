@@ -3,6 +3,11 @@
   --pointer-y: 0;
 }
 
+.space-backgrounds {
+  inset: -2px;
+  overflow: hidden;
+}
+
 .space-hero.is-transitioning {
   overflow-y: hidden;
 }
@@ -28,7 +33,7 @@
 .space-background-night {
   opacity: 1;
   filter: brightness(0.9) saturate(1.04);
-  transform: translate3d(-8.5%, -6%, 0) scale(1.14);
+  transform: translate3d(-4%, -4%, 0) scale(1.12);
 }
 
 .space-background-day {

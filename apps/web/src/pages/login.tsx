@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { safeReturnPath } from "@/lib/navigation"
+import { isDemoMode, publicAsset } from "@/lib/demo"
 import { AuthError, AuthLoading } from "@/components/auth-states"
 import { BrandMark } from "@/components/brand-mark"
 import "./login.css"
@@ -117,8 +118,8 @@ export function LoginPage() {
   return (
     <main ref={heroRef} data-visual-theme={visualTheme} className={`space-hero relative min-h-svh overflow-x-hidden bg-[#020617] text-white ${transitionPhase !== "idle" ? "is-transitioning" : ""}`} onPointerMove={handlePointerMove} onPointerLeave={resetPointer}>
       <div className="space-backgrounds absolute inset-0" aria-hidden="true">
-        <img src="/space-anime-hero.jpg" alt="" className="space-background space-background-night absolute inset-0 size-full object-cover" />
-        <img src="/space-anime-day.jpg" alt="" className="space-background space-background-day absolute inset-0 size-full object-cover" />
+        <img src={publicAsset("space-anime-hero.jpg")} alt="" className="space-background space-background-night absolute inset-0 size-full object-cover" />
+        <img src={publicAsset("space-anime-day.jpg")} alt="" className="space-background space-background-day absolute inset-0 size-full object-cover" />
       </div>
       <div className="space-overlay absolute inset-0" aria-hidden="true" />
       <Starfield />
@@ -166,6 +167,7 @@ export function LoginPage() {
               openRegistration={!!publicSettings.data?.openRegistration}
               turnstileRequired={turnstileRequired}
               turnstileSiteKey={publicSettings.data?.turnstileSiteKey || ""}
+              demoMode={isDemoMode}
               onTurnstileToken={setTurnstileToken}
               onBackToLogin={() => setChallengeToken("")}
               onRegister={startRegisterTransition}
@@ -214,13 +216,14 @@ export function LoginPage() {
   )
 }
 
-function LoginArtwork({ challengeToken, leaving, loginPending, openRegistration, turnstileRequired, turnstileSiteKey, onTurnstileToken, onBackToLogin, onRegister, onSubmit }: {
+function LoginArtwork({ challengeToken, leaving, loginPending, openRegistration, turnstileRequired, turnstileSiteKey, demoMode, onTurnstileToken, onBackToLogin, onRegister, onSubmit }: {
   challengeToken: string
   leaving: boolean
   loginPending: boolean
   openRegistration: boolean
   turnstileRequired: boolean
   turnstileSiteKey: string
+  demoMode: boolean
   onTurnstileToken: (token: string) => void
   onBackToLogin: () => void
   onRegister: () => void
@@ -238,17 +241,17 @@ function LoginArtwork({ challengeToken, leaving, loginPending, openRegistration,
           {!challengeToken ? (
             <>
               <div className="space-y-2.5">
-                <Label htmlFor="email" className="space-auth-label">邮箱地址</Label>
+                <Label htmlFor="email" className="space-auth-label">{demoMode ? "演示账号" : "邮箱地址"}</Label>
                 <div className="space-auth-field">
                   <Mail className="space-auth-field-icon" aria-hidden="true" />
-                  <Input id="email" name="email" type="email" autoComplete="username" allowPasswordManager placeholder="请输入邮箱地址" required autoFocus className="space-auth-input" />
+                  <Input id="email" name="email" type={demoMode ? "text" : "email"} autoComplete="username" allowPasswordManager placeholder={demoMode ? "admin" : "请输入邮箱地址"} defaultValue={demoMode ? "admin" : ""} required autoFocus className="space-auth-input" />
                 </div>
               </div>
               <div className="space-y-2.5">
                 <Label htmlFor="password" className="space-auth-label">密码</Label>
                 <div className="space-auth-field">
                   <LockKeyhole className="space-auth-field-icon" aria-hidden="true" />
-                  <PasswordInput id="password" name="password" autoComplete="current-password" allowPasswordManager placeholder="请输入密码" required className="space-auth-input" />
+                  <PasswordInput id="password" name="password" autoComplete="current-password" allowPasswordManager placeholder={demoMode ? "admin" : "请输入密码"} defaultValue={demoMode ? "admin" : ""} required className="space-auth-input" />
                 </div>
               </div>
             </>

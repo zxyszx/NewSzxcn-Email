@@ -5,9 +5,11 @@ import { defineConfig, loadEnv } from "vite"
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "")
   const apiTarget = env.VITE_API_TARGET || "http://localhost:8080"
+  const demoMode = env.VITE_DEMO_MODE === "true"
 
   return {
     plugins: [react()],
+    base: demoMode ? (env.VITE_DEMO_BASE || "/NewSzxcn-Email/") : "/",
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),

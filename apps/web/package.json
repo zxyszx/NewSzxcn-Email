@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
+    "build:demo": "VITE_DEMO_MODE=true tsc -b && VITE_DEMO_MODE=true vite build --mode demo",
     "preview": "vite preview --host 0.0.0.0",
     "check:shadcn": "node scripts/check-shadcn.mjs",
     "check": "pnpm run check:shadcn && pnpm run build"

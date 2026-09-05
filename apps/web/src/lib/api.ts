@@ -1,4 +1,6 @@
 import type { User, AdminUser, AdminOverview, Domain, Mailbox, Alias, MailFolder, MailLabel, MailMessage, MailTranslation, DNSRecord, DNSCheckResult, ListResponse, SendPayload, DraftPayload, ScheduleSendPayload, ScheduledSend, SendQueueItem, SendQueueAuditEvent, SendQueueStatus, Contact, MailSignature, MailRule, MailRuleCondition, MailRuleAction, BlockedSender, MailStats, ForwardingSettings, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapOAuthStartPayload, ExternalImapSyncRun, MailboxApplyOptions, MailTemplate, MaildirSyncHealth, SystemSettings, SystemSettingsPayload, SystemVersion, SystemUpdateResult, BackupList, PublicSettings, LoginPayload, LoginResponse, RegisterPayload, PermissionGroup, PermissionInfo, PermissionKey, PermissionLimits, APIToken, TwoFactorEnableResponse, BulkMoveResult, TelegramPrivateChat, TelegramPairing, UserTelegramSettings } from "./api-types"
+import { DemoApiError, demoRequest } from "./demo-api"
+import { isDemoMode } from "./demo"
 export * from "./api-types"
 
 const REQUEST_TIMEOUT_MS = 15_000
@@ -54,6 +56,13 @@ function appendMailSearchParams(params: URLSearchParams, search: MailSearchParam
 }
 
 async function request<T>(path: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<T> {
+  if (isDemoMode) {
+    try { return await demoRequest<T>(path, init) }
+    catch (error) {
+      if (error instanceof DemoApiError) throw new ApiError(error.message, error.status)
+      throw error
+    }
+  }
   const { timeoutMs, ...requestInit } = init
   const controller = new AbortController()
   let timedOut = false
