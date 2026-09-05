@@ -305,7 +305,7 @@ test_installed_menu_defaults_to_status() (
   printf 'services: {}\n' > "${INSTALL_DIR}/docker-compose.yml"
   prompt_text() { :; }
   menu_service_status() { printf '运行中'; }
-  menu_installed_version() { printf 'v1.2.81'; }
+  menu_installed_version() { printf 'v1.2.82'; }
   prompt_menu_choice() { printf '%s\n' "$1" > "${default_file}"; printf '0'; }
   do_menu
   assert_eq "4" "$(cat "${default_file}")" "installed menu default"
