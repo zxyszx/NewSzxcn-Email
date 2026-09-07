@@ -355,7 +355,7 @@ func TestBackupScheduleCountdownResetsFromSuccessfulBackup(t *testing.T) {
 	}
 }
 
-func TestEnabledBackupScheduleWithoutSuccessfulRunIsImmediatelyDue(t *testing.T) {
+func TestEnabledBackupScheduleUsesLatestLocalBackupAfterRemoteFailure(t *testing.T) {
 	a := newTestApp(t)
 	stopTestWorkers(a)
 	fixed := time.Date(2026, 9, 3, 8, 30, 0, 0, time.UTC)
@@ -374,8 +374,48 @@ func TestEnabledBackupScheduleWithoutSuccessfulRunIsImmediatelyDue(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if schedule.LastBackupAt != nil || schedule.NextBackupAt == nil || !schedule.NextBackupAt.Equal(fixed) {
-		t.Fatalf("failed delivery was treated as completed: %+v", schedule)
+	wantLast := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(path, wantLast, wantLast); err != nil {
+		t.Fatal(err)
+	}
+	schedule, err = a.loadBackupSchedule(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if schedule.LastBackupAt == nil || !schedule.LastBackupAt.Equal(wantLast) || schedule.NextBackupAt == nil || !schedule.NextBackupAt.Equal(wantLast.Add(7*24*time.Hour)) {
+		t.Fatalf("latest valid local backup did not advance schedule: %+v", schedule)
+	}
+}
+
+func TestBackupTelegramSendsDocumentBeforeSuccessReport(t *testing.T) {
+	a := newTestApp(t)
+	stopTestWorkers(a)
+	a.updateConfig(func(cfg *Config) {
+		cfg.TelegramBotToken = "test-token"
+		cfg.TelegramPrivateChatID = "123456"
+	})
+	path := filepath.Join(t.TempDir(), "newszxcn-backup-test.tar.zst.enc")
+	if err := os.WriteFile(path, []byte("encrypted backup"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var requests []string
+	telegramServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/sendDocument") {
+			http.Error(w, `{"ok":false}`, http.StatusBadGateway)
+			return
+		}
+		_, _ = io.WriteString(w, `{"ok":true,"result":{}}`)
+	}))
+	defer telegramServer.Close()
+	a.telegramURL = telegramServer.URL
+
+	if err := a.sendBackupToTelegram(context.Background(), path); err == nil {
+		t.Fatal("Telegram document failure was not returned")
+	}
+	if len(requests) != 1 || !strings.HasSuffix(requests[0], "/sendDocument") {
+		t.Fatalf("success report was sent before failed document: %v", requests)
 	}
 }
 

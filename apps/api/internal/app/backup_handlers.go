@@ -276,6 +276,10 @@ func (a *App) handleCreateBackup(w http.ResponseWriter, r *http.Request) {
 		password = ""
 		var deliveryMessages []string
 		if err == nil {
+			if markErr := a.markBackupScheduleRun(ctx); markErr != nil {
+				err = markErr
+				a.log.Warn("mark manual backup schedule", "error", markErr)
+			}
 			var deliveryErrors []error
 			if uploadGoogleDrive {
 				a.queueBackupTransfer("googleDrive", path)
@@ -302,12 +306,7 @@ func (a *App) handleCreateBackup(w http.ResponseWriter, r *http.Request) {
 					a.finishBackupTransfer("telegram", path, "")
 				}
 			}
-			err = errors.Join(deliveryErrors...)
-			if err == nil {
-				if markErr := a.markBackupScheduleRun(ctx); markErr != nil {
-					a.log.Warn("mark manual backup schedule", "error", markErr)
-				}
-			}
+			err = errors.Join(err, errors.Join(deliveryErrors...))
 		}
 		a.backupMu.Lock()
 		if err != nil {
@@ -1247,10 +1246,10 @@ func (a *App) sendBackupToTelegram(ctx context.Context, path string) error {
 	if err != nil {
 		return err
 	}
-	if err := a.sendTelegramMessage(ctx, token, chatID, report); err != nil {
+	if err := a.sendTelegramDocument(ctx, token, chatID, path); err != nil {
 		return err
 	}
-	return a.sendTelegramDocument(ctx, token, chatID, path)
+	return a.sendTelegramMessage(ctx, token, chatID, report)
 }
 
 func (a *App) backupTelegramCredentials(ctx context.Context, schedule backupSchedule) (string, string, error) {
@@ -1504,10 +1503,8 @@ func (a *App) loadBackupSchedule(ctx context.Context) (backupSchedule, error) {
 	if err := rows.Err(); err != nil {
 		return result, err
 	}
-	if result.LastBackupAt == nil && !result.Enabled {
-		if latest, ok := a.latestBackupTime(); ok {
-			result.LastBackupAt = &latest
-		}
+	if latest, ok := a.latestBackupTime(); ok && (result.LastBackupAt == nil || latest.After(*result.LastBackupAt)) {
+		result.LastBackupAt = &latest
 	}
 	if result.Enabled {
 		next := a.now().UTC()
@@ -1582,6 +1579,10 @@ func (a *App) runScheduledBackup(ctx context.Context) {
 	localBackupSucceeded := runErr == nil
 	var deliveryMessages []string
 	if localBackupSucceeded {
+		if markErr := a.markBackupScheduleRun(ctx); markErr != nil {
+			runErr = markErr
+			a.log.Warn("mark scheduled backup", "error", markErr)
+		}
 		var deliveryErrors []error
 		if schedule.GoogleDriveEnabled {
 			a.queueBackupTransfer("googleDrive", path)
@@ -1608,12 +1609,7 @@ func (a *App) runScheduledBackup(ctx context.Context) {
 				a.finishBackupTransfer("telegram", path, "")
 			}
 		}
-		runErr = errors.Join(deliveryErrors...)
-		if runErr == nil {
-			if markErr := a.markBackupScheduleRun(ctx); markErr != nil {
-				a.log.Warn("mark scheduled backup", "error", markErr)
-			}
-		}
+		runErr = errors.Join(runErr, errors.Join(deliveryErrors...))
 	}
 	status := "success"
 	publicError := ""
