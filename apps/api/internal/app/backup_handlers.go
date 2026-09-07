@@ -32,6 +32,7 @@ import (
 
 const backupTelegramLimit = 49 << 20
 const googleDriveUploadChunkSize = 8 << 20
+const backupTelegramAccountChunkBudget = 3400
 
 type backupJob struct {
 	Status    string    `json:"status"`
@@ -55,6 +56,12 @@ type backupTransfer struct {
 	StartedAt  time.Time `json:"startedAt"`
 	FinishedAt time.Time `json:"finishedAt,omitempty"`
 	Error      string    `json:"error,omitempty"`
+}
+
+type backupReportDeliveryStatus struct {
+	TelegramStatus string
+	GoogleStatus   string
+	GoogleError    string
 }
 
 type backupListResponse struct {
@@ -1242,14 +1249,27 @@ func (a *App) sendBackupToTelegram(ctx context.Context, path string) error {
 	if info.Size() > backupTelegramLimit {
 		return errors.New("备份超过 Telegram 发送上限，请下载后保存到其他存储")
 	}
-	report, err := a.backupTelegramReport(ctx, path, info)
-	if err != nil {
-		return err
-	}
 	if err := a.sendTelegramDocument(ctx, token, chatID, path); err != nil {
 		return err
 	}
-	return a.sendTelegramMessage(ctx, token, chatID, report)
+	googleStatus, googleError := a.backupTransferResult("googleDrive", path)
+	report, mailboxMessages, err := a.backupTelegramReport(ctx, path, info, backupReportDeliveryStatus{
+		TelegramStatus: "success",
+		GoogleStatus:   googleStatus,
+		GoogleError:    googleError,
+	})
+	if err != nil {
+		return err
+	}
+	if err := a.sendTelegramMessage(ctx, token, chatID, report); err != nil {
+		return err
+	}
+	for _, message := range mailboxMessages {
+		if err := a.sendTelegramMessage(ctx, token, chatID, message); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (a *App) backupTelegramCredentials(ctx context.Context, schedule backupSchedule) (string, string, error) {
@@ -1260,36 +1280,45 @@ func (a *App) backupTelegramCredentials(ctx context.Context, schedule backupSche
 	return strings.TrimSpace(cfg.TelegramBotToken), strings.TrimSpace(schedule.ChatID), nil
 }
 
-func (a *App) backupTelegramReport(ctx context.Context, path string, info os.FileInfo) (string, error) {
+func (a *App) backupTransferResult(provider, path string) (string, string) {
+	a.backupMu.Lock()
+	defer a.backupMu.Unlock()
+	if transfer := a.backupTransfers[backupTransferKey(provider, path)]; transfer != nil {
+		return transfer.Status, transfer.Error
+	}
+	return "", ""
+}
+
+func (a *App) backupTelegramReport(ctx context.Context, path string, info os.FileInfo, delivery backupReportDeliveryStatus) (string, []string, error) {
 	cfg := a.config()
 	sum, _ := fileSHA256(path)
 	domains, err := queryBackupStrings(ctx, a.db, `SELECT name FROM domains ORDER BY name`)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	admins, err := queryBackupStrings(ctx, a.db, `SELECT email FROM users WHERE role='admin' ORDER BY email`)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	users, err := queryBackupStrings(ctx, a.db, `SELECT email FROM users WHERE role='user' ORDER BY email`)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	mailboxes, err := queryBackupStrings(ctx, a.db, `SELECT address FROM mailboxes ORDER BY address`)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	list := func(items []string) string {
 		if len(items) == 0 {
 			return "无"
 		}
 		total, suffix := len(items), ""
-		if total > 10 {
-			items = items[:10]
+		if total > 5 {
+			items = items[:5]
 			suffix = fmt.Sprintf(" 等 %d 个", total)
 		}
 		for i := range items {
-			value, truncated := truncateRunes(items[i], 80)
+			value, truncated := truncateRunes(items[i], 64)
 			if truncated {
 				value += "..."
 			}
@@ -1301,7 +1330,65 @@ func (a *App) backupTelegramReport(ctx context.Context, path string, info os.Fil
 	if serverIP == "" {
 		serverIP = "未检测到"
 	}
-	return fmt.Sprintf("<b>%s 备份成功</b>\n\n<b>邮局域名：</b>%s\n<b>服务器 IP：</b>%s\n<b>系统版本：</b>%s\n\n<b>已有域名：</b>\n%s\n\n<b>管理员账号：</b>\n%s\n\n<b>普通用户账号：</b>\n%s\n\n<b>邮箱账号：</b>\n%s\n\n<b>备份文件：</b>%s\n<b>文件大小：</b>%s\n<b>SHA-256：</b><code>%s</code>\n\n<b>恢复教程：</b>\n1. 请不要解压、改名或修改压缩备份文件。\n2. 将原始附件上传到新服务器的 <code>/root/</code> 目录。\n3. 运行官方安装脚本，显示管理菜单后输入 2，选择“备份恢复”。\n4. 选择“本地上传”，系统会自动检测 /root/ 中的备份。\n5. 只有一份时自动选中；多份时显示 1、2、3 等序号。\n6. 输入对应序号，例如输入 1 恢复第 1 份。\n7. 输入备份密码后开始恢复。没有检测到文件时才手动输入路径。\n8. 恢复完成后，账号继续使用原登录密码。\n9. 以后需要管理系统时，可以直接输入 ns 打开管理菜单。\n\n<b>安全提示：</b>备份密码不会发送到 Telegram，请从 1Password 等独立位置取用。", info.ModTime().Local().Format("2006-01-02"), htmlEscape(cfg.PublicHostname), htmlEscape(serverIP), htmlEscape(cfg.AppVersion), list(domains), list(admins), list(users), list(mailboxes), htmlEscape(filepath.Base(path)), humanBackupBytes(info.Size()), sum), nil
+	mailboxSummary := "无"
+	if len(mailboxes) > 0 {
+		mailboxSummary = fmt.Sprintf("共 %d 个，完整清单见后续消息", len(mailboxes))
+	}
+	deliverySummary := backupDeliverySummary(delivery)
+	report := fmt.Sprintf("<b>✅ %s 完整备份成功</b>\n\n<b>传输状态：</b>\n%s\n\n<b>服务器信息：</b>\n邮局域名：%s\n服务器 IP：%s\n系统版本：%s\n\n<b>账号与域名：</b>\n已有域名：%s\n管理员账号：%s\n普通用户账号：%s\n邮箱账号：%s\n\n<b>备份文件：</b>%s\n<b>文件大小：</b>%s\n<b>SHA-256：</b><code>%s</code>\n\n<b>恢复教程：</b>\n1. 请不要解压、改名或修改压缩备份文件。\n2. 将原始附件上传到新服务器的 <code>/root/</code> 目录。\n3. 运行官方安装脚本，显示管理菜单后输入 2，选择“备份恢复”。\n4. 选择“本地上传”，系统会自动检测 /root/ 中的备份。\n5. 只有一份时自动选中；多份时显示 1、2、3 等序号。\n6. 输入对应序号，例如输入 1 恢复第 1 份。\n7. 输入备份密码后开始恢复。没有检测到文件时才手动输入路径。\n8. 恢复完成后，账号继续使用原登录密码。\n9. 以后需要管理系统时，可以直接输入 ns 打开管理菜单。\n\n<b>安全提示：</b>备份密码不会发送到 Telegram，请从 1Password 等独立位置取用。", info.ModTime().Local().Format("2006-01-02"), deliverySummary, htmlEscape(cfg.PublicHostname), htmlEscape(serverIP), htmlEscape(cfg.AppVersion), list(domains), list(admins), list(users), mailboxSummary, htmlEscape(filepath.Base(path)), humanBackupBytes(info.Size()), sum)
+	return report, backupTelegramMailboxMessages(mailboxes), nil
+}
+
+func backupDeliverySummary(status backupReportDeliveryStatus) string {
+	telegram := "➖ Telegram：未发送"
+	if status.TelegramStatus == "success" {
+		telegram = "✅ Telegram：加密备份附件已发送"
+	}
+	google := "➖ Google Drive：未启用或未发送"
+	switch status.GoogleStatus {
+	case "success":
+		google = "✅ Google Drive：加密备份已上传"
+	case "failed":
+		google = "❌ Google Drive：上传失败"
+		if reason := strings.TrimSpace(status.GoogleError); reason != "" {
+			reason, _ = truncateRunes(reason, 160)
+			google += "（" + htmlEscape(reason) + "）"
+		}
+	case "queued":
+		google = "⏳ Google Drive：等待上传"
+	case "running":
+		google = "⏳ Google Drive：正在上传"
+	}
+	return telegram + "\n" + google
+}
+
+func backupTelegramMailboxMessages(mailboxes []string) []string {
+	if len(mailboxes) == 0 {
+		return nil
+	}
+	chunks := make([]string, 0, 1)
+	current := ""
+	for index, mailbox := range mailboxes {
+		line := fmt.Sprintf("%d. <code>%s</code>", index+1, htmlEscape(mailbox))
+		candidate := line
+		if current != "" {
+			candidate = current + "\n" + line
+		}
+		if current != "" && len([]rune(candidate)) > backupTelegramAccountChunkBudget {
+			chunks = append(chunks, current)
+			current = line
+		} else {
+			current = candidate
+		}
+	}
+	if current != "" {
+		chunks = append(chunks, current)
+	}
+	for index := range chunks {
+		header := fmt.Sprintf("<b>📬 邮箱账号完整清单（%d/%d，共 %d 个）</b>\n\n", index+1, len(chunks), len(mailboxes))
+		chunks[index] = header + chunks[index]
+	}
+	return chunks
 }
 
 func queryBackupStrings(ctx context.Context, db *sql.DB, query string) ([]string, error) {

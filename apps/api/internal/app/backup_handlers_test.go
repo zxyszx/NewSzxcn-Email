@@ -419,6 +419,34 @@ func TestBackupTelegramSendsDocumentBeforeSuccessReport(t *testing.T) {
 	}
 }
 
+func TestBackupTelegramSendsDocumentReportAndMailboxListInOrder(t *testing.T) {
+	a := newTestApp(t)
+	stopTestWorkers(a)
+	a.updateConfig(func(cfg *Config) {
+		cfg.TelegramBotToken = "test-token"
+		cfg.TelegramPrivateChatID = "123456"
+	})
+	path := filepath.Join(t.TempDir(), "newszxcn-backup-test.tar.zst.enc")
+	if err := os.WriteFile(path, []byte("encrypted backup"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var requests []string
+	telegramServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"ok":true,"result":{"message_id":1}}`)
+	}))
+	defer telegramServer.Close()
+	a.telegramURL = telegramServer.URL
+
+	if err := a.sendBackupToTelegram(context.Background(), path); err != nil {
+		t.Fatal(err)
+	}
+	if len(requests) != 3 || !strings.HasSuffix(requests[0], "/sendDocument") || !strings.HasSuffix(requests[1], "/sendMessage") || !strings.HasSuffix(requests[2], "/sendMessage") {
+		t.Fatalf("unexpected Telegram backup message order: %v", requests)
+	}
+}
+
 func TestEncryptedBackupStreamingVerification(t *testing.T) {
 	for _, binary := range []string{"openssl", "zstd"} {
 		if _, err := exec.LookPath(binary); err != nil {
@@ -604,11 +632,11 @@ func TestBackupPasswordEncryptionAndTelegramReport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	report, err := a.backupTelegramReport(context.Background(), path, info)
+	report, mailboxMessages, err := a.backupTelegramReport(context.Background(), path, info, backupReportDeliveryStatus{TelegramStatus: "success", GoogleStatus: "failed", GoogleError: "Google 授权已失效"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"备份成功", "mail.newszxcn.com", "已有域名", "newszxcn.com", "xyes.me", "管理员账号", "admin@newszxcn.com", "普通用户账号", "user@xyes.me", "请不要解压", "本地上传", "1Password"} {
+	for _, expected := range []string{"完整备份成功", "Telegram：加密备份附件已发送", "Google Drive：上传失败", "Google 授权已失效", "mail.newszxcn.com", "已有域名", "newszxcn.com", "xyes.me", "管理员账号", "admin@newszxcn.com", "普通用户账号", "user@xyes.me", "请不要解压", "本地上传", "1Password"} {
 		if !strings.Contains(report, expected) {
 			t.Errorf("report missing %q: %s", expected, report)
 		}
@@ -618,5 +646,30 @@ func TestBackupPasswordEncryptionAndTelegramReport(t *testing.T) {
 	}
 	if strings.Contains(report, "BackupPassword123!") || strings.Contains(report, "ChangeMe123!") {
 		t.Fatal("report leaked a password")
+	}
+	if len(mailboxMessages) != 1 || !strings.Contains(mailboxMessages[0], "admin@newszxcn.com") {
+		t.Fatalf("mailbox account list missing: %v", mailboxMessages)
+	}
+}
+
+func TestBackupTelegramMailboxMessagesIncludeEveryAccount(t *testing.T) {
+	mailboxes := make([]string, 250)
+	for index := range mailboxes {
+		mailboxes[index] = fmt.Sprintf("mailbox-%03d@example.com", index)
+	}
+	messages := backupTelegramMailboxMessages(mailboxes)
+	if len(messages) < 2 {
+		t.Fatalf("large mailbox list was not split: %d messages", len(messages))
+	}
+	joined := strings.Join(messages, "\n")
+	for _, mailbox := range mailboxes {
+		if !strings.Contains(joined, mailbox) {
+			t.Fatalf("mailbox missing from Telegram messages: %s", mailbox)
+		}
+	}
+	for index, message := range messages {
+		if len([]rune(message)) > 4096 {
+			t.Fatalf("message %d exceeds Telegram limit: %d", index, len([]rune(message)))
+		}
 	}
 }
