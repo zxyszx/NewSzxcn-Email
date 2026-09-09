@@ -7,7 +7,7 @@ NewSzxcn-Email 是一个可自建、可管理、带完整 Webmail 与管理后�
 [![CI](https://github.com/zxyszx/NewSzxcn-Email/actions/workflows/ci.yml/badge.svg)](https://github.com/zxyszx/NewSzxcn-Email/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/zxyszx/NewSzxcn-Email)](LICENSE)
 
-[在线预览](https://zxyszx.github.io/NewSzxcn-Email/) · [邮箱后台配置指南](docs/GUIDE.md) · [版本发布](https://github.com/zxyszx/NewSzxcn-Email/releases) · [部署文档](deploy/README.md) · [English](README.en.md) · [部署文档](https://t.me/NewSzxcnEmail)
+[在线预览](https://zxyszx.github.io/NewSzxcn-Email/) · [邮箱后台配置指南](docs/GUIDE.md) · [版本发布](https://github.com/zxyszx/NewSzxcn-Email/releases) · [部署文档](deploy/README.md) · [English](README.en.md) · [群组交流群](https://t.me/NewSzxcnEmail)
 
 在线预览账号与密码均为 `admin`。预览使用浏览器内模拟数据，不连接真实邮件服务器，所有修改、发信和管理操作均为只读。
 
