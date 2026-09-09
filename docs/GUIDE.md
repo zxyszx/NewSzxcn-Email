@@ -4,7 +4,9 @@
 
 ## 一键安装
 
-建议使用 Debian 或 Ubuntu，并提前准备一个已经解析到服务器的邮件主机名，例如 `mail.example.com`。
+建议使用 Debian 或 Ubuntu，并提前准备一个已经解析到服务器的邮件主机名，例如 
+`mail.example.com =>192.168.1.1`。
+
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/install.sh)
