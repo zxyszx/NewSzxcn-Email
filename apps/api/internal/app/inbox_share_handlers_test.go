@@ -11,6 +11,7 @@ import (
 
 func TestInboxShareEnforcesFoldersTimeAndRevocation(t *testing.T) {
 	a := newTestApp(t)
+	a.updateConfig(func(cfg *Config) { cfg.UpdateServiceToken = "inbox-share-test-secret" })
 	server := httptest.NewServer(a.Router())
 	defer server.Close()
 	client := &testClient{t: t, server: server}
@@ -42,12 +43,16 @@ func TestInboxShareEnforcesFoldersTimeAndRevocation(t *testing.T) {
 		t.Fatalf("create share code=%d settings=%+v", code, settings)
 	}
 	token := tokenFromShareURL(t, settings.ShareURL)
-	var storedHash string
-	if err := a.db.QueryRow(`SELECT token_hash FROM inbox_shares WHERE mailbox_id=?`, mailbox.ID).Scan(&storedHash); err != nil {
+	var storedHash, storedCipher string
+	if err := a.db.QueryRow(`SELECT token_hash,token_cipher FROM inbox_shares WHERE mailbox_id=?`, mailbox.ID).Scan(&storedHash, &storedCipher); err != nil {
 		t.Fatal(err)
 	}
-	if storedHash == token || storedHash != hashToken(token) {
-		t.Fatalf("share token was not stored as a hash")
+	if storedHash == token || storedHash != hashToken(token) || storedCipher == "" || storedCipher == token {
+		t.Fatalf("share token storage is not protected")
+	}
+	var reopened inboxShareSettingsResponse
+	if code := client.do(http.MethodGet, "/api/me/mailboxes/"+mailbox.ID+"/inbox-share", nil, &reopened); code != http.StatusOK || reopened.ShareURL != settings.ShareURL {
+		t.Fatalf("share link was not available after reopening: code=%d got=%q want=%q", code, reopened.ShareURL, settings.ShareURL)
 	}
 
 	public := &testClient{t: t, server: server, bearer: token}
@@ -97,6 +102,7 @@ func TestInboxShareEnforcesFoldersTimeAndRevocation(t *testing.T) {
 
 func TestInboxShareRequiresPermissionAndRevocationInvalidatesLink(t *testing.T) {
 	a := newTestApp(t)
+	a.updateConfig(func(cfg *Config) { cfg.UpdateServiceToken = "inbox-share-test-secret" })
 	server := httptest.NewServer(a.Router())
 	defer server.Close()
 	admin := &testClient{t: t, server: server}

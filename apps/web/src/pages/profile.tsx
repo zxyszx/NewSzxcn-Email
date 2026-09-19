@@ -1537,6 +1537,7 @@ function MailboxManagement({
     setShareWindowMinutes(inboxShare.data.windowMinutes)
     setShareFolderIds(inboxShare.data.folderIds)
     setShareOptIn(inboxShare.data.enabled)
+    setShareURL(inboxShare.data.shareUrl || "")
   }, [inboxShare.data])
 
   function setMailboxView(next: MailboxView) {
@@ -2090,7 +2091,7 @@ function MailboxManagement({
               </div>
               {shareURL && (
                 <div className="space-y-2 rounded-md border border-primary/30 bg-primary/5 p-3">
-                  <div className="flex items-center justify-between gap-3"><Label>新分享链接</Label><span className="text-xs text-muted-foreground">仅本次显示</span></div>
+                  <div className="flex items-center justify-between gap-3"><Label>分享链接</Label><span className="text-xs text-muted-foreground">可随时复制</span></div>
                   <div className="break-all rounded-md border bg-background px-3 py-2 font-mono text-xs">{shareURL}</div>
                   <div className="grid grid-cols-2 gap-2">
                     <Button type="button" variant="outline" onClick={() => { void navigator.clipboard.writeText(shareURL); toast({ title: "分享链接已复制" }) }}><Copy className="h-4 w-4" />复制链接</Button>
@@ -2102,7 +2103,7 @@ function MailboxManagement({
                 <div className="space-y-3 rounded-md border border-primary/30 bg-primary/5 p-3">
                   <div>
                     <Label>分享链接</Label>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">为避免泄漏，现有链接不会再次显示。点击下面的按钮后，旧链接会失效，新链接会立即显示在这里。</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">这个分享由旧版本创建，无法恢复原链接。重新生成一次后，新链接即可随时返回复制。</p>
                   </div>
                   <Button type="button" variant="outline" className="w-full" disabled={inboxShareBusy || shareFolderIds.length === 0} onClick={() => setShareConfirm("reset")}><RefreshCcw className="h-4 w-4" />重新生成并显示链接</Button>
                 </div>

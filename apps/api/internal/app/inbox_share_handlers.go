@@ -95,11 +95,16 @@ func (a *App) handleCreateInboxShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token := "nis_" + randomToken()
+	tokenCipher, err := a.encryptBackupPassword(token)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "share link encryption is not configured")
+		return
+	}
 	now := a.now().UTC()
-	_, err = a.db.ExecContext(r.Context(), `INSERT INTO inbox_shares(mailbox_id,token_hash,window_minutes,folder_ids,created_by,created_at,updated_at,last_accessed_at)
-		VALUES(?,?,?,?,?,?,?, '')
-		ON CONFLICT(mailbox_id) DO UPDATE SET token_hash=excluded.token_hash,window_minutes=excluded.window_minutes,folder_ids=excluded.folder_ids,created_by=excluded.created_by,updated_at=excluded.updated_at,last_accessed_at=''`,
-		mb.ID, hashToken(token), windowMinutes, jsonEncode(folderIDs), currentUser(r).ID, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
+	_, err = a.db.ExecContext(r.Context(), `INSERT INTO inbox_shares(mailbox_id,token_hash,token_cipher,window_minutes,folder_ids,created_by,created_at,updated_at,last_accessed_at)
+		VALUES(?,?,?,?,?,?,?,?, '')
+		ON CONFLICT(mailbox_id) DO UPDATE SET token_hash=excluded.token_hash,token_cipher=excluded.token_cipher,window_minutes=excluded.window_minutes,folder_ids=excluded.folder_ids,created_by=excluded.created_by,updated_at=excluded.updated_at,last_accessed_at=''`,
+		mb.ID, hashToken(token), tokenCipher, windowMinutes, jsonEncode(folderIDs), currentUser(r).ID, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to create inbox share")
 		return
@@ -205,8 +210,8 @@ func (a *App) inboxShareSettings(ctx context.Context, mb *Mailbox) (inboxShareSe
 	if err := rows.Err(); err != nil {
 		return response, err
 	}
-	var folderJSON, created, updated, lastAccessed string
-	err = a.db.QueryRowContext(ctx, `SELECT window_minutes,folder_ids,created_at,updated_at,last_accessed_at FROM inbox_shares WHERE mailbox_id=?`, mb.ID).Scan(&response.WindowMinutes, &folderJSON, &created, &updated, &lastAccessed)
+	var tokenCipher, folderJSON, created, updated, lastAccessed string
+	err = a.db.QueryRowContext(ctx, `SELECT token_cipher,window_minutes,folder_ids,created_at,updated_at,last_accessed_at FROM inbox_shares WHERE mailbox_id=?`, mb.ID).Scan(&tokenCipher, &response.WindowMinutes, &folderJSON, &created, &updated, &lastAccessed)
 	if errors.Is(err, sql.ErrNoRows) {
 		for i := range response.Folders {
 			response.Folders[i].Selected = inboxShareContains(response.FolderIDs, response.Folders[i].ID)
@@ -217,6 +222,11 @@ func (a *App) inboxShareSettings(ctx context.Context, mb *Mailbox) (inboxShareSe
 		return response, err
 	}
 	response.Enabled = true
+	if tokenCipher != "" {
+		if token, decryptErr := a.decryptBackupPassword(tokenCipher); decryptErr == nil && strings.HasPrefix(token, "nis_") {
+			response.ShareURL = a.inboxShareURL(nil, token)
+		}
+	}
 	storedFolderIDs := jsonDecodeSlice(folderJSON)
 	response.FolderIDs = response.FolderIDs[:0]
 	createdAt, updatedAt := parseTime(created), parseTime(updated)
@@ -247,10 +257,15 @@ func (a *App) inboxShareURL(r *http.Request, token string) string {
 	base := strings.TrimRight(strings.TrimSpace(a.config().PublicBaseURL), "/")
 	if base == "" {
 		scheme := "https"
-		if r.TLS == nil && a.config().AllowInsecureHTTP {
+		if r != nil && r.TLS == nil && a.config().AllowInsecureHTTP {
 			scheme = "http"
 		}
-		base = scheme + "://" + r.Host
+		if r != nil {
+			base = scheme + "://" + r.Host
+		}
+	}
+	if base == "" {
+		return ""
 	}
 	return base + "/shared-inbox#" + token
 }

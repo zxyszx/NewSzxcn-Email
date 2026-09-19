@@ -389,6 +389,7 @@ func (a *App) migrate(ctx context.Context) error {
 		`CREATE TABLE IF NOT EXISTS inbox_shares (
 			mailbox_id TEXT PRIMARY KEY REFERENCES mailboxes(id) ON DELETE CASCADE,
 			token_hash TEXT NOT NULL UNIQUE,
+			token_cipher TEXT NOT NULL DEFAULT '',
 			window_minutes INTEGER NOT NULL DEFAULT 30,
 			folder_ids TEXT NOT NULL DEFAULT '[]',
 			created_by TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -806,6 +807,9 @@ func (a *App) migrate(ctx context.Context) error {
 		return err
 	}
 	if err := a.migrateTelegramNotifications(ctx); err != nil {
+		return err
+	}
+	if err := a.ensureTableColumn(ctx, "inbox_shares", "token_cipher", `ALTER TABLE inbox_shares ADD COLUMN token_cipher TEXT NOT NULL DEFAULT ''`); err != nil {
 		return err
 	}
 	if err := a.migrateDefaultMailLabels(ctx); err != nil {
