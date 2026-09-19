@@ -1069,14 +1069,25 @@ export function MailPage() {
   }
   function openReplyAll(message: MailMessage) {
     if (!canSendMail) return
-    const ownAddresses = new Set([selectedMailbox?.address, message.mailboxAddress, message.recipientAddress].filter(Boolean).map((address) => address!.toLowerCase()))
-    const sender = message.from
-    const copies = Array.from(new Set([...message.to, ...message.cc].filter((address) => !ownAddresses.has(address.toLowerCase()) && address.toLowerCase() !== sender.toLowerCase())))
-    openCompose({ key: `reply-all-${message.id}-${Date.now()}`, mailboxId: message.mailboxId, to: sender, cc: copies.join(", "), subject: withPrefix(messageSubject(message), "Re:"), text: quoteMessage(message) })
+    const ownAddresses = new Set([selectedMailbox?.address, message.mailboxAddress, message.recipientAddress].filter(Boolean).map((address) => address!.trim().toLowerCase()))
+    const seen = new Set<string>()
+    const recipients = [message.from, ...message.to, ...message.cc].filter((address) => {
+      const normalized = address.trim().toLowerCase()
+      if (!normalized || ownAddresses.has(normalized) || seen.has(normalized)) return false
+      seen.add(normalized)
+      return true
+    })
+    openCompose({ key: `reply-all-${message.id}-${Date.now()}`, mailboxId: message.mailboxId, to: recipients[0] || message.from, cc: recipients.slice(1).join(", "), subject: withPrefix(messageSubject(message), "Re:"), text: quoteMessage(message) })
   }
-  function openForward(message: MailMessage) {
+  async function openForward(message: MailMessage) {
     if (!canSendMail) return
-    openCompose({ key: `forward-${message.id}-${Date.now()}`, mailboxId: message.mailboxId, subject: withPrefix(messageSubject(message), "Fwd:"), text: quoteMessage(message) })
+    try {
+      const detail = message.bodyText !== undefined || message.bodyHtml !== undefined ? message : await api.message(message.id, { markRead: false })
+      const files = await attachmentFilesFromMessage(detail)
+      openCompose({ key: `forward-${message.id}-${Date.now()}`, mailboxId: message.mailboxId, subject: withPrefix(messageSubject(detail), "Fwd:"), text: quoteMessage(detail), files })
+    } catch (error) {
+      toast({ title: "准备转发失败", description: error instanceof Error ? error.message : "请稍后重试" })
+    }
   }
   async function openDraft(message: MailMessage) {
     if (!canManageDrafts) return
@@ -1987,6 +1998,7 @@ export function MailPage() {
       onCloseReader={closeMessageReader}
       onStar={(message) => { if (mailView !== "external") star.mutate({ id: message.id, starred: !message.isStarred }) }}
       onReply={openReply}
+      onReplyAll={openReplyAll}
       onForward={openForward}
       onSendTimeline={openMessageSendTimeline}
       onArchive={(message) => { if (mailView !== "external") move.mutate({ id: message.id, folder: message.folder === "Archive" ? "Inbox" : "Archive" }) }}
@@ -2091,9 +2103,9 @@ export function MailPage() {
               <div className="mb-4 flex items-center justify-between gap-3">
                 <h2 className="min-w-0 flex-1 truncate text-xl font-semibold" title={selected.subject}>{selected.subject}</h2>
                 <div className="mail-reading-actions">
-                  {canSendMail && <Button type="button" variant="ghost" size="icon" onClick={() => openReply(selected)} aria-label="回复" title="回复"><Reply /></Button>}
-                  {canSendMail && <Button type="button" variant="ghost" size="icon" onClick={() => openReplyAll(selected)} aria-label="全部回复" title="全部回复"><ReplyAll /></Button>}
-                  {canSendMail && <Button type="button" variant="ghost" size="icon" onClick={() => openForward(selected)} aria-label="转发" title="转发"><Forward /></Button>}
+                  {canSendMail && <Button type="button" variant="ghost" size="sm" className="gap-1.5 px-2" onClick={() => openReply(selected)} aria-label="回复" title="回复"><Reply className="h-4 w-4" /><span className="hidden xl:inline">回复</span></Button>}
+                  {canSendMail && <Button type="button" variant="ghost" size="sm" className="gap-1.5 px-2" onClick={() => openReplyAll(selected)} aria-label="回复全部" title="回复全部"><ReplyAll className="h-4 w-4" /><span className="hidden xl:inline">回复全部</span></Button>}
+                  {canSendMail && <Button type="button" variant="ghost" size="sm" className="gap-1.5 px-2" onClick={() => void openForward(selected)} aria-label="转发" title="转发"><Forward className="h-4 w-4" /><span className="hidden xl:inline">转发</span></Button>}
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon" aria-label="更多邮件操作" title="更多邮件操作"><Ellipsis /></Button></DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-44">
@@ -3455,6 +3467,7 @@ function CompactMailView({
   onCloseReader,
   onStar,
   onReply,
+  onReplyAll,
   onForward,
   onSendTimeline,
   onArchive,
@@ -3500,6 +3513,7 @@ function CompactMailView({
   onCloseReader: () => void
   onStar: (message: MailMessage) => void
   onReply: (message: MailMessage) => void
+  onReplyAll: (message: MailMessage) => void
   onForward: (message: MailMessage) => void
   onSendTimeline: (message: MailMessage) => void
   onArchive: (message: MailMessage) => void
@@ -3537,6 +3551,7 @@ function CompactMailView({
         onSelect={onSelect}
         onStar={onStar}
         onReply={onReply}
+        onReplyAll={onReplyAll}
         onForward={onForward}
         onSendTimeline={onSendTimeline}
         onArchive={onArchive}
@@ -3607,6 +3622,7 @@ function CompactMessageDetail({
   onSelect,
   onStar,
   onReply,
+  onReplyAll,
   onForward,
   onSendTimeline,
   onArchive,
@@ -3632,6 +3648,7 @@ function CompactMessageDetail({
   onSelect: (id: string | null) => void
   onStar: (message: MailMessage) => void
   onReply: (message: MailMessage) => void
+  onReplyAll: (message: MailMessage) => void
   onForward: (message: MailMessage) => void
   onSendTimeline: (message: MailMessage) => void
   onArchive: (message: MailMessage) => void
@@ -3672,6 +3689,7 @@ function CompactMessageDetail({
                 ) : (
                   <>
                     {canSend && <DropdownMenuItem onSelect={() => onReply(selected)}><Reply className="h-4 w-4" />回复</DropdownMenuItem>}
+                    {canSend && <DropdownMenuItem onSelect={() => onReplyAll(selected)}><ReplyAll className="h-4 w-4" />回复全部</DropdownMenuItem>}
                     {canSend && <DropdownMenuItem onSelect={() => onForward(selected)}><Forward className="h-4 w-4" />转发</DropdownMenuItem>}
                     {selected.sendQueueId && <DropdownMenuItem onSelect={() => onSendTimeline(selected)}><History className="h-4 w-4" />投递时间线</DropdownMenuItem>}
                     {canOrganize && <DropdownMenuItem onSelect={() => onArchive(selected)}><Archive className="h-4 w-4" />{selected.folder === "Archive" ? "取消归档" : "归档"}</DropdownMenuItem>}
@@ -3692,6 +3710,7 @@ function CompactMessageDetail({
             ) : (
               <>
                 {selected && canSend && <Button variant="outline" size="sm" onClick={() => onReply(selected)}><Reply className="h-4 w-4" />回复</Button>}
+                {selected && canSend && <Button variant="outline" size="sm" onClick={() => onReplyAll(selected)}><ReplyAll className="h-4 w-4" />回复全部</Button>}
                 {selected && canSend && <Button variant="outline" size="sm" onClick={() => onForward(selected)}><Forward className="h-4 w-4" />转发</Button>}
               </>
             )}
@@ -5946,7 +5965,8 @@ async function fileToAttachment(file: File) {
 async function attachmentFilesFromMessage(message: MailMessage) {
   if (!message.attachments?.length) return []
   return Promise.all(message.attachments.map(async (attachment) => {
-    const response = await fetch(`/api/mail/attachments/${attachment.id}`, { credentials: "include" })
+    const response = await fetch(attachmentHref(message, attachment.id), { credentials: "include" })
+    if (!response.ok) throw new Error(`无法读取附件：${attachment.filename}`)
     const blob = await response.blob()
     return new File([blob], attachment.filename, { type: attachment.contentType || blob.type || "application/octet-stream" })
   }))

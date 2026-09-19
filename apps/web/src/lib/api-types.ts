@@ -13,6 +13,7 @@ export type PermissionKey =
   | "mail.blocked_senders.manage"
   | "mail.stats.view"
   | "mail.mailboxes.apply"
+	| "mail.inbox.share"
   | "admin.overview.view"
   | "admin.users.view"
   | "admin.users.create"
@@ -61,6 +62,11 @@ export type AdminOverview = {
 }
 export type Domain = { id: string; name: string; status: string; dkimSelector: string; dkimPublicKey?: string; dnsStatus: string; dnsCheckedAt?: string; createdAt: string }
 export type Mailbox = { id: string; userId: string; userEmail?: string; domainId: string; localPart: string; address: string; displayName: string; quotaMb: number; status: string; primary?: boolean; unreadCount?: number; createdAt: string }
+export type InboxShareFolder = { id: string; name: string; role: string; totalCount: number; selected: boolean }
+export type InboxShareSettings = { enabled: boolean; mailboxId: string; mailboxAddress: string; windowMinutes: number; folderIds: string[]; folders: InboxShareFolder[]; shareUrl?: string; createdAt?: string; updatedAt?: string; lastAccessedAt?: string }
+export type SharedInboxMessage = { id: string; folderId: string; folder: string; subject: string; from: string; fromName?: string; receivedAt: string; snippet: string; hasAttachments: boolean }
+export type SharedInboxMessageDetail = SharedInboxMessage & { bodyText?: string; bodyHtml?: string; attachments?: Attachment[] }
+export type SharedInboxMessages = ListResponse<SharedInboxMessage> & { mailboxAddress: string; windowMinutes: number }
 export type Alias = { id: string; domainId: string; source: string; destination: string; enabled: boolean; createdAt: string }
 export type MailFolder = { id: string; name: string; role: string; icon: string; sortOrder: number; unreadCount: number; totalCount: number; uidValidity: number; uidNext: number; highestModseq: number }
 export type Attachment = { id: string; messageId: string; filename: string; contentType: string; sizeBytes: number; createdAt: string }

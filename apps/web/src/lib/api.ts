@@ -1,4 +1,4 @@
-import type { User, AdminUser, AdminOverview, Domain, Mailbox, Alias, MailFolder, MailLabel, MailMessage, MailTranslation, DNSRecord, DNSCheckResult, ListResponse, SendPayload, DraftPayload, ScheduleSendPayload, ScheduledSend, SendQueueItem, SendQueueAuditEvent, SendQueueStatus, Contact, MailSignature, MailRule, MailRuleCondition, MailRuleAction, BlockedSender, MailStats, ForwardingSettings, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapOAuthStartPayload, ExternalImapSyncRun, MailboxApplyOptions, MailTemplate, MaildirSyncHealth, SystemSettings, SystemSettingsPayload, SystemVersion, SystemUpdateResult, BackupList, PublicSettings, LoginPayload, LoginResponse, RegisterPayload, PermissionGroup, PermissionInfo, PermissionKey, PermissionLimits, APIToken, TwoFactorEnableResponse, BulkMoveResult, TelegramPrivateChat, TelegramPairing, UserTelegramSettings } from "./api-types"
+import type { User, AdminUser, AdminOverview, Domain, Mailbox, Alias, MailFolder, MailLabel, MailMessage, MailTranslation, DNSRecord, DNSCheckResult, ListResponse, SendPayload, DraftPayload, ScheduleSendPayload, ScheduledSend, SendQueueItem, SendQueueAuditEvent, SendQueueStatus, Contact, MailSignature, MailRule, MailRuleCondition, MailRuleAction, BlockedSender, MailStats, ForwardingSettings, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapOAuthStartPayload, ExternalImapSyncRun, MailboxApplyOptions, MailTemplate, MaildirSyncHealth, SystemSettings, SystemSettingsPayload, SystemVersion, SystemUpdateResult, BackupList, PublicSettings, LoginPayload, LoginResponse, RegisterPayload, PermissionGroup, PermissionInfo, PermissionKey, PermissionLimits, APIToken, TwoFactorEnableResponse, BulkMoveResult, TelegramPrivateChat, TelegramPairing, UserTelegramSettings, InboxShareSettings, SharedInboxMessages, SharedInboxMessageDetail } from "./api-types"
 import { DemoApiError, demoRequest } from "./demo-api"
 import { isDemoMode } from "./demo"
 export * from "./api-types"
@@ -116,6 +116,16 @@ async function uploadForm<T>(path: string, form: FormData): Promise<T> {
   }
 }
 
+async function sharedRequest<T>(path: string, token: string): Promise<T> {
+  const res = await fetch(path, { credentials: "omit", headers: { Authorization: `Bearer ${token}` }, cache: "no-store", referrerPolicy: "no-referrer" })
+  if (!res.ok) {
+    let message = "分享链接无效或已失效"
+    try { const body = await res.json(); if (res.status >= 500) message = body.error || message } catch {}
+    throw new ApiError(message, res.status)
+  }
+  return res.json() as Promise<T>
+}
+
 export const api = {
   publicSettings: () => request<PublicSettings>("/api/public/settings"),
   register: (payload: RegisterPayload) => request<{ user: User }>("/api/auth/register", { method: "POST", body: JSON.stringify(payload) }),
@@ -173,6 +183,10 @@ export const api = {
   retryForwardingPendingBinding: (id: string) => request<ForwardingSettings>(`/api/me/forwarding/pending-bindings/${id}/retry`, { method: "POST" }),
   updateAccountForwarding: (targetEmails: string[] | string) => request<ForwardingSettings>("/api/me/forwarding/account", { method: "POST", body: JSON.stringify(Array.isArray(targetEmails) ? { targetEmails } : { targetEmail: targetEmails }) }),
   updateMailboxForwarding: (mailboxId: string, targetEmails: string[] | string) => request<ForwardingSettings>(`/api/me/mailboxes/${mailboxId}/forwarding`, { method: "POST", body: JSON.stringify(Array.isArray(targetEmails) ? { targetEmails } : { targetEmail: targetEmails }) }),
+  inboxShareSettings: (mailboxId: string) => request<InboxShareSettings>(`/api/me/mailboxes/${mailboxId}/inbox-share`),
+  createInboxShare: (mailboxId: string, payload: { windowMinutes: number; folderIds: string[] }) => request<InboxShareSettings>(`/api/me/mailboxes/${mailboxId}/inbox-share`, { method: "POST", body: JSON.stringify(payload) }),
+  updateInboxShare: (mailboxId: string, payload: { windowMinutes: number; folderIds: string[] }) => request<InboxShareSettings>(`/api/me/mailboxes/${mailboxId}/inbox-share`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteInboxShare: (mailboxId: string) => request<{ ok: boolean }>(`/api/me/mailboxes/${mailboxId}/inbox-share`, { method: "DELETE" }),
   externalImapAccounts: (mailboxId?: string) => request<ListResponse<ExternalImapAccount>>(`/api/me/external-imap-accounts${mailboxId ? `?mailboxId=${encodeURIComponent(mailboxId)}` : ""}`),
   createExternalImapAccount: (payload: ExternalImapAccountPayload) => request<ExternalImapAccount>("/api/me/external-imap-accounts", { method: "POST", body: JSON.stringify(payload) }),
   updateExternalImapAccount: (id: string, payload: ExternalImapAccountPayload) => request<ExternalImapAccount>(`/api/me/external-imap-accounts/${id}`, { method: "POST", body: JSON.stringify(payload) }),
@@ -354,4 +368,20 @@ export const api = {
   move: (id: string, folder: string) => request<{ ok: boolean }>(`/api/mail/messages/${id}/move`, { method: "POST", body: JSON.stringify({ folder }) }),
   bulkMove: (ids: string[], folder: string) => request<BulkMoveResult>("/api/mail/messages/bulk-move", { method: "POST", body: JSON.stringify({ ids, folder }) }),
   delete: (id: string) => request<{ ok: boolean }>(`/api/mail/messages/${id}`, { method: "DELETE" }),
+}
+
+export const sharedInboxApi = {
+  messages: (token: string, cursor = "") => sharedRequest<SharedInboxMessages>(`/api/shared-inbox${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`, token),
+  message: (token: string, id: string) => sharedRequest<SharedInboxMessageDetail>(`/api/shared-inbox/messages/${encodeURIComponent(id)}`, token),
+  downloadAttachment: async (token: string, id: string, filename: string) => {
+    const res = await fetch(`/api/shared-inbox/attachments/${encodeURIComponent(id)}`, { credentials: "omit", headers: { Authorization: `Bearer ${token}` }, cache: "no-store", referrerPolicy: "no-referrer" })
+    if (!res.ok) throw new ApiError("附件不可用或分享范围已变更", res.status)
+    const url = URL.createObjectURL(await res.blob())
+    const anchor = document.createElement("a")
+    anchor.href = url
+    anchor.download = filename
+    anchor.rel = "noreferrer"
+    anchor.click()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  },
 }

@@ -72,6 +72,9 @@ func (a *App) Router() http.Handler {
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/public/settings", a.handlePublicSettings)
+		r.Get("/shared-inbox", a.handleSharedInboxMessages)
+		r.Get("/shared-inbox/messages/{id}", a.handleSharedInboxMessage)
+		r.Get("/shared-inbox/attachments/{id}", a.handleSharedInboxAttachment)
 		r.Get("/verify-email", a.handleVerifyForwardingEmail)
 		r.Post("/auth/register", a.handleRegister)
 		r.Post("/auth/login", a.handleLogin)
@@ -99,6 +102,10 @@ func (a *App) Router() http.Handler {
 		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess)).Post("/me/forwarding/pending-bindings/{id}/retry", a.handleRetryForwardingPendingBinding)
 		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess)).Post("/me/forwarding/account", a.handleUpdateAccountForwarding)
 		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess)).Post("/me/mailboxes/{id}/forwarding", a.handleUpdateMailboxForwarding)
+		r.With(a.requireAuth, a.requirePermission(PermissionInboxShare)).Get("/me/mailboxes/{id}/inbox-share", a.handleInboxShareSettings)
+		r.With(a.requireAuth, a.requirePermission(PermissionInboxShare)).Post("/me/mailboxes/{id}/inbox-share", a.handleCreateInboxShare)
+		r.With(a.requireAuth, a.requirePermission(PermissionInboxShare)).Put("/me/mailboxes/{id}/inbox-share", a.handleUpdateInboxShare)
+		r.With(a.requireAuth, a.requirePermission(PermissionInboxShare)).Delete("/me/mailboxes/{id}/inbox-share", a.handleDeleteInboxShare)
 		r.With(a.requireAuth).Post("/me/2fa/setup", a.handleTwoFactorSetup)
 		r.With(a.requireAuth).Post("/me/2fa/enable", a.handleTwoFactorEnable)
 		r.With(a.requireAuth).Post("/me/2fa/disable", a.handleTwoFactorDisable)

@@ -1,7 +1,7 @@
 import * as React from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { ArrowLeft, BarChart3, Ban, Bell, BellOff, BookOpen, Check, CheckCircle2, ChevronDown, ChevronUp, Clock3, Code2, Contact, Copy, ExternalLink, HardDrive, Image, Info, KeyRound, LogOut, Mail, MailCheck, MailX, Monitor, Moon, PanelLeftOpen, PencilLine, PlayCircle, Plus, RefreshCcw, Search, SendHorizontal, Settings, ShieldCheck, SlidersHorizontal, Sun, Trash2, Users, X } from "lucide-react"
+import { ArrowLeft, BarChart3, Ban, Bell, BellOff, BookOpen, Check, CheckCircle2, ChevronDown, ChevronUp, Clock3, Code2, Contact, Copy, ExternalLink, Eye, HardDrive, Image, Info, KeyRound, LogOut, Mail, MailCheck, MailX, Monitor, Moon, PanelLeftOpen, PencilLine, PlayCircle, Plus, RefreshCcw, Search, SendHorizontal, Settings, Share2, ShieldCheck, SlidersHorizontal, Sun, Trash2, Users, X } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import { api, APIToken, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapStorageMode, ExternalImapSyncRun, ExternalImapTlsMode, ForwardingPendingBinding, ForwardingSettings, ForwardingVerifiedEmail, MailFolder, MailLabel, MailRule, MailRuleAction, MailRuleCondition, Mailbox, MailboxApplyOptions, MailSignature, MailStats, PermissionLimits } from "@/lib/api"
 import { cn, formatBytes } from "@/lib/utils"
@@ -94,6 +94,7 @@ export function ProfilePage() {
   const canManageBlocked = hasPermission(user, "mail.blocked_senders.manage")
   const canViewStats = hasPermission(user, "mail.stats.view")
   const canApplyMailbox = hasPermission(user, "mail.mailboxes.apply")
+  const canShareInbox = hasPermission(user, "mail.inbox.share")
   const canConfigureMailboxApply = hasPermission(user, "admin.settings.update")
   const visibleTabKeys = tabKeys.filter((key) => {
     if (key === "profile") return true
@@ -526,6 +527,7 @@ export function ProfilePage() {
         applyOptions={mailboxApplyOptions.data}
         applyPending={applyMailbox.isPending}
         canConfigureApply={canConfigureMailboxApply}
+        canShareInbox={canShareInbox}
         selectedMailboxId={mailboxId}
         externalImapEnabled={externalImapEnabled}
         externalAccounts={externalImapAccounts.data?.items || []}
@@ -1240,6 +1242,7 @@ function MailboxManagement({
   applyOptions,
   applyPending,
   canConfigureApply,
+  canShareInbox,
   selectedMailboxId,
   externalImapEnabled,
   externalAccounts,
@@ -1264,6 +1267,7 @@ function MailboxManagement({
   applyOptions?: MailboxApplyOptions
   applyPending: boolean
   canConfigureApply: boolean
+  canShareInbox: boolean
   selectedMailboxId: string
   externalImapEnabled: boolean
   externalAccounts: ExternalImapAccount[]
@@ -1310,7 +1314,18 @@ function MailboxManagement({
   const [mobileCreateOpen, setMobileCreateOpen] = React.useState(false)
   const [pendingVerifiedDelete, setPendingVerifiedDelete] = React.useState<ForwardingVerifiedEmail | null>(null)
   const [pendingExternalDelete, setPendingExternalDelete] = React.useState<ExternalImapAccount | null>(null)
+  const [sharingMailbox, setSharingMailbox] = React.useState<Mailbox | null>(null)
+  const [shareWindowMinutes, setShareWindowMinutes] = React.useState(30)
+  const [shareFolderIds, setShareFolderIds] = React.useState<string[]>([])
+  const [shareOptIn, setShareOptIn] = React.useState(false)
+  const [shareURL, setShareURL] = React.useState("")
+  const [shareConfirm, setShareConfirm] = React.useState<"reset" | "disable" | null>(null)
   const forwarding = useQuery({ queryKey: ["forwarding-settings"], queryFn: api.forwardingSettings, enabled: mailboxes.length > 0 })
+  const inboxShare = useQuery({
+    queryKey: ["inbox-share", sharingMailbox?.id],
+    queryFn: () => api.inboxShareSettings(sharingMailbox!.id),
+    enabled: canShareInbox && !!sharingMailbox,
+  })
   const verifiedEmailItems = React.useMemo(() => [...(forwarding.data?.verifiedEmails || [])], [forwarding.data?.verifiedEmails])
   const verifiedEmails = React.useMemo(() => sortForwardingTargets(verifiedEmailItems.filter((item) => item.verified).map((item) => item.email)), [verifiedEmailItems])
   const failedVerifiedEmailItems = React.useMemo(() => verifiedEmailItems
@@ -1467,6 +1482,36 @@ function MailboxManagement({
     onError: (error) => toast({ title: "重试失败", description: error.message }),
   })
   const forwardingBusy = forwarding.isLoading || addVerifiedEmail.isPending || resendVerifiedEmail.isPending || deleteVerifiedEmail.isPending || saveAccountForwarding.isPending || saveMailboxForwarding.isPending || createPendingBinding.isPending || cancelPendingBinding.isPending || retryPendingBinding.isPending
+  const createInboxShare = useMutation({
+    mutationFn: ({ mailboxId, windowMinutes, folderIds }: { mailboxId: string; windowMinutes: number; folderIds: string[] }) => api.createInboxShare(mailboxId, { windowMinutes, folderIds }),
+    onSuccess: (settings) => {
+      qc.setQueryData(["inbox-share", settings.mailboxId], settings)
+      setShareURL(settings.shareUrl || "")
+      setShareConfirm(null)
+      toast({ title: settings.shareUrl ? "分享链接已生成" : "分享已开启" })
+    },
+    onError: (error) => toast({ title: "生成失败", description: error.message }),
+  })
+  const updateInboxShare = useMutation({
+    mutationFn: ({ mailboxId, windowMinutes, folderIds }: { mailboxId: string; windowMinutes: number; folderIds: string[] }) => api.updateInboxShare(mailboxId, { windowMinutes, folderIds }),
+    onSuccess: (settings) => {
+      qc.setQueryData(["inbox-share", settings.mailboxId], settings)
+      toast({ title: "分享范围已保存" })
+    },
+    onError: (error) => toast({ title: "保存失败", description: error.message }),
+  })
+  const deleteInboxShare = useMutation({
+    mutationFn: (mailboxId: string) => api.deleteInboxShare(mailboxId),
+    onSuccess: () => {
+      if (sharingMailbox) void qc.invalidateQueries({ queryKey: ["inbox-share", sharingMailbox.id] })
+      setShareURL("")
+      setShareOptIn(false)
+      setShareConfirm(null)
+      toast({ title: "分享已关闭，原链接已失效" })
+    },
+    onError: (error) => toast({ title: "关闭失败", description: error.message }),
+  })
+  const inboxShareBusy = createInboxShare.isPending || updateInboxShare.isPending || deleteInboxShare.isPending
 
   React.useEffect(() => {
     if (!domainOptions.length) return
@@ -1487,6 +1532,13 @@ function MailboxManagement({
   React.useEffect(() => { setSingleForwardPage((page) => Math.min(page, singleForwardTotalPages)) }, [singleForwardTotalPages])
   React.useEffect(() => { setVerifiedPage(1) }, [normalizedVerifiedSearch, verifiedPageSize])
   React.useEffect(() => { setVerifiedPage((page) => Math.min(page, verifiedTotalPages)) }, [verifiedTotalPages])
+  React.useEffect(() => {
+    if (!inboxShare.data) return
+    setShareWindowMinutes(inboxShare.data.windowMinutes)
+    setShareFolderIds(inboxShare.data.folderIds)
+    setShareOptIn(inboxShare.data.enabled)
+    setShareURL("")
+  }, [inboxShare.data])
 
   function setMailboxView(next: MailboxView) {
     const nextParams = new URLSearchParams(mailboxViewParams)
@@ -1508,6 +1560,26 @@ function MailboxManagement({
     setForwardingMailbox(mailbox)
     setForwardDraft(withoutForwardingTargets(mailboxTargets || [], accountForwardTargets))
     setMailboxBindingDraft("")
+  }
+
+  function openInboxShare(mailbox: Mailbox) {
+    setSharingMailbox(mailbox)
+    setShareWindowMinutes(30)
+    setShareFolderIds([])
+    setShareOptIn(false)
+    setShareURL("")
+  }
+
+  function saveInboxShare() {
+    if (!sharingMailbox) return
+    if (!shareOptIn) {
+      if (inboxShare.data?.enabled) setShareConfirm("disable")
+      return
+    }
+    if (shareFolderIds.length === 0) return
+    const payload = { mailboxId: sharingMailbox.id, windowMinutes: shareWindowMinutes, folderIds: shareFolderIds }
+    if (inboxShare.data?.enabled) updateInboxShare.mutate(payload)
+    else createInboxShare.mutate(payload)
   }
 
   function saveMailboxForward() {
@@ -1609,7 +1681,7 @@ function MailboxManagement({
             <Input value={mailboxSearch} onChange={(event) => setMailboxSearch(event.target.value)} type="search" autoComplete="off" className="h-[34px] pl-9 text-sm shadow-none" placeholder="搜索邮箱地址..." aria-label="搜索邮箱地址" />
           </div>
         </div>
-        <div className="hidden grid-cols-[minmax(0,1fr)_minmax(220px,0.8fr)_100px] gap-4 border-y bg-muted/25 px-5 py-2 text-xs font-medium text-muted-foreground md:grid">
+        <div className="hidden grid-cols-[minmax(0,1fr)_minmax(220px,0.8fr)_190px] gap-4 border-y bg-muted/25 px-5 py-2 text-xs font-medium text-muted-foreground md:grid">
           <span>邮箱账号</span>
           <span>创建与转发</span>
           <span className="text-right">操作</span>
@@ -1623,7 +1695,7 @@ function MailboxManagement({
             const forwardingSubtitle = accountForwardTargets.length > 0 && forwardTargets.length > 0 ? "账号级目标固定生效，并追加邮箱单独目标" : accountForwardTargets.length > 0 ? "继承账号级转发" : "邮箱单独转发"
             const forwardingPrefix = accountForwardTargets.length > 0 && forwardTargets.length > 0 ? "转发：账号级+单独" : accountForwardTargets.length > 0 ? "转发：使用账号级" : "转发："
             return (
-              <div key={mailbox.id} className={cn("grid gap-2 px-4 py-3 sm:px-5 md:grid-cols-[minmax(0,1fr)_minmax(220px,0.8fr)_100px] md:items-center md:gap-4", selectedMailboxId === mailbox.id && "bg-muted/50")}>
+              <div key={mailbox.id} className={cn("grid gap-2 px-4 py-3 sm:px-5 md:grid-cols-[minmax(0,1fr)_minmax(220px,0.8fr)_190px] md:items-center md:gap-4", selectedMailboxId === mailbox.id && "bg-muted/50")}>
                 <div className="flex min-w-0 items-center gap-3">
                   <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-slate-950 text-white">
                     <Mail className="h-4 w-4" />
@@ -1645,18 +1717,30 @@ function MailboxManagement({
                     />
                   ) : <div>未设置转发</div>}
                 </div>
-                <div className="flex shrink-0 justify-end pl-12 md:pl-0">
+                <div className="flex shrink-0 justify-end gap-2 pl-12 md:pl-0">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     data-forwarding-active={forwardingActive || undefined}
-                    className="h-11 w-full gap-1 px-3 md:h-9 md:w-[88px]"
+                    className="h-11 flex-1 gap-1 px-3 md:h-9 md:w-[88px] md:flex-none"
                     onClick={() => { onSelect(mailbox.id); openMailboxForward(mailbox) }}
                   >
                     <SendHorizontal className="h-3.5 w-3.5" />
                     {forwardingActive ? "转发中" : "转发"}
                   </Button>
+                  {canShareInbox && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-11 flex-1 gap-1 px-3 md:h-9 md:w-[88px] md:flex-none"
+                      onClick={() => openInboxShare(mailbox)}
+                    >
+                      <Share2 className="h-3.5 w-3.5" />
+                      分享
+                    </Button>
+                  )}
                 </div>
               </div>
             )
@@ -1953,6 +2037,101 @@ function MailboxManagement({
           )}
         </DialogContent>
       </Dialog>
+
+      <Dialog open={!!sharingMailbox} onOpenChange={(open) => { if (!open) { setSharingMailbox(null); setShareURL(""); setShareConfirm(null) } }}>
+        <DialogContent className="w-[calc(100vw-1.5rem)] max-w-none sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Share2 className="h-5 w-5 text-primary" />分享收件箱</DialogTitle>
+          </DialogHeader>
+          <div className="break-all text-sm text-muted-foreground">{sharingMailbox?.address}</div>
+          {inboxShare.isLoading ? <div className="space-y-3 py-2"><Skeleton className="h-10 w-full" /><Skeleton className="h-36 w-full" /></div> : inboxShare.isError ? (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{inboxShare.error.message}</div>
+          ) : (
+            <div className="space-y-4">
+              <label className="flex min-h-12 items-center justify-between gap-4 rounded-md border px-3 py-2.5">
+                <span><span className="block text-sm font-medium">启用此邮箱的只读分享</span><span className="mt-0.5 block text-xs text-muted-foreground">必须主动勾选后才会生成分享链接</span></span>
+                <Checkbox checked={shareOptIn} disabled={inboxShareBusy} onCheckedChange={(checked) => setShareOptIn(checked === true)} />
+              </label>
+              <div className="flex items-center justify-between rounded-md border bg-muted/20 px-3 py-2.5 text-sm">
+                <span className="flex items-center gap-2"><span className={cn("size-2 rounded-full", inboxShare.data?.enabled ? "bg-emerald-500" : "bg-muted-foreground/50")} />{inboxShare.data?.enabled ? "分享已开启" : "分享未开启"}</span>
+                <Badge variant="secondary">只读</Badge>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="inbox-share-window">可查看的邮件时间</Label>
+                <Select value={String(shareWindowMinutes)} onValueChange={(value) => setShareWindowMinutes(Number(value))} disabled={inboxShareBusy}>
+                  <SelectTrigger id="inbox-share-window" className="h-11"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="30">最近 30 分钟</SelectItem>
+                    <SelectItem value="60">最近 1 小时</SelectItem>
+                    <SelectItem value="360">最近 6 小时</SelectItem>
+                    <SelectItem value="1440">最近 1 天</SelectItem>
+                    <SelectItem value="10080">最近 7 天</SelectItem>
+                    <SelectItem value="0">全部邮件</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3"><Label>可查看的文件夹</Label><span className="text-xs text-muted-foreground">已选 {shareFolderIds.length} 个</span></div>
+                <div className="max-h-56 overflow-y-auto rounded-md border">
+                  {(inboxShare.data?.folders || []).map((folder) => (
+                    <label key={folder.id} className="flex min-h-11 items-center justify-between gap-3 border-b px-3 py-2 last:border-b-0">
+                      <span className="flex min-w-0 items-center gap-3">
+                        <Checkbox
+                          checked={shareFolderIds.includes(folder.id)}
+                          disabled={inboxShareBusy}
+                          onCheckedChange={(checked) => setShareFolderIds((items) => checked === true ? Array.from(new Set([...items, folder.id])) : items.filter((id) => id !== folder.id))}
+                        />
+                        <span className="truncate text-sm font-medium">{folderLabel(folder.name)}</span>
+                      </span>
+                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{folder.totalCount} 封</span>
+                    </label>
+                  ))}
+                </div>
+                {shareFolderIds.length === 0 && <p className="text-xs text-destructive">至少选择一个文件夹。</p>}
+              </div>
+              {shareURL && (
+                <div className="space-y-2 rounded-md border border-primary/30 bg-primary/5 p-3">
+                  <div className="flex items-center justify-between gap-3"><Label>新分享链接</Label><span className="text-xs text-muted-foreground">仅本次显示</span></div>
+                  <div className="break-all rounded-md border bg-background px-3 py-2 font-mono text-xs">{shareURL}</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button type="button" variant="outline" onClick={() => { void navigator.clipboard.writeText(shareURL); toast({ title: "分享链接已复制" }) }}><Copy className="h-4 w-4" />复制链接</Button>
+                    <Button type="button" variant="outline" onClick={() => window.open(shareURL, "_blank", "noopener,noreferrer")}><Eye className="h-4 w-4" />访客预览</Button>
+                  </div>
+                </div>
+              )}
+              {inboxShare.data?.enabled && !shareURL && <p className="rounded-md bg-muted/30 px-3 py-2 text-xs leading-5 text-muted-foreground">为避免泄漏，现有链接不会再次显示。若链接遗失，请重置后复制新链接。</p>}
+              <p className="flex gap-2 text-xs leading-5 text-muted-foreground"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />访客只能查看所选时间和文件夹内的邮件及附件，不能回复、转发、删除或进入邮箱账号。</p>
+            </div>
+          )}
+          <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:justify-between sm:gap-2">
+            <div className="flex gap-2">
+              {inboxShare.data?.enabled && <Button type="button" variant="destructive" disabled={inboxShareBusy} onClick={() => setShareConfirm("disable")}>关闭分享</Button>}
+              {inboxShare.data?.enabled && <Button type="button" variant="outline" disabled={inboxShareBusy || shareFolderIds.length === 0} onClick={() => setShareConfirm("reset")}><RefreshCcw className="h-4 w-4" />重置链接</Button>}
+            </div>
+            <Button type="button" disabled={inboxShare.isLoading || inboxShare.isError || inboxShareBusy || (shareOptIn && shareFolderIds.length === 0) || (!shareOptIn && !inboxShare.data?.enabled)} onClick={saveInboxShare}>{inboxShareBusy ? "处理中" : !shareOptIn && inboxShare.data?.enabled ? "关闭分享" : inboxShare.data?.enabled ? "保存范围" : "开启并生成链接"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDialog
+        open={shareConfirm === "reset"}
+        title="重置分享链接？"
+        description="旧链接会立即失效，时间范围和文件夹选择保持当前设置。"
+        confirmText="重置链接"
+        pending={createInboxShare.isPending}
+        onOpenChange={(open) => { if (!open) setShareConfirm(null) }}
+        onConfirm={() => { if (sharingMailbox && shareFolderIds.length > 0) createInboxShare.mutate({ mailboxId: sharingMailbox.id, windowMinutes: shareWindowMinutes, folderIds: shareFolderIds }) }}
+      />
+      <ConfirmDialog
+        open={shareConfirm === "disable"}
+        title="关闭收件箱分享？"
+        description="现有分享链接会立即失效，对方将不能继续查看邮件。"
+        confirmText="关闭分享"
+        destructive
+        pending={deleteInboxShare.isPending}
+        onOpenChange={(open) => { if (!open) setShareConfirm(null) }}
+        onConfirm={() => { if (sharingMailbox) deleteInboxShare.mutate(sharingMailbox.id) }}
+      />
 
       <Sheet open={mobileCreateOpen} onOpenChange={setMobileCreateOpen}>
         <SheetContent side="bottom" className="mailbox-sheet-content max-h-[85dvh] overflow-y-auto rounded-t-xl pb-[calc(1rem+env(safe-area-inset-bottom))]">

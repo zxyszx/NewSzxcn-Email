@@ -386,6 +386,16 @@ func (a *App) migrate(ctx context.Context) error {
 			created_at TEXT NOT NULL,
 			UNIQUE(mailbox_id, name)
 		)`,
+		`CREATE TABLE IF NOT EXISTS inbox_shares (
+			mailbox_id TEXT PRIMARY KEY REFERENCES mailboxes(id) ON DELETE CASCADE,
+			token_hash TEXT NOT NULL UNIQUE,
+			window_minutes INTEGER NOT NULL DEFAULT 30,
+			folder_ids TEXT NOT NULL DEFAULT '[]',
+			created_by TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			last_accessed_at TEXT NOT NULL DEFAULT ''
+		)`,
 		`CREATE TABLE IF NOT EXISTS messages (
 			id TEXT PRIMARY KEY,
 			mailbox_id TEXT REFERENCES mailboxes(id) ON DELETE CASCADE,

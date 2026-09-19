@@ -29,6 +29,7 @@ const (
 	PermissionMailBlocked    = "mail.blocked_senders.manage"
 	PermissionMailStats      = "mail.stats.view"
 	PermissionMailboxApply   = "mail.mailboxes.apply"
+	PermissionInboxShare     = "mail.inbox.share"
 
 	PermissionAdminOverview = "admin.overview.view"
 
@@ -312,6 +313,7 @@ var permissionCatalogItems = []PermissionInfo{
 	{Key: PermissionMailBlocked, Label: "管理拦截名单", Description: "查看、新增和删除本人的发件人拦截规则。", Category: "个人中心"},
 	{Key: PermissionMailStats, Label: "查看邮箱统计", Description: "查看本人邮箱统计和清理概览。", Category: "个人中心"},
 	{Key: PermissionMailboxApply, Label: "自助申请邮箱", Description: "在开放申请时为本人申请邮箱。", Category: "个人中心"},
+	{Key: PermissionInboxShare, Label: "分享收件箱", Description: "为本人邮箱创建只读分享链接，并限制可查看的时间范围和文件夹。", Category: "个人中心"},
 
 	{Key: PermissionAdminOverview, Label: "查看概览", Description: "查看后台统计和首次配置检查。", Category: "概览"},
 

@@ -17,6 +17,7 @@ const RegisterPage = React.lazy(() => import("@/pages/register").then((module) =
 const MailPage = React.lazy(() => import("@/pages/mail").then((module) => ({ default: module.MailPage })))
 const AdminPage = React.lazy(() => import("@/pages/admin").then((module) => ({ default: module.AdminPage })))
 const ProfilePage = React.lazy(() => import("@/pages/profile").then((module) => ({ default: module.ProfilePage })))
+const SharedInboxPage = React.lazy(() => import("@/pages/shared-inbox").then((module) => ({ default: module.SharedInboxPage })))
 const NotFoundPage = React.lazy(() => import("@/pages/not-found").then((module) => ({ default: module.NotFoundPage })))
 
 initializeTheme()
@@ -28,6 +29,7 @@ const createRouter = isDemoMode ? createHashRouter : createBrowserRouter
 const router = createRouter([
   { path: "/login", element: <LoginPage /> },
   { path: "/register", element: <RegisterPage /> },
+  { path: "/shared-inbox", element: <SharedInboxPage /> },
   { path: "/", element: <ProtectedLayout />, children: [
     { index: true, element: <Navigate to="/mail" replace /> },
     { path: "mail/*", element: <MailPage /> },
