@@ -1537,7 +1537,6 @@ function MailboxManagement({
     setShareWindowMinutes(inboxShare.data.windowMinutes)
     setShareFolderIds(inboxShare.data.folderIds)
     setShareOptIn(inboxShare.data.enabled)
-    setShareURL("")
   }, [inboxShare.data])
 
   function setMailboxView(next: MailboxView) {
@@ -2099,14 +2098,22 @@ function MailboxManagement({
                   </div>
                 </div>
               )}
-              {inboxShare.data?.enabled && !shareURL && <p className="rounded-md bg-muted/30 px-3 py-2 text-xs leading-5 text-muted-foreground">为避免泄漏，现有链接不会再次显示。若链接遗失，请重置后复制新链接。</p>}
+              {inboxShare.data?.enabled && !shareURL && (
+                <div className="space-y-3 rounded-md border border-primary/30 bg-primary/5 p-3">
+                  <div>
+                    <Label>分享链接</Label>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">为避免泄漏，现有链接不会再次显示。点击下面的按钮后，旧链接会失效，新链接会立即显示在这里。</p>
+                  </div>
+                  <Button type="button" variant="outline" className="w-full" disabled={inboxShareBusy || shareFolderIds.length === 0} onClick={() => setShareConfirm("reset")}><RefreshCcw className="h-4 w-4" />重新生成并显示链接</Button>
+                </div>
+              )}
               <p className="flex gap-2 text-xs leading-5 text-muted-foreground"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />访客只能查看所选时间和文件夹内的邮件及附件，不能回复、转发、删除或进入邮箱账号。</p>
             </div>
           )}
           <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:justify-between sm:gap-2">
             <div className="flex gap-2">
               {inboxShare.data?.enabled && <Button type="button" variant="destructive" disabled={inboxShareBusy} onClick={() => setShareConfirm("disable")}>关闭分享</Button>}
-              {inboxShare.data?.enabled && <Button type="button" variant="outline" disabled={inboxShareBusy || shareFolderIds.length === 0} onClick={() => setShareConfirm("reset")}><RefreshCcw className="h-4 w-4" />重置链接</Button>}
+              {inboxShare.data?.enabled && <Button type="button" variant="outline" disabled={inboxShareBusy || shareFolderIds.length === 0} onClick={() => setShareConfirm("reset")}><RefreshCcw className="h-4 w-4" />重新生成链接</Button>}
             </div>
             <Button type="button" disabled={inboxShare.isLoading || inboxShare.isError || inboxShareBusy || (shareOptIn && shareFolderIds.length === 0) || (!shareOptIn && !inboxShare.data?.enabled)} onClick={saveInboxShare}>{inboxShareBusy ? "处理中" : !shareOptIn && inboxShare.data?.enabled ? "关闭分享" : inboxShare.data?.enabled ? "保存范围" : "开启并生成链接"}</Button>
           </DialogFooter>
@@ -2115,9 +2122,9 @@ function MailboxManagement({
 
       <ConfirmDialog
         open={shareConfirm === "reset"}
-        title="重置分享链接？"
-        description="旧链接会立即失效，时间范围和文件夹选择保持当前设置。"
-        confirmText="重置链接"
+        title="重新生成分享链接？"
+        description="旧链接会立即失效；新链接会显示在当前弹窗中，时间范围和文件夹选择保持不变。"
+        confirmText="生成并显示"
         pending={createInboxShare.isPending}
         onOpenChange={(open) => { if (!open) setShareConfirm(null) }}
         onConfirm={() => { if (sharingMailbox && shareFolderIds.length > 0) createInboxShare.mutate({ mailboxId: sharingMailbox.id, windowMinutes: shareWindowMinutes, folderIds: shareFolderIds }) }}
