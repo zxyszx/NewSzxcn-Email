@@ -64,6 +64,7 @@ export type Domain = { id: string; name: string; status: string; dkimSelector: s
 export type Mailbox = { id: string; userId: string; userEmail?: string; domainId: string; localPart: string; address: string; displayName: string; quotaMb: number; status: string; primary?: boolean; unreadCount?: number; createdAt: string }
 export type InboxShareFolder = { id: string; name: string; role: string; totalCount: number; selected: boolean }
 export type InboxShareSettings = { enabled: boolean; mailboxId: string; mailboxAddress: string; windowMinutes: number; folderIds: string[]; folders: InboxShareFolder[]; shareUrl?: string; createdAt?: string; updatedAt?: string; lastAccessedAt?: string }
+export type InboxShareSummary = { mailboxId: string; windowMinutes: number; folderCount: number; updatedAt: string }
 export type SharedInboxMessage = { id: string; folderId: string; folder: string; subject: string; from: string; fromName?: string; receivedAt: string; snippet: string; hasAttachments: boolean }
 export type SharedInboxMessageDetail = SharedInboxMessage & { bodyText?: string; bodyHtml?: string; attachments?: Attachment[] }
 export type SharedInboxMessages = ListResponse<SharedInboxMessage> & { mailboxAddress: string; windowMinutes: number }

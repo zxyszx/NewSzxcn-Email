@@ -42,6 +42,15 @@ func TestInboxShareEnforcesFoldersTimeAndRevocation(t *testing.T) {
 	if code := client.do(http.MethodPost, "/api/me/mailboxes/"+mailbox.ID+"/inbox-share", map[string]any{"windowMinutes": 30, "folderIds": []string{inboxID}}, &settings); code != http.StatusCreated {
 		t.Fatalf("create share code=%d settings=%+v", code, settings)
 	}
+	var summaries struct {
+		Items []inboxShareSummary `json:"items"`
+	}
+	if code := client.do(http.MethodGet, "/api/me/inbox-shares", nil, &summaries); code != http.StatusOK {
+		t.Fatalf("share summaries code=%d", code)
+	}
+	if len(summaries.Items) != 1 || summaries.Items[0].MailboxID != mailbox.ID || summaries.Items[0].WindowMinutes != 30 || summaries.Items[0].FolderCount != 1 {
+		t.Fatalf("unexpected share summaries: %+v", summaries.Items)
+	}
 	token := tokenFromShareURL(t, settings.ShareURL)
 	var storedHash, storedCipher string
 	if err := a.db.QueryRow(`SELECT token_hash,token_cipher FROM inbox_shares WHERE mailbox_id=?`, mailbox.ID).Scan(&storedHash, &storedCipher); err != nil {
@@ -94,6 +103,9 @@ func TestInboxShareEnforcesFoldersTimeAndRevocation(t *testing.T) {
 	}
 	if code := client.do(http.MethodDelete, "/api/me/mailboxes/"+mailbox.ID+"/inbox-share", nil, &errorBody); code != http.StatusOK {
 		t.Fatalf("delete share code=%d", code)
+	}
+	if code := client.do(http.MethodGet, "/api/me/inbox-shares", nil, &summaries); code != http.StatusOK || len(summaries.Items) != 0 {
+		t.Fatalf("disabled share remained in summaries: code=%d items=%+v", code, summaries.Items)
 	}
 	if code := public.do(http.MethodGet, "/api/shared-inbox", nil, &errorBody); code != http.StatusNotFound {
 		t.Fatalf("token remained valid after disable: %d", code)

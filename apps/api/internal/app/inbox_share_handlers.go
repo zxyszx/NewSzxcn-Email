@@ -51,6 +51,42 @@ type inboxShareSettingsResponse struct {
 	LastAccessedAt *time.Time         `json:"lastAccessedAt,omitempty"`
 }
 
+type inboxShareSummary struct {
+	MailboxID     string    `json:"mailboxId"`
+	WindowMinutes int       `json:"windowMinutes"`
+	FolderCount   int       `json:"folderCount"`
+	UpdatedAt     time.Time `json:"updatedAt"`
+}
+
+func (a *App) handleInboxShareSummaries(w http.ResponseWriter, r *http.Request) {
+	user := currentUser(r)
+	rows, err := a.db.QueryContext(r.Context(), `SELECT s.mailbox_id,s.window_minutes,s.folder_ids,s.updated_at
+		FROM inbox_shares s JOIN mailboxes mb ON mb.id=s.mailbox_id
+		WHERE mb.user_id=? AND mb.status='active' ORDER BY s.updated_at DESC`, user.ID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to load inbox share summaries")
+		return
+	}
+	defer rows.Close()
+	items := []inboxShareSummary{}
+	for rows.Next() {
+		var item inboxShareSummary
+		var foldersJSON, updated string
+		if err := rows.Scan(&item.MailboxID, &item.WindowMinutes, &foldersJSON, &updated); err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to scan inbox share summaries")
+			return
+		}
+		item.FolderCount = len(jsonDecodeSlice(foldersJSON))
+		item.UpdatedAt = parseTime(updated)
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to load inbox share summaries")
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
 type sharedInboxMessage struct {
 	ID             string    `json:"id"`
 	FolderID       string    `json:"folderId"`

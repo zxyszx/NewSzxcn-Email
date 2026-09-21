@@ -102,6 +102,7 @@ func (a *App) Router() http.Handler {
 		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess)).Post("/me/forwarding/pending-bindings/{id}/retry", a.handleRetryForwardingPendingBinding)
 		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess)).Post("/me/forwarding/account", a.handleUpdateAccountForwarding)
 		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess)).Post("/me/mailboxes/{id}/forwarding", a.handleUpdateMailboxForwarding)
+		r.With(a.requireAuth, a.requirePermission(PermissionInboxShare)).Get("/me/inbox-shares", a.handleInboxShareSummaries)
 		r.With(a.requireAuth, a.requirePermission(PermissionInboxShare)).Get("/me/mailboxes/{id}/inbox-share", a.handleInboxShareSettings)
 		r.With(a.requireAuth, a.requirePermission(PermissionInboxShare)).Post("/me/mailboxes/{id}/inbox-share", a.handleCreateInboxShare)
 		r.With(a.requireAuth, a.requirePermission(PermissionInboxShare)).Put("/me/mailboxes/{id}/inbox-share", a.handleUpdateInboxShare)
