@@ -555,7 +555,7 @@ export function ProfilePage() {
     if (tab === "rules") return <RulesSection items={rules.data?.items || []} mailboxes={mailboxes.data?.items || []} labels={labels.data?.items || []} verifiedEmails={ruleVerifiedEmails} open={ruleDialogOpen} onOpenChange={setRuleDialogOpen} onCreate={(payload) => createRule.mutate(payload)} onUpdate={(id, payload) => updateRule.mutate({ id, payload })} onToggle={(item) => updateRule.mutate({ id: item.id, payload: { enabled: !item.enabled } })} onMove={(id, direction) => moveRule.mutate({ id, direction })} onApply={(id) => applyRule.mutate(id)} onDelete={(id) => deleteRule.mutate(id)} pending={createRule.isPending || updateRule.isPending || moveRule.isPending || applyRule.isPending} />
     if (tab === "blocked") return <BlockedSection items={blocked.data?.items || []} mailboxes={mailboxes.data?.items || []} mailboxId={blockedMailboxId} spamCount={canViewStats ? blockedStats.data?.byFolder.find((f) => f.role === "spam")?.count || 0 : 0} onMailboxChange={setBlockedMailboxId} onCreate={(form) => createBlocked.mutate(form)} onDelete={(id) => deleteBlocked.mutate(id)} pending={createBlocked.isPending} />
     if (tab === "stats") return <StatsSection stats={dashboardStats.data} />
-    if (tab === "apiTokens") return <ApiTokensSection items={apiTokens.data?.items || []} loading={apiTokens.isLoading} pending={createApiToken.isPending || updateApiToken.isPending || deleteApiToken.isPending} onCreate={(payload) => createApiToken.mutateAsync(payload)} onUpdate={(id, payload) => updateApiToken.mutate({ id, payload })} onDelete={(id) => deleteApiToken.mutate(id)} onCopy={copy} />
+    if (tab === "apiTokens") return <ApiTokensSection items={apiTokens.data?.items || []} loading={apiTokens.isLoading} pending={createApiToken.isPending || updateApiToken.isPending || deleteApiToken.isPending} allowSubNest={user?.role === "admin"} onCreate={(payload) => createApiToken.mutateAsync(payload)} onUpdate={(id, payload) => updateApiToken.mutate({ id, payload })} onDelete={(id) => deleteApiToken.mutate(id)} onCopy={copy} />
     return null
   }
   function visibleTabQueries(): RetryableQuery[] {
@@ -3017,12 +3017,13 @@ function ClientConfigRow({ label, value, security, onCopy }: { label: string; va
 }
 
 const apiTokenScopeOptions = [
+	["subnest:read", "SubNest 只读集成（全部邮箱，仍需独立授权）"],
   ["messages:send", "发送邮件"], ["messages:read", "读取邮件与投递状态"], ["messages:manage", "重试或取消发送"],
   ["domains:read", "查看域名"], ["domains:write", "管理域名"], ["mailboxes:read", "查看邮箱"], ["mailboxes:write", "管理邮箱"],
   ["dns:read", "查看 DNS"], ["dns:check", "执行 DNS 检测"], ["aliases:read", "查看邮件转发"], ["aliases:write", "管理邮件转发"],
 ] as const
 
-function ApiTokensSection({ items, loading, pending, onCreate, onUpdate, onDelete, onCopy }: { items: APIToken[]; loading: boolean; pending: boolean; onCreate: (payload: { name: string; expiresAt?: string; scopes: string[] }) => Promise<{ token: string; item: APIToken }>; onUpdate: (id: string, payload: { name?: string; expiresAt?: string; disabled?: boolean; scopes?: string[] }) => void; onDelete: (id: string) => void; onCopy: (text: string) => void }) {
+function ApiTokensSection({ items, loading, pending, allowSubNest, onCreate, onUpdate, onDelete, onCopy }: { items: APIToken[]; loading: boolean; pending: boolean; allowSubNest: boolean; onCreate: (payload: { name: string; expiresAt?: string; scopes: string[] }) => Promise<{ token: string; item: APIToken }>; onUpdate: (id: string, payload: { name?: string; expiresAt?: string; disabled?: boolean; scopes?: string[] }) => void; onDelete: (id: string) => void; onCopy: (text: string) => void }) {
   const [createDialogOpen, setCreateDialogOpen] = React.useState(false)
   const [createdToken, setCreatedToken] = React.useState("")
   const [pendingConfirm, setPendingConfirm] = React.useState<PendingConfirm | null>(null)
@@ -3030,6 +3031,7 @@ function ApiTokensSection({ items, loading, pending, onCreate, onUpdate, onDelet
   const [editingToken, setEditingToken] = React.useState<APIToken | null>(null)
   const [editingScopes, setEditingScopes] = React.useState<string[]>([])
   const defaultExpiresAt = React.useMemo(() => dateInputValue(new Date(Date.now() + 90 * 24 * 60 * 60 * 1000)), [])
+  const scopeOptions = allowSubNest ? apiTokenScopeOptions : apiTokenScopeOptions.filter(([scope]) => scope !== "subnest:read")
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -3112,7 +3114,7 @@ function ApiTokensSection({ items, loading, pending, onCreate, onUpdate, onDelet
             </div>
             <Field label="授权范围">
               <div className="grid gap-2 sm:grid-cols-2">
-                {apiTokenScopeOptions.map(([value, label]) => (
+                {scopeOptions.map(([value, label]) => (
                   <label key={value} className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm transition-colors hover:bg-muted/50">
                     <Checkbox checked={scopes.includes(value)} onCheckedChange={(checked) => setScopes((current) => checked === true ? [...current, value] : current.filter((scope) => scope !== value))} />
                     <span>{label}</span>
@@ -3132,7 +3134,7 @@ function ApiTokensSection({ items, loading, pending, onCreate, onUpdate, onDelet
         <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader><DialogTitle>编辑密钥权限</DialogTitle></DialogHeader>
           <div className="grid gap-2 sm:grid-cols-2">
-            {apiTokenScopeOptions.map(([value, label]) => (
+            {scopeOptions.map(([value, label]) => (
               <label key={value} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
                 <Checkbox checked={editingScopes.includes(value)} onCheckedChange={(checked) => setEditingScopes((current) => checked === true ? [...current, value] : current.filter((scope) => scope !== value))} />
                 <span>{label}</span>

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -24,6 +25,7 @@ var validAPITokenScopes = map[string]bool{
 	"messages:read":   true,
 	"messages:send":   true,
 	"messages:manage": true,
+	"subnest:read":    true,
 	"aliases:read":    true,
 	"aliases:write":   true,
 	"dns:read":        true,
@@ -96,6 +98,10 @@ func (a *App) handleCreateAPIToken(w http.ResponseWriter, r *http.Request) {
 	scopes, err := normalizeAPITokenScopes(requestedScopes)
 	if err != nil {
 		badRequest(w, err)
+		return
+	}
+	if slices.Contains(scopes, "subnest:read") && user.Role != "admin" {
+		respondError(w, http.StatusForbidden, "system admin required for subnest integration tokens")
 		return
 	}
 	id := newID("apt")
@@ -182,6 +188,10 @@ func (a *App) handleUpdateAPIToken(w http.ResponseWriter, r *http.Request) {
 			badRequest(w, err)
 			return
 		}
+	}
+	if slices.Contains(scopes, "subnest:read") && user.Role != "admin" {
+		respondError(w, http.StatusForbidden, "system admin required for subnest integration tokens")
+		return
 	}
 	res, err := a.db.ExecContext(r.Context(), `UPDATE api_tokens SET name=?,expires_at=?,disabled=?,scopes_json=?,updated_at=? WHERE id=? AND user_id=?`,
 		name, expiresValue, boolInt(disabled), jsonEncode(scopes), a.now().UTC().Format(time.RFC3339Nano), id, user.ID)

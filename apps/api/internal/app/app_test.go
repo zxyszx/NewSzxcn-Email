@@ -3844,6 +3844,10 @@ func TestOpenAPIContractCoversV1Routes(t *testing.T) {
 		"/send": {"get", "post"}, "/send/{id}": {"get"}, "/send/{id}/events": {"get"},
 		"/send/{id}/retry": {"post"}, "/send/{id}/cancel": {"post"},
 		"/aliases": {"get", "post"}, "/aliases/{id}": {"get", "post", "delete"},
+		"/subnest/mailboxes": {"get"}, "/subnest/mailboxes/{id}/folders": {"get"},
+		"/subnest/grants": {"post"}, "/subnest/grants/{id}": {"get", "put", "delete"},
+		"/subnest/grants/{id}/messages": {"get"}, "/subnest/grants/{id}/messages/{messageId}": {"get"},
+		"/subnest/grants/{id}/attachments/{attachmentId}": {"get"},
 		"/delivery-events": {"post"},
 	}
 	for route, methods := range routes {

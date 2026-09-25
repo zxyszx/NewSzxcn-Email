@@ -117,6 +117,7 @@ Each token has independent scopes. Scopes only reduce the permissions of the own
 | `messages:read` / `messages:send` / `messages:manage` | Read messages/status, send, or retry/cancel |
 | `aliases:read` / `aliases:write` | View or manage aliases |
 | `dns:read` / `dns:check` | View required records or execute DNS checks |
+| `subnest:read` | SubNest server-side read-only integration across all active mailboxes; admin only and never inherited from `*` |
 | `*` | Compatibility wildcard; avoid for new integrations |
 
 ## Permissions
@@ -132,16 +133,19 @@ All Open API endpoints require an API token with appropriate permissions and rol
 | DNS | `dns:read` or `dns:check` | admin |
 | Aliases | `aliases:read` or `aliases:write` | admin |
 | Send / status / messages | `messages:send`, `messages:read`, or `messages:manage` | user or admin |
+| SubNest read-only integration | `subnest:read` | admin |
 
 **Notes:**
 - Admin endpoints check for `requireAdminAccess` (role must be `admin`).
 - Mail sending/reading endpoints work for regular users but only for mailboxes they own.
 - Users can only read messages from their own active mailboxes.
+- `subnest:read` must be selected explicitly. Existing or newly created `*` tokens cannot call these endpoints.
 
 **说明：**
 - 域名和邮箱管理接口会检查 `requireAdminAccess`（角色必须为 `admin`）。
 - 发信/读信接口对普通用户也可用，但只能操作自己拥有的邮箱。
 - 用户只能读取自己拥有的 active 邮箱中的邮件。
+- `subnest:read` 必须由系统管理员显式选中，`*` 通配符密钥不会自动获得该权限。
 
 ## Domains
 
@@ -647,6 +651,51 @@ Response:
 Users can only read messages from their own active mailboxes. Fetch message bodies and attachment metadata with `GET /api/open/v1/messages/{id}`; download an owned attachment with `GET /api/open/v1/attachments/{id}`.
 
 用户只能读取自己拥有的 active 邮箱。
+
+## SubNest Revocable Inbox Integration / SubNest 可撤销收件箱对接
+
+This API is for the **SubNest server only**. Never place the `lq_...` token in browser JavaScript, a public URL, an iframe URL, logs, or analytics. Create an admin token in **Profile / Developer / API keys** and select only `subnest:read`.
+
+这组接口只能由 **SubNest 服务端**调用。不得把 `lq_...` 密钥放入浏览器 JavaScript、公开链接、iframe 地址、日志或统计系统。系统管理员在 **个人中心 / 开发者 / API 密钥** 中创建密钥，并且只选 `subnest:read`。
+
+Recommended flow:
+
+1. SubNest lists mailboxes with `GET /api/open/v1/subnest/mailboxes`, then lists a mailbox's folders with `GET /api/open/v1/subnest/mailboxes/{mailboxId}/folders`.
+2. When a SubNest short link is enabled, its server creates a grant with `POST /api/open/v1/subnest/grants`. Use SubNest's stable internal link id as `externalGrantId`.
+3. For every visitor request, the SubNest server calls the grant-specific message, detail, or attachment endpoint. NewSzxcn Email revalidates token, administrator status, permissions, grant status, mailbox, folder, time window, and optional expiry on every request.
+4. SubNest renders its own page and returns only the required message data to the browser. It never returns the API token or any legacy NewSzxcn shared-inbox token.
+5. Resetting a SubNest link revokes the old grant with `DELETE /api/open/v1/subnest/grants/{grantId}`, then creates a new grant with a new `externalGrantId`. The old grant immediately returns `403` for list, detail, and attachment requests.
+6. Editing folders or the visible time window without changing the public short link uses `PUT /api/open/v1/subnest/grants/{grantId}`.
+
+Create a grant:
+
+```http
+POST /api/open/v1/subnest/grants
+Authorization: Bearer lq_xxx
+Content-Type: application/json
+
+{
+  "externalGrantId": "subnest-link-7f03c1",
+  "mailboxId": "mbx_xxx",
+  "folderIds": ["fld_inbox"],
+  "windowMinutes": 30,
+  "expiresAt": "2026-10-25T12:00:00Z"
+}
+```
+
+`externalGrantId` is the idempotency key. Repeating an identical create request returns the same grant with `200`; reusing it with different settings returns `409`. Allowed `windowMinutes` values are `0` (all mail), `30`, `60`, `360`, `1440`, and `10080`.
+
+Read through the grant:
+
+```http
+GET /api/open/v1/subnest/grants/{grantId}/messages?limit=30&cursor=0
+GET /api/open/v1/subnest/grants/{grantId}/messages/{messageId}
+GET /api/open/v1/subnest/grants/{grantId}/attachments/{attachmentId}
+```
+
+All responses use `Cache-Control: no-store, private`, `Referrer-Policy: no-referrer`, and `X-Content-Type-Options: nosniff`. Message HTML is untrusted email content; SubNest must sanitize it and render it in a script-disabled isolated container. It must also apply its own visitor rate limit and must not persist message bodies longer than required for the active response.
+
+所有请求都必须在 SubNest 后端完成。邮件 HTML 是不可信内容，SubNest 必须清洗后放在禁用脚本的隔离容器中显示，并对访客访问单独限流。
 
 ## Additional V1 Endpoints / 其他 V1 接口
 

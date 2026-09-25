@@ -397,6 +397,34 @@ func (a *App) migrate(ctx context.Context) error {
 			updated_at TEXT NOT NULL,
 			last_accessed_at TEXT NOT NULL DEFAULT ''
 		)`,
+		`CREATE TABLE IF NOT EXISTS inbox_integration_grants (
+			id TEXT PRIMARY KEY,
+			provider TEXT NOT NULL,
+			external_grant_id TEXT NOT NULL,
+			mailbox_id TEXT NOT NULL REFERENCES mailboxes(id) ON DELETE CASCADE,
+			folder_ids TEXT NOT NULL DEFAULT '[]',
+			window_minutes INTEGER NOT NULL DEFAULT 30,
+			status TEXT NOT NULL DEFAULT 'active',
+			created_by TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			expires_at TEXT NOT NULL DEFAULT '',
+			revoked_at TEXT NOT NULL DEFAULT '',
+			last_accessed_at TEXT NOT NULL DEFAULT '',
+			UNIQUE(provider, created_by, external_grant_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_inbox_integration_grants_mailbox ON inbox_integration_grants(mailbox_id,status)`,
+		`CREATE TABLE IF NOT EXISTS inbox_integration_audit (
+			id TEXT PRIMARY KEY,
+			provider TEXT NOT NULL,
+			grant_id TEXT NOT NULL,
+			mailbox_id TEXT NOT NULL,
+			action TEXT NOT NULL,
+			resource_id TEXT NOT NULL DEFAULT '',
+			created_by TEXT NOT NULL,
+			created_at TEXT NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_inbox_integration_audit_grant_created ON inbox_integration_audit(grant_id,created_at DESC)`,
 		`CREATE TABLE IF NOT EXISTS messages (
 			id TEXT PRIMARY KEY,
 			mailbox_id TEXT REFERENCES mailboxes(id) ON DELETE CASCADE,

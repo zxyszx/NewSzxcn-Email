@@ -285,6 +285,18 @@ func (a *App) registerOpenAPIRoutes(r chi.Router) {
 	r.With(a.requireAPITokenScope("aliases:read"), a.requireAdminAccess, a.requirePermission(PermissionAliasesView)).Get("/aliases/{id}", a.handleOpenAPIGetAlias)
 	r.With(a.requireAPITokenScope("aliases:write"), a.requireAdminAccess, a.requirePermission(PermissionAliasesUpdate)).Post("/aliases/{id}", a.handleUpdateAlias)
 	r.With(a.requireAPITokenScope("aliases:write"), a.requireAdminAccess, a.requirePermission(PermissionAliasesDelete)).Delete("/aliases/{id}", a.handleDeleteAlias)
+	r.Route("/subnest", func(r chi.Router) {
+		r.Use(subNestSecurityHeaders, a.requireAPITokenScope("subnest:read"), requireSystemAdminRole, a.requireAdminAccess)
+		r.With(a.requireAnyPermission(PermissionMailboxesView, PermissionMessagesView)).Get("/mailboxes", a.handleSubNestMailboxes)
+		r.With(a.requireAnyPermission(PermissionMailboxesView, PermissionMessagesView)).Get("/mailboxes/{id}/folders", a.handleSubNestFolders)
+		r.With(a.requirePermission(PermissionMessagesRead)).Post("/grants", a.handleCreateSubNestGrant)
+		r.With(a.requirePermission(PermissionMessagesRead)).Get("/grants/{id}", a.handleGetSubNestGrant)
+		r.With(a.requirePermission(PermissionMessagesRead)).Put("/grants/{id}", a.handleUpdateSubNestGrant)
+		r.With(a.requirePermission(PermissionMessagesRead)).Delete("/grants/{id}", a.handleRevokeSubNestGrant)
+		r.With(a.requirePermission(PermissionMessagesRead)).Get("/grants/{id}/messages", a.handleSubNestMessages)
+		r.With(a.requirePermission(PermissionMessagesRead)).Get("/grants/{id}/messages/{messageId}", a.handleSubNestMessage)
+		r.With(a.requirePermission(PermissionMessagesAttachment)).Get("/grants/{id}/attachments/{attachmentId}", a.handleSubNestAttachment)
+	})
 }
 
 func (a *App) corsMiddleware(next http.Handler) http.Handler {
@@ -333,7 +345,10 @@ func (a *App) requireAPITokenScope(scope string) func(http.Handler) http.Handler
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			scopes, _ := r.Context().Value(apiTokenScopesContextKey).(map[string]bool)
-			if !scopes["*"] && !scopes[scope] {
+			// Reading every mailbox is intentionally never inherited from legacy
+			// wildcard tokens; it must be granted explicitly to a SubNest token.
+			allowed := scopes[scope] || (scope != "subnest:read" && scopes["*"])
+			if !allowed {
 				respondError(w, http.StatusForbidden, "api token scope required: "+scope)
 				return
 			}
