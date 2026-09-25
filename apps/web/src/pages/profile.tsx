@@ -3064,11 +3064,11 @@ function ApiTokensSection({ items, loading, pending, allowSubNest, onCreate, onU
         </div>
         <div className="space-y-2 border-t px-4 py-4">
         {createdToken && (
-          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950">
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950 dark:border-amber-300/40 dark:bg-amber-300/10 dark:text-amber-100">
             <div className="flex items-center gap-2 text-sm font-semibold"><KeyRound className="h-4 w-4" />只显示一次</div>
             <div className="mt-2 flex min-w-0 flex-col gap-2 sm:flex-row">
-              <code className="min-w-0 flex-1 overflow-x-auto rounded border bg-background px-3 py-2 text-xs">{createdToken}</code>
-              <Button type="button" variant="outline" size="sm" onClick={() => onCopy(createdToken)}><Copy className="h-4 w-4" />复制</Button>
+              <code className="min-w-0 flex-1 overflow-x-auto rounded border border-amber-300/70 bg-white px-3 py-2 font-mono text-xs text-slate-950 dark:border-amber-200/25 dark:bg-black/30 dark:text-amber-50">{createdToken}</code>
+              <Button type="button" variant="outline" size="sm" className="border-amber-400/70 bg-white text-amber-950 hover:bg-amber-100 hover:text-amber-950 dark:border-amber-200/30 dark:bg-black/25 dark:text-amber-50 dark:hover:bg-amber-200/15 dark:hover:text-amber-50" onClick={() => onCopy(createdToken)}><Copy className="h-4 w-4" />复制</Button>
             </div>
           </div>
         )}
