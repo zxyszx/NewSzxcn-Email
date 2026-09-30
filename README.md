@@ -1,3 +1,17 @@
+
+关于项目来源
+
+NewSzxcn-Email 基于开源项目 LanQin-Email 进行二次开发。
+
+原项目：
+https://github.com/LanQin996/LanQin-Email
+
+感谢原作者提供的开源项目和基础架构。
+
+此前帖子更新时误删了项目来源说明，且原帖目前无法修改，因此通过置顶内容重新补充说明。
+
+NewSzxcn-Email 并非从零开发，部分基础功能来源于 LanQin-Email，并在此基础上进行了持续修改和扩展。
+
 # NewSzxcn-Email
 
 NewSzxcn-Email 是一个可自建、可管理、带完整 Webmail 与管理后台的开源邮箱系统。
