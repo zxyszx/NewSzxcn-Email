@@ -9,6 +9,8 @@ import (
 )
 
 type Config struct {
+	FCMProjectID                    string
+	FCMCredentialsFile              string
 	Addr                            string
 	AppVersion                      string
 	DBPath                          string
@@ -76,6 +78,8 @@ type Config struct {
 func LoadConfig() Config {
 	dataDir := getenv("LANQIN_DATA_DIR", "./data")
 	return Config{
+		FCMProjectID:                    getenv("NEWSZXCN_FCM_PROJECT_ID", ""),
+		FCMCredentialsFile:              getenv("NEWSZXCN_FCM_CREDENTIALS_FILE", ""),
 		Addr:                            getenv("LANQIN_ADDR", ":8080"),
 		AppVersion:                      getenv("LANQIN_APP_VERSION", BuildVersion),
 		DBPath:                          getenv("LANQIN_DB_PATH", filepath.Join(dataDir, "lanqin.db")),

@@ -37,6 +37,7 @@ type AttachmentInput struct {
 }
 
 type storedMessage struct {
+	NotifyPush     bool
 	MailboxID      string
 	FolderID       string
 	RecipientAddr  string
@@ -1358,6 +1359,7 @@ func (a *App) sendMailWithSource(ctx context.Context, user *User, mb *Mailbox, r
 		copyMsg.RecipientAddr = normalizeEmail(rcpt)
 		copyMsg.MessageUID = newID("uid")
 		copyMsg.IsRead = false
+		copyMsg.NotifyPush = true
 		if inboxMsgID, err := a.insertMessage(ctx, copyMsg, req.Attachments); err == nil {
 			_ = a.writeStoredMessageToMaildir(ctx, inboxMsgID, copyMsg, req.Attachments)
 			a.applyInboundControls(ctx, inboxMsgID, rcptMailbox.ID, copyMsg.From, copyMsg.Subject)
@@ -1365,6 +1367,7 @@ func (a *App) sendMailWithSource(ctx context.Context, user *User, mb *Mailbox, r
 			if a.shouldNotifyTelegramMessage(ctx, inboxMsgID) {
 				a.enqueueTelegramMailNotification(ctx, inboxMsgID, copyMsg, req.Attachments)
 			}
+			a.notifyMailboxChanged(ctx, rcptMailbox.ID)
 		}
 	}
 
@@ -2571,30 +2574,6 @@ func (a *App) handleAdminAttachment(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(w, f)
 }
 
-func (a *App) handleEvents(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	flusher, _ := w.(http.Flusher)
-	fmt.Fprintf(w, "event: sync\ndata: {\"status\":\"connected\"}\n\n")
-	if flusher != nil {
-		flusher.Flush()
-	}
-	ticker := time.NewTicker(25 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-r.Context().Done():
-			return
-		case t := <-ticker.C:
-			fmt.Fprintf(w, "event: heartbeat\ndata: {\"time\":\"%s\"}\n\n", t.UTC().Format(time.RFC3339))
-			if flusher != nil {
-				flusher.Flush()
-			}
-		}
-	}
-}
-
 func (a *App) mailboxForCurrentUser(r *http.Request) (*Mailbox, error) {
 	return a.mailboxForCurrentUserWithID(r, r.URL.Query().Get("mailboxId"))
 }
@@ -2667,6 +2646,22 @@ func (a *App) messageByID(ctx context.Context, id string, includeBody bool) (*Ma
 }
 
 func (a *App) insertMessage(ctx context.Context, msg storedMessage, attachments []AttachmentInput) (string, error) {
+	if msg.NotifyPush {
+		tx, err := a.db.BeginTx(ctx, nil)
+		if err != nil {
+			return "", err
+		}
+		defer tx.Rollback()
+		id, err := a.insertMessageWithDB(ctx, tx, msg, attachments)
+		if err != nil {
+			return "", err
+		}
+		if err := tx.Commit(); err != nil {
+			_ = os.RemoveAll(filepath.Join(a.config().DataDir, "attachments", id))
+			return "", err
+		}
+		return id, nil
+	}
 	return a.insertMessageWithDB(ctx, a.db, msg, attachments)
 }
 
@@ -2708,14 +2703,15 @@ func (a *App) insertMessageWithDB(ctx context.Context, db dbExecutor, msg stored
 	}
 	recipientAddr := normalizeEmail(msg.RecipientAddr)
 	auth := normalizeMailAuthentication(msg.Authentication)
-	_, err := db.ExecContext(ctx, `INSERT INTO messages(id,mailbox_id,folder_id,recipient_addr,message_uid,message_id,subject,from_addr,from_name,to_addrs,cc_addrs,bcc_addrs,sent_at,received_at,snippet,body_text,body_html,is_read,is_starred,has_attachments,size_bytes,auth_results,auth_spf,auth_dkim,auth_dmarc,received_spf,raw_path,imap_uid,imap_modseq,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, mailboxID, folderID, recipientAddr, msg.MessageUID, msg.MessageID, msg.Subject, msg.From, msg.FromName, jsonEncode(msg.To), jsonEncode(msg.CC), jsonEncode(msg.BCC), msg.SentAt.Format(time.RFC3339Nano), msg.ReceivedAt.Format(time.RFC3339Nano), msg.Snippet, msg.BodyText, msg.BodyHTML, boolInt(msg.IsRead), boolInt(msg.IsStarred), boolInt(hasAttachments), size, auth.AuthenticationResults, auth.SPF, auth.DKIM, auth.DMARC, auth.ReceivedSPF, msg.RawPath, imapUID, imapModSeq, now, now)
+	_, err := db.ExecContext(ctx, `INSERT INTO messages(id,mailbox_id,folder_id,recipient_addr,message_uid,message_id,subject,from_addr,from_name,to_addrs,cc_addrs,bcc_addrs,sent_at,received_at,snippet,body_text,body_html,is_read,is_starred,has_attachments,size_bytes,auth_results,auth_spf,auth_dkim,auth_dmarc,received_spf,raw_path,imap_uid,imap_modseq,created_at,updated_at,push_eligible)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, mailboxID, folderID, recipientAddr, msg.MessageUID, msg.MessageID, msg.Subject, msg.From, msg.FromName, jsonEncode(msg.To), jsonEncode(msg.CC), jsonEncode(msg.BCC), msg.SentAt.Format(time.RFC3339Nano), msg.ReceivedAt.Format(time.RFC3339Nano), msg.Snippet, msg.BodyText, msg.BodyHTML, boolInt(msg.IsRead), boolInt(msg.IsStarred), boolInt(hasAttachments), size, auth.AuthenticationResults, auth.SPF, auth.DKIM, auth.DMARC, auth.ReceivedSPF, msg.RawPath, imapUID, imapModSeq, now, now, boolInt(msg.NotifyPush))
 	if err != nil {
 		return "", err
 	}
 	for _, att := range attachments {
 		if err := a.storeAttachmentWithDB(ctx, db, id, att); err != nil {
-			a.deleteMessageFiles(ctx, id)
+			// The ID is generated here; cleanup must not query outside an open transaction.
+			_ = os.RemoveAll(filepath.Join(a.config().DataDir, "attachments", id))
 			return "", err
 		}
 	}

@@ -342,6 +342,13 @@ func maildirFolderPath(base, folder string) string {
 }
 
 func (a *App) syncMaildirFile(ctx context.Context, mb maildirMailbox, folder maildirFolder, path string) (bool, error) {
+	// Maildir bodies are immutable; known paths only need flag/folder reconciliation.
+	read, starred := maildirFlagsFromPath(path, folder.Name)
+	if handled, err := a.syncExistingMaildirMessageState(ctx, mb.ID, folder.ID, path, "", read, starred); err != nil {
+		return false, err
+	} else if handled {
+		return false, nil
+	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return false, err
@@ -385,6 +392,7 @@ func (a *App) syncMaildirFile(ctx context.Context, mb maildirMailbox, folder mai
 	} else if handled {
 		return false, nil
 	}
+	msg.NotifyPush = strings.EqualFold(folder.Name, "Inbox")
 	id, err := a.insertMessage(ctx, msg, attachments)
 	if err == nil && strings.EqualFold(folder.Name, "Inbox") {
 		a.applyInboundControls(ctx, id, mb.ID, msg.From, msg.Subject)
@@ -392,6 +400,9 @@ func (a *App) syncMaildirFile(ctx context.Context, mb maildirMailbox, folder mai
 		if a.shouldNotifyTelegramMessage(ctx, id) {
 			a.enqueueTelegramMailNotification(ctx, id, msg, attachments)
 		}
+	}
+	if err == nil {
+		a.notifyMailboxChanged(ctx, mb.ID)
 	}
 	return err == nil, err
 }
@@ -434,6 +445,9 @@ func (a *App) syncExistingMaildirMessageState(ctx context.Context, mailboxID, fo
 			_, err = a.db.ExecContext(ctx, `UPDATE messages SET folder_id=?,raw_path=?,is_read=?,is_starred=?,imap_uid=?,imap_modseq=?,updated_at=? WHERE id=?`,
 				folderID, rawPath, boolInt(read), boolInt(starred), meta.UID, meta.ModSeq, now, samePathID)
 			return err == nil, err
+		}
+		if oldRead == boolInt(read) && oldStarred == boolInt(starred) {
+			return true, nil
 		}
 		modSeq := oldModSeq
 		if oldRead != boolInt(read) || oldStarred != boolInt(starred) {

@@ -32,6 +32,9 @@ type App struct {
 	workerCancel       context.CancelFunc
 	workerWG           sync.WaitGroup
 	maildirHealth      *maildirSyncHealthTracker
+	mailEvents         mailEventHub
+	pushSender         pushSender
+	pushMu             sync.Mutex
 	externalIMAP       externalIMAPClientFactory
 	turnstileURL       string
 	telegramURL        string
@@ -103,6 +106,14 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := a.migratePush(context.Background()); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := a.configurePush(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := a.ensureDefaultMailTemplates(context.Background()); err != nil {
 		db.Close()
 		return nil, err
@@ -143,6 +154,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	a.startWorker(func() { a.smtpEventsCleanupWorker(workerCtx) })
 	a.startWorker(func() { a.statusWebhookWorker(workerCtx) })
 	a.startWorker(func() { a.telegramMailWorker(workerCtx) })
+	a.startWorker(func() { a.pushWorker(workerCtx) })
 	a.startWorker(func() { a.backupScheduleWorker(workerCtx) })
 	return a, nil
 }

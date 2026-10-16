@@ -1172,6 +1172,7 @@ func (a *App) syncExternalIMAPFolder(ctx context.Context, account externalIMAPAc
 		stored.FolderID = localFolderID
 		stored.RecipientAddr = account.Username
 		stored.IsRead = item.IsRead
+		stored.NotifyPush = state.Initialized && strings.EqualFold(localFolderName, "Inbox")
 		msgID, err := a.insertExternalIMAPMessageOnce(ctx, account, folder.Name, item, stored, attachments)
 		if err != nil {
 			failed++
@@ -1184,6 +1185,7 @@ func (a *App) syncExternalIMAPFolder(ctx context.Context, account externalIMAPAc
 			if state.Initialized && strings.EqualFold(localFolderName, "Inbox") {
 				a.enqueueTelegramMailNotification(ctx, msgID, stored, attachments)
 			}
+			a.notifyMailboxChanged(ctx, account.MailboxID)
 			imported++
 		} else {
 			skipped++

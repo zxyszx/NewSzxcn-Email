@@ -80,6 +80,8 @@ func (a *App) Router() http.Handler {
 		r.Post("/auth/login", a.handleLogin)
 		r.Post("/auth/logout", a.handleLogout)
 		r.With(a.requireAuth).Get("/me", a.handleMe)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailRead)).Post("/me/push-devices", a.handleRegisterPushDevice)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailRead)).Get("/me/push-events/{eventID}", a.handlePushPreview)
 		r.With(a.requireAuth).Post("/me/profile", a.handleUpdateProfile)
 		r.With(a.requireAuth).Post("/me/password", a.handleChangePassword)
 		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess)).Get("/me/telegram", a.handleUserTelegramSettings)
@@ -140,7 +142,7 @@ func (a *App) Router() http.Handler {
 		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess), a.requireExternalIMAPEnabled).Post("/me/external-imap-accounts/{id}/sync-folder", a.handleSyncExternalIMAPFolder)
 		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess), a.requireExternalIMAPEnabled).Post("/me/external-imap-oauth/{provider}/start", a.handleStartExternalIMAPOAuth)
 		r.With(a.requireExternalIMAPEnabled).Get("/external-imap-oauth/{provider}/callback", a.handleExternalIMAPOAuthCallback)
-		r.With(a.requireAuth).Get("/events", a.handleEvents)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailRead)).Get("/events", a.handleEvents)
 
 		r.Post("/open/v1/delivery-events", a.handleOpenAPIDeliveryWebhook)
 		r.Route("/open", func(r chi.Router) { a.registerOpenAPIRoutes(r) })

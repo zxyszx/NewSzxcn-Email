@@ -5921,6 +5921,11 @@ func TestMaildirSyncImportsRFC822(t *testing.T) {
 	if admin.ID == "" {
 		t.Fatal("admin mailbox not found")
 	}
+	changes, unsubscribe, ok := a.mailEvents.subscribe(adminUser.ID)
+	if !ok {
+		t.Fatal("mail event subscription failed")
+	}
+	defer unsubscribe()
 
 	dir := filepath.Join(root, admin.Domain, admin.LocalPart, "Maildir", "new")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -5948,12 +5953,22 @@ func TestMaildirSyncImportsRFC822(t *testing.T) {
 	if count != 1 {
 		t.Fatalf("imported=%d, want 1", count)
 	}
+	select {
+	case <-changes:
+	default:
+		t.Fatal("imported mail did not notify its owner")
+	}
 	count, err = a.syncMaildirOnce(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if count != 0 {
 		t.Fatalf("second import=%d, want duplicate skip", count)
+	}
+	select {
+	case <-changes:
+		t.Fatal("duplicate mail import generated another event")
+	default:
 	}
 
 	var subject, body string

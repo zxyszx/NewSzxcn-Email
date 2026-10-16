@@ -35,7 +35,7 @@ import { useToast } from "@/hooks/use-toast"
 
 type Tab = "profile" | "mailboxes" | "contacts" | "cleanup" | "cleanupQueue" | "rules" | "blocked" | "stats" | "apiTokens"
 type AccountSettingsTab = "account" | "mail" | "clients" | "security" | "appearance"
-type MailboxView = "mine" | "forwarding" | "verified"
+type MailboxView = "mine" | "external" | "forwarding" | "verified"
 type PendingConfirm = { title: string; description?: string; confirmText: string; destructive?: boolean; onConfirm: () => void }
 type RetryableQuery = { isLoading: boolean; isError: boolean; error: Error | null; refetch: () => Promise<unknown> }
 const tabs: Record<Tab, { label: string; icon: React.ReactNode }> = {
@@ -123,7 +123,7 @@ export function ProfilePage() {
   const selectedMailbox = React.useMemo(() => mailboxes.data?.items.find((m) => m.id === mailboxId), [mailboxes.data?.items, mailboxId])
   const activeMailboxId = selectedMailbox?.id || ""
   const externalImapEnabled = publicSettings.data?.externalImapEnabled ?? false
-  const externalImapAccounts = useQuery({ queryKey: ["external-imap-accounts", activeMailboxId], queryFn: () => api.externalImapAccounts(activeMailboxId), enabled: tab === "mailboxes" && !!activeMailboxId && canAccessMail && externalImapEnabled })
+  const externalImapAccounts = useQuery({ queryKey: ["external-imap-accounts"], queryFn: () => api.externalImapAccounts(), enabled: tab === "mailboxes" && canAccessMail && externalImapEnabled })
   React.useEffect(() => {
     if (!externalRunAccountId) return
     if (externalImapAccounts.data?.items.some((item) => item.id === externalRunAccountId)) return
@@ -531,6 +531,7 @@ export function ProfilePage() {
         selectedMailboxId={mailboxId}
         externalImapEnabled={externalImapEnabled}
         externalAccounts={externalImapAccounts.data?.items || []}
+        externalQuery={externalImapAccounts}
         externalPending={createExternalImap.isPending || updateExternalImap.isPending || deleteExternalImap.isPending || testExternalImap.isPending || syncExternalImap.isPending || syncExternalImapFolder.isPending || startExternalOAuth.isPending}
         selectedExternalRunAccountId={externalRunAccountId}
         externalRunFolders={externalRunFolders.data?.items || []}
@@ -540,9 +541,9 @@ export function ProfilePage() {
         onOpen={(id) => { if (!canAccessMail) return; setMailboxId(id); navigate("/") }}
         onApply={(payload) => applyMailbox.mutateAsync(payload).then(() => undefined)}
         onConfigureApply={() => navigate("/admin?section=settings&settingsTab=mail")}
-        onCreateExternal={(payload) => createExternalImap.mutate(payload)}
+        onCreateExternal={(payload) => createExternalImap.mutateAsync(payload)}
         onStartExternalOAuth={(provider, payload) => startExternalOAuth.mutate({ provider, ...payload })}
-        onUpdateExternal={(id, payload) => updateExternalImap.mutate({ id, payload })}
+        onUpdateExternal={(id, payload) => updateExternalImap.mutateAsync({ id, payload })}
         onDeleteExternal={(id) => deleteExternalImap.mutate(id)}
         onTestExternal={(id) => testExternalImap.mutate(id)}
         onSyncExternal={(id) => syncExternalImap.mutate(id)}
@@ -1246,6 +1247,7 @@ function MailboxManagement({
   selectedMailboxId,
   externalImapEnabled,
   externalAccounts,
+  externalQuery,
   externalPending,
   selectedExternalRunAccountId,
   externalRunFolders,
@@ -1271,6 +1273,7 @@ function MailboxManagement({
   selectedMailboxId: string
   externalImapEnabled: boolean
   externalAccounts: ExternalImapAccount[]
+  externalQuery: RetryableQuery
   externalPending: boolean
   selectedExternalRunAccountId: string
   externalRunFolders: ExternalImapFolder[]
@@ -1280,9 +1283,9 @@ function MailboxManagement({
   onOpen: (id: string) => void
   onApply: (payload: { domainId: string; localPart: string; displayName: string }) => Promise<void>
   onConfigureApply: () => void
-  onCreateExternal: (payload: ExternalImapAccountPayload) => void
+  onCreateExternal: (payload: ExternalImapAccountPayload) => Promise<unknown>
   onStartExternalOAuth: (provider: ExternalImapOAuthProvider, payload: { mailboxId: string; email: string; storageMode: ExternalImapStorageMode }) => void
-  onUpdateExternal: (id: string, payload: ExternalImapAccountPayload) => void
+  onUpdateExternal: (id: string, payload: ExternalImapAccountPayload) => Promise<unknown>
   onDeleteExternal: (id: string) => void
   onTestExternal: (id: string) => void
   onSyncExternal: (id: string) => void
@@ -1293,7 +1296,7 @@ function MailboxManagement({
   const isMobile = useIsMobile()
   const [mailboxViewParams, setMailboxViewParams] = useSearchParams()
   const rawMailboxView = mailboxViewParams.get("mailboxView")
-  const mailboxView: MailboxView = rawMailboxView === "forwarding" || rawMailboxView === "verified" ? rawMailboxView : "mine"
+  const mailboxView: MailboxView = rawMailboxView === "external" || rawMailboxView === "forwarding" || rawMailboxView === "verified" ? rawMailboxView : "mine"
   const canApply = !!applyOptions?.enabled && (applyOptions.domains || []).length > 0
   const [domainId, setDomainId] = React.useState(() => applyOptions?.domains?.[0]?.id || "")
   const [localPart, setLocalPart] = React.useState("")
@@ -1314,6 +1317,7 @@ function MailboxManagement({
   const [mobileCreateOpen, setMobileCreateOpen] = React.useState(false)
   const [pendingVerifiedDelete, setPendingVerifiedDelete] = React.useState<ForwardingVerifiedEmail | null>(null)
   const [pendingExternalDelete, setPendingExternalDelete] = React.useState<ExternalImapAccount | null>(null)
+  const [externalSearch, setExternalSearch] = React.useState("")
   const [sharingMailbox, setSharingMailbox] = React.useState<Mailbox | null>(null)
   const [shareWindowMinutes, setShareWindowMinutes] = React.useState(30)
   const [shareFolderIds, setShareFolderIds] = React.useState<string[]>([])
@@ -1819,12 +1823,18 @@ function MailboxManagement({
         </div>
       </section>}
 
-      {mailboxView === "mine" && externalImapEnabled && (
+      {mailboxView === "external" && !externalImapEnabled && (
+        <section className="rounded-lg border bg-card px-4 py-6 sm:px-6">
+          <h2 className="font-semibold">外部邮箱尚未启用</h2>
+          <p className="mt-2 text-sm text-muted-foreground">请联系管理员开启外部邮箱接入，并配置凭据加密密钥。现有邮箱不受影响。</p>
+        </section>
+      )}
+      {mailboxView === "external" && externalImapEnabled && (
         <section className="rounded-lg border bg-card">
-          <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6">
             <div>
               <h2 className="text-lg font-semibold leading-7">外部邮箱</h2>
-              <p className="text-sm text-muted-foreground">{selectedMailbox ? `同步到 ${selectedMailbox.address}` : "请先选择邮箱"}</p>
+              <p className="text-sm text-muted-foreground">{externalAccounts.length} 个账号 · IMAP 收信</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <ExternalImapOAuthDialog provider="gmail" selectedMailbox={selectedMailbox} disabled={!selectedMailbox} pending={externalPending} onStart={onStartExternalOAuth} />
@@ -1832,11 +1842,22 @@ function MailboxManagement({
               <ExternalImapDialog mailboxId={selectedMailbox?.id || ""} disabled={!selectedMailbox || externalPending} pending={externalPending} onSubmit={onCreateExternal} />
             </div>
           </div>
+          <div className="grid gap-3 border-t px-4 py-4 sm:grid-cols-2 sm:px-6">
+            <Field label="新增账号的接收邮箱">
+              <Select value={selectedMailbox?.id || ""} onValueChange={onSelect} disabled={!mailboxes.length || externalPending}>
+                <SelectTrigger aria-label="新增账号的接收邮箱"><SelectValue placeholder="请先创建一个自建邮箱" /></SelectTrigger>
+                <SelectContent>{mailboxes.map((mailbox) => <SelectItem key={mailbox.id} value={mailbox.id}>{mailbox.address}</SelectItem>)}</SelectContent>
+              </Select>
+            </Field>
+            <Field label="搜索外部邮箱"><Input type="search" aria-label="搜索外部邮箱" value={externalSearch} onChange={(event) => setExternalSearch(event.target.value)} placeholder="名称、邮箱或服务器" /></Field>
+          </div>
+          {externalQuery.isLoading && <div className="px-4 py-6 text-sm text-muted-foreground" role="status">正在加载外部邮箱…</div>}
+          {externalQuery.isError && <div className="flex items-center justify-between gap-3 px-4 py-4 text-sm" role="alert"><span>外部邮箱加载失败，请重试。</span><Button type="button" variant="outline" onClick={() => void externalQuery.refetch()}>重试</Button></div>}
           <div className="divide-y border-t">
-            {externalAccounts.map((account) => {
+            {externalAccounts.filter((account) => `${account.name} ${account.username} ${account.host}`.toLowerCase().includes(externalSearch.trim().toLowerCase())).map((account) => {
               const expanded = selectedExternalRunAccountId === account.id
               return (
-                <div key={account.id} className="px-6 py-4">
+                <div key={account.id} className="px-4 py-4 sm:px-6">
                   <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
@@ -1846,12 +1867,13 @@ function MailboxManagement({
                         <Badge variant={account.lastStatus === "error" ? "destructive" : "outline"}>{externalStatusLabel(account.lastStatus)}</Badge>
                       </div>
                       <div className="mt-1 truncate text-sm text-muted-foreground">{account.username} · {account.host}:{account.port} · {account.storageMode === "local" ? "同步到本地" : "远端直连"}</div>
+                      <div className="mt-1 break-all text-xs text-muted-foreground">接收邮箱：{mailboxes.find((mailbox) => mailbox.id === account.mailboxId)?.address || "不可用"}{account.lastSyncAt ? ` · 最近同步 ${formatDateTime(account.lastSyncAt)}` : ""}</div>
                       {account.lastError && <div className="mt-1 truncate text-xs text-destructive">{account.lastError}</div>}
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {account.authMode !== "oauth2" && <ExternalImapDialog account={account} mailboxId={account.mailboxId} disabled={externalPending} pending={externalPending} onSubmit={(payload) => onUpdateExternal(account.id, payload)} />}
                       <Button type="button" variant="outline" size="sm" disabled={externalPending} onClick={() => onTestExternal(account.id)}>测试</Button>
-                      <Button type="button" variant="outline" size="sm" disabled={externalPending || !account.enabled} onClick={() => onSyncExternal(account.id)}><RefreshCcw className="h-4 w-4" />同步</Button>
+                      <Button type="button" variant="outline" size="sm" disabled={externalPending || !account.enabled || account.storageMode !== "local"} onClick={() => onSyncExternal(account.id)} title={account.storageMode === "remote" ? "远端直连无需本地同步" : "立即同步邮件"}><RefreshCcw className="h-4 w-4" />同步</Button>
                       <Button type="button" variant="outline" size="sm" disabled={externalPending} onClick={() => onSelectExternalRunAccount(expanded ? "" : account.id)}>{expanded ? "收起" : "详情"}</Button>
                       <Button type="button" variant="ghost" size="icon" className="size-8 text-destructive hover:text-destructive" disabled={externalPending} onClick={() => setPendingExternalDelete(account)} aria-label={`删除 ${account.name || account.username}`}><Trash2 className="h-4 w-4" /></Button>
                     </div>
@@ -1860,7 +1882,8 @@ function MailboxManagement({
                 </div>
               )
             })}
-            {externalAccounts.length === 0 && <div className="px-6 py-10 text-center text-sm text-muted-foreground">当前邮箱尚未添加外部账号</div>}
+            {!externalQuery.isLoading && !externalQuery.isError && externalAccounts.length === 0 && <div className="px-4 py-8 text-center text-sm text-muted-foreground">尚未添加外部邮箱</div>}
+            {externalSearch.trim() && externalAccounts.length > 0 && !externalAccounts.some((account) => `${account.name} ${account.username} ${account.host}`.toLowerCase().includes(externalSearch.trim().toLowerCase())) && <div className="px-4 py-6 text-center text-sm text-muted-foreground" role="status">没有匹配的外部邮箱</div>}
           </div>
         </section>
       )}
@@ -2203,11 +2226,12 @@ function MailboxManagement({
 function MailboxViewTabs({ value, onChange, pendingCount }: { value: MailboxView; onChange: (view: MailboxView) => void; pendingCount: number }) {
   const items: { key: MailboxView; label: string }[] = [
     { key: "mine", label: "我的邮箱" },
+    { key: "external", label: "外部邮箱" },
     { key: "forwarding", label: "邮件转发" },
     { key: "verified", label: "验证邮箱" },
   ]
   return (
-    <div className="grid grid-cols-3 px-2 sm:px-4" role="tablist" aria-label="邮箱管理视图">
+    <div className="grid grid-cols-4 px-1 sm:px-4" role="tablist" aria-label="邮箱管理视图">
       {items.map((item) => (
         <Button
           key={item.key}
@@ -2392,7 +2416,7 @@ function ExternalImapOAuthDialog({ provider, selectedMailbox, disabled, pending,
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <Button type="button" variant="outline" disabled={disabled || pending} onClick={() => setOpen(true)}>{label}</Button>
+      <Button type="button" variant="outline" size="sm" disabled={disabled || pending} onClick={() => setOpen(true)}>{provider === "gmail" ? "Gmail" : "Outlook"}</Button>
       <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-lg">
         <DialogHeader><DialogTitle>{label}</DialogTitle></DialogHeader>
         <form className="space-y-4" onSubmit={submit}>
@@ -2417,21 +2441,23 @@ function ExternalImapOAuthDialog({ provider, selectedMailbox, disabled, pending,
   )
 }
 
-function ExternalImapDialog({ account, mailboxId, disabled, pending, onSubmit }: { account?: ExternalImapAccount; mailboxId: string; disabled?: boolean; pending: boolean; onSubmit: (payload: ExternalImapAccountPayload) => void }) {
+function ExternalImapDialog({ account, mailboxId, disabled, pending, onSubmit }: { account?: ExternalImapAccount; mailboxId: string; disabled?: boolean; pending: boolean; onSubmit: (payload: ExternalImapAccountPayload) => Promise<unknown> }) {
   const [open, setOpen] = React.useState(false)
   const [tlsMode, setTlsMode] = React.useState<ExternalImapTlsMode>(account?.tlsMode || "tls")
+  const [port, setPort] = React.useState(String(account?.port || 993))
   const [storageMode, setStorageMode] = React.useState<ExternalImapStorageMode>(account?.storageMode || "local")
   const [syncReadState, setSyncReadState] = React.useState(account?.syncReadState ?? true)
   const [enabled, setEnabled] = React.useState(account?.enabled ?? true)
   React.useEffect(() => {
     if (!open) return
     setTlsMode(account?.tlsMode || "tls")
+    setPort(String(account?.port || 993))
     setStorageMode(account?.storageMode || "local")
     setSyncReadState(account?.syncReadState ?? true)
     setEnabled(account?.enabled ?? true)
   }, [account, open])
 
-  function submit(event: React.FormEvent<HTMLFormElement>) {
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
     const payload: ExternalImapAccountPayload = {
@@ -2446,27 +2472,34 @@ function ExternalImapDialog({ account, mailboxId, disabled, pending, onSubmit }:
       syncReadState,
       enabled,
     }
-    onSubmit(payload)
-    if (!pending) setOpen(false)
+    try {
+      await onSubmit(payload)
+      setOpen(false)
+    } catch {
+      // Mutation error feedback is shown by the parent; keep the form for correction.
+    }
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <Button type="button" variant={account ? "outline" : "default"} size={account ? "sm" : "default"} disabled={disabled} onClick={() => setOpen(true)}>
-        {account ? "编辑" : "添加外部邮箱"}
+    <Dialog open={open} onOpenChange={(next) => { if (!pending) setOpen(next) }}>
+      <Button type="button" variant={account ? "outline" : "default"} size="sm" disabled={disabled} onClick={() => setOpen(true)}>
+        {account ? "编辑" : <><Plus className="h-4 w-4" />其他邮箱</>}
       </Button>
       <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-xl">
-        <DialogHeader><DialogTitle>{account ? "编辑外部 IMAP" : "添加外部 IMAP"}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{account ? "编辑外部邮箱" : "添加外部邮箱"}</DialogTitle></DialogHeader>
         <form className="space-y-4" onSubmit={submit}>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="显示名称"><Input name="name" defaultValue={account?.name || ""} placeholder="Gmail / 工作邮箱" /></Field>
-            <Field label="用户名"><Input name="username" defaultValue={account?.username || ""} required placeholder="name@example.com" /></Field>
+            <Field label="邮箱账号"><Input name="username" autoComplete="username" autoCapitalize="none" spellCheck={false} defaultValue={account?.username || ""} required placeholder="name@example.com" /></Field>
             <Field label="服务器"><Input name="host" defaultValue={account?.host || ""} required placeholder="imap.example.com" /></Field>
-            <Field label="端口"><Input name="port" type="number" min={1} max={65535} defaultValue={account?.port || (tlsMode === "tls" ? 993 : 143)} /></Field>
+            <Field label="端口"><Input name="port" type="number" inputMode="numeric" min={1} max={65535} required value={port} onChange={(event) => setPort(event.target.value)} /></Field>
             <Field label="加密方式">
-              <Select value={tlsMode} onValueChange={(value) => setTlsMode(value as ExternalImapTlsMode)}>
+              <Select value={tlsMode} onValueChange={(value) => {
+                setTlsMode(value as ExternalImapTlsMode)
+                if (port === "993" || port === "143") setPort(value === "tls" ? "993" : "143")
+              }}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="tls">SSL/TLS</SelectItem><SelectItem value="starttls">STARTTLS</SelectItem><SelectItem value="plain">不加密</SelectItem></SelectContent>
+                <SelectContent><SelectItem value="tls">SSL/TLS</SelectItem><SelectItem value="starttls">STARTTLS</SelectItem>{account?.tlsMode === "plain" && <SelectItem value="plain">不加密（不安全）</SelectItem>}</SelectContent>
               </Select>
             </Field>
             <Field label="存储模式">
@@ -2482,7 +2515,7 @@ function ExternalImapDialog({ account, mailboxId, disabled, pending, onSubmit }:
             <label className="flex items-center gap-2 rounded-lg border p-3 text-sm"><Checkbox checked={enabled} onCheckedChange={(checked) => setEnabled(checked === true)} />启用此账号</label>
           </div>
           <DialogFooter className="gap-2 [&>button]:w-full sm:[&>button]:w-auto">
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>取消</Button>
+            <Button type="button" variant="outline" disabled={pending} onClick={() => setOpen(false)}>取消</Button>
             <Button disabled={pending || !mailboxId}>{pending ? "保存中..." : "保存"}</Button>
           </DialogFooter>
         </form>
@@ -2514,7 +2547,7 @@ function ExternalImapSyncPanel({ account, folders, runs, pending, onSyncFolder }
             <SelectContent>{folders.map((item) => <SelectItem key={item.name} value={item.name}>{folderLabel(item.name)}</SelectItem>)}</SelectContent>
           </Select>
         </Field>
-        <Button type="button" variant="outline" disabled={pending || !folder} onClick={() => onSyncFolder(account.id, folder)}><RefreshCcw className="h-4 w-4" />同步文件夹</Button>
+        <Button type="button" variant="outline" disabled={pending || !folder || !account.enabled || account.storageMode !== "local"} onClick={() => onSyncFolder(account.id, folder)}><RefreshCcw className="h-4 w-4" />同步文件夹</Button>
       </div>
       <div className="mt-3 space-y-2">
         <div className="text-xs font-medium text-muted-foreground">最近同步记录</div>
