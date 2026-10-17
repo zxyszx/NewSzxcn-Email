@@ -2505,7 +2505,7 @@ function buildMailMenuItems(folders: MailFolder[], starredCount: number, schedul
   const specialItems: MailMenuItem[] = [starredItem]
   if (includeScheduled) specialItems.push(scheduledItem)
   if (includeUnknown) specialItems.push(unknownItem)
-  if (includeSendQueue && sendQueueCount > 0) specialItems.push(sendQueueItem)
+  if (includeSendQueue) specialItems.push(sendQueueItem)
   return [...folderItems, ...specialItems].sort((a, b) => a.order - b.order || a.label.localeCompare(b.label))
 }
 
@@ -2951,7 +2951,7 @@ function SendQueueView({
   const hasFilters = status !== "all" || messageId.trim() || recipient.trim() || from || to
   const empty = hasFilters ? "当前筛选没有匹配的发送任务" : "发送队列为空"
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-background">
+    <div className="send-queue-view flex min-h-0 min-w-0 flex-1 flex-col">
       <div className={cn("shrink-0 space-y-3 border-b", compact ? "px-4 py-3" : "px-5 py-4")}>
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -2959,7 +2959,7 @@ function SendQueueView({
             <div className="text-xs text-muted-foreground">{items.length} / {total} 个发送任务</div>
           </div>
           <Select value={status} onValueChange={(value) => onStatusChange(value as SendQueueStatus | "all")}>
-            <SelectTrigger className="h-9 w-[132px]">
+            <SelectTrigger aria-label="发送任务状态" className="h-11 w-[132px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -2967,12 +2967,12 @@ function SendQueueView({
             </SelectContent>
           </Select>
         </div>
-        <div className={cn("grid gap-2", compact ? "grid-cols-1" : "grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_160px_160px_auto]")}>
-          <Input value={messageId} onChange={(event) => onMessageIdChange(event.target.value)} placeholder="Message-ID" className="h-9" />
-          <Input value={recipient} onChange={(event) => onRecipientChange(event.target.value)} placeholder="收件人" className="h-9" />
-          <Input type="datetime-local" value={from} onChange={(event) => onFromChange(event.target.value)} className="h-9" />
-          <Input type="datetime-local" value={to} onChange={(event) => onToChange(event.target.value)} className="h-9" />
-          <Button type="button" variant="outline" size="sm" className="h-9" disabled={!hasFilters} onClick={onClearFilters}>清除</Button>
+        <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
+          <label className="min-w-0 space-y-1 text-xs font-medium">邮件标识<Input value={messageId} onChange={(event) => onMessageIdChange(event.target.value)} placeholder="Message-ID" className="h-11 min-w-0" /></label>
+          <label className="min-w-0 space-y-1 text-xs font-medium">收件人<Input value={recipient} onChange={(event) => onRecipientChange(event.target.value)} placeholder="搜索邮箱地址" className="h-11 min-w-0" /></label>
+          <label className="min-w-0 space-y-1 text-xs font-medium">开始时间<Input type="datetime-local" value={from} onChange={(event) => onFromChange(event.target.value)} className="h-11 min-w-0 w-full" /></label>
+          <label className="min-w-0 space-y-1 text-xs font-medium">结束时间<Input type="datetime-local" value={to} onChange={(event) => onToChange(event.target.value)} className="h-11 min-w-0 w-full" /></label>
+          <Button type="button" variant="outline" size="sm" className="h-11" disabled={!hasFilters} onClick={onClearFilters}>清除筛选</Button>
         </div>
       </div>
       <ScrollArea className="min-h-0 flex-1">
@@ -3001,28 +3001,27 @@ function SendQueueRow({ item, compact, pending, onRetry, onCancel, onAudit, canM
   const canRetry = item.status === "failed"
   const canCancel = item.status === "queued" || item.status === "failed"
   return (
-    <div className={cn("border-b transition-colors hover:bg-accent/40", compact ? "p-4" : "px-5 py-4")}>
-      <div className={cn("gap-4", compact ? "space-y-3" : "grid grid-cols-[minmax(0,1fr)_210px_220px] items-center")}>
+    <div className={cn("send-queue-row border-b transition-colors", compact ? "p-4" : "px-5 py-4")}>
+      <div className={cn("gap-4", compact ? "space-y-3" : "grid grid-cols-1 items-center xl:grid-cols-[minmax(0,1fr)_180px_auto]")}>
         <div className="min-w-0">
           <div className="mb-1 flex min-w-0 items-center gap-2">
-            <span className="truncate text-sm font-semibold">{item.subject || "(无主题)"}</span>
+            <span className="min-w-0 break-words text-sm font-semibold">{item.subject || "(无主题)"}</span>
             <SendQueueStatusBadge status={item.status} />
           </div>
-          <div className="truncate text-xs text-muted-foreground">发给 {recipients}</div>
+          <div className="break-all text-xs text-muted-foreground">发给 {recipients}</div>
           <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
             <span>来源：{sendQueueSourceLabel(item.source)}</span>
             <span>尝试：{item.attemptCount}/{item.maxAttempts}</span>
-            {item.nextAttemptAt && <span>下次：{formatDateTime(item.nextAttemptAt)}</span>}
+            {(item.status === "queued" || item.status === "failed") && item.attemptCount < item.maxAttempts && item.nextAttemptAt && <span>下次尝试：{formatDateTime(item.nextAttemptAt)}</span>}
           </div>
-          {failure && <div className="mt-2 line-clamp-2 text-xs text-destructive">{failure}</div>}
+          {item.status === "failed" && failure && <div className="mt-2 break-words text-xs text-destructive">{failure}</div>}
         </div>
         <div className="space-y-1 text-sm">
-          <div className="text-xs text-muted-foreground">更新时间</div>
-          <div className="font-medium">{formatDateTime(item.updatedAt || item.createdAt)}</div>
-          {item.deliveredAt && <div className="text-xs text-muted-foreground">投递于 {formatDateTime(item.deliveredAt)}</div>}
+          <div className="text-xs text-muted-foreground">{item.status === "delivered" && item.deliveredAt ? "投递时间" : "更新时间"}</div>
+          <div className="break-words font-medium tabular-nums">{formatDateTime(item.status === "delivered" && item.deliveredAt ? item.deliveredAt : item.updatedAt || item.createdAt)}</div>
         </div>
         <div className={cn("flex flex-wrap gap-2", compact ? "justify-start" : "justify-end")}>
-          <Button type="button" variant="outline" size="sm" onClick={onAudit}>
+          <Button type="button" variant="outline" size="sm" className="min-h-11" aria-label={`查看 ${item.subject || "无主题邮件"} 的投递时间线`} onClick={onAudit}>
             <History className="h-4 w-4" />时间线
           </Button>
           {canMutate && canRetry && (
@@ -3091,6 +3090,7 @@ function SendQueueAuditDialog({ open, loading, error, events, onRetry, onOpenCha
 
 function sendQueueSourceLabel(source: string) {
   const normalized = source.toLowerCase()
+  if (normalized === "forwarding") return "邮件转发"
   if (normalized === "submission") return "SMTP Submission"
   if (normalized === "webmail") return "Webmail"
   if (normalized === "open_api") return "Open API"
