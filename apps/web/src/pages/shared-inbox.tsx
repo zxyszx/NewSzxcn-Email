@@ -6,6 +6,7 @@ import { sharedInboxApi, type SharedInboxMessage } from "@/lib/api"
 import { cn, formatBytes } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { bindMailFrameLinks } from "@/lib/mail-links"
 
 const tokenStorageKey = "newszxcn:shared-inbox-token"
 
@@ -62,12 +63,17 @@ function SharedMessageBody({ html, text }: { html?: string; text?: string }) {
     const frame = frameRef.current
     if (!frame) return
     let observer: ResizeObserver | undefined
+    let unbindLinks: (() => void) | undefined
     const resize = () => {
       const doc = frame.contentDocument
       if (!doc) return
       setHeight(Math.max(160, Math.ceil(Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight))))
     }
     const attach = () => {
+      if (!frame.contentDocument) return
+      unbindLinks?.()
+      unbindLinks = bindMailFrameLinks(frame.contentDocument)
+      observer?.disconnect()
       resize()
       if ("ResizeObserver" in window && frame.contentDocument) {
         observer = new ResizeObserver(resize)
@@ -77,8 +83,9 @@ function SharedMessageBody({ html, text }: { html?: string; text?: string }) {
       frame.contentDocument?.querySelectorAll("img").forEach((img) => img.addEventListener("load", resize, { once: true }))
     }
     frame.addEventListener("load", attach)
+    if (frame.contentDocument?.readyState === "complete") attach()
     const timer = window.setTimeout(resize, 100)
-    return () => { frame.removeEventListener("load", attach); observer?.disconnect(); window.clearTimeout(timer) }
+    return () => { frame.removeEventListener("load", attach); unbindLinks?.(); observer?.disconnect(); window.clearTimeout(timer) }
   }, [html, srcDoc])
 
   return html

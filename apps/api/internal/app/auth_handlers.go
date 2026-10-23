@@ -24,8 +24,20 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.TrimSpace(req.ChallengeToken) != "" {
+		rateTargets := challengeRateTargets(req.ChallengeToken, r.RemoteAddr)
+		if retryAfter, err := a.checkAuthRateLimit(r.Context(), rateTargets); err != nil {
+			respondError(w, http.StatusInternalServerError, "登录失败，请稍后重试")
+			return
+		} else if retryAfter > 0 {
+			respondAuthRateLimited(w, retryAfter)
+			return
+		}
 		challenge, err := a.loginChallengeByToken(r.Context(), req.ChallengeToken)
 		if err != nil {
+			if retryAfter, recordErr := a.recordAuthFailure(r.Context(), rateTargets); recordErr == nil && retryAfter > 0 {
+				respondAuthRateLimited(w, retryAfter)
+				return
+			}
 			respondError(w, http.StatusUnauthorized, "验证已过期，请重新登录")
 			return
 		}
@@ -38,11 +50,22 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 		if !verifyTOTP(secret, req.TwoFactorCode, a.now().UTC()) {
 			ok, consumeErr := a.consumeTwoFactorRecoveryCode(r.Context(), user.ID, req.TwoFactorCode)
 			if consumeErr != nil || !ok {
+				retryAfter, recordErr := a.recordAuthFailure(r.Context(), rateTargets)
+				if recordErr != nil {
+					respondError(w, http.StatusInternalServerError, "登录失败，请稍后重试")
+					return
+				}
+				if retryAfter > 0 {
+					a.deleteLoginChallenge(r.Context(), challenge.ID)
+					respondAuthRateLimited(w, retryAfter)
+					return
+				}
 				respondError(w, http.StatusUnauthorized, "验证码或恢复码错误")
 				return
 			}
 		}
 		a.deleteLoginChallenge(r.Context(), challenge.ID)
+		a.clearAuthRateLimits(r.Context(), rateTargets...)
 		if err := a.issueSession(w, r, user.ID); err != nil {
 			respondError(w, http.StatusInternalServerError, "登录失败，请稍后重试")
 			return
@@ -50,7 +73,20 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 		respondJSON(w, http.StatusOK, map[string]any{"user": user})
 		return
 	}
+	loginInput := strings.TrimSpace(req.Email)
+	if loginInput == "" {
+		loginInput = strings.TrimSpace(req.LoginName)
+	}
+	rateTargets := loginRateTargets(loginInput, r.RemoteAddr)
+	if retryAfter, err := a.checkAuthRateLimit(r.Context(), rateTargets); err != nil {
+		respondError(w, http.StatusInternalServerError, "登录失败，请稍后重试")
+		return
+	} else if retryAfter > 0 {
+		respondAuthRateLimited(w, retryAfter)
+		return
+	}
 	if err := a.verifyTurnstile(r.Context(), req.TurnstileToken, r.RemoteAddr); err != nil {
+		_, _ = a.recordAuthFailure(r.Context(), rateTargets[:1])
 		respondError(w, http.StatusUnauthorized, "人机验证失败，请重试")
 		return
 	}
@@ -60,17 +96,32 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	email, err := cleanPrimaryEmail(emailInput)
 	if err != nil {
+		if retryAfter, recordErr := a.recordAuthFailure(r.Context(), rateTargets); recordErr == nil && retryAfter > 0 {
+			respondAuthRateLimited(w, retryAfter)
+			return
+		}
 		respondError(w, http.StatusUnauthorized, "账号或密码错误")
 		return
 	}
 	user, passwordHash, err := a.userByEmail(r.Context(), email)
 	if err != nil || user.Disabled {
+		if retryAfter, recordErr := a.recordAuthFailure(r.Context(), rateTargets); recordErr == nil && retryAfter > 0 {
+			respondAuthRateLimited(w, retryAfter)
+			return
+		}
 		respondError(w, http.StatusUnauthorized, "账号或密码错误")
 		return
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)); err != nil {
+		if retryAfter, recordErr := a.recordAuthFailure(r.Context(), rateTargets); recordErr == nil && retryAfter > 0 {
+			respondAuthRateLimited(w, retryAfter)
+			return
+		}
 		respondError(w, http.StatusUnauthorized, "账号或密码错误")
 		return
+	}
+	if len(rateTargets) > 1 {
+		a.clearAuthRateLimits(r.Context(), rateTargets[1])
 	}
 	if a.config().TwoFactorEnabled && user.TwoFactorEnabled {
 		challengeToken, err := a.createLoginChallenge(r.Context(), user.ID)
@@ -116,6 +167,10 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	if !hasMinimumPasswordLength(req.Password) {
 		badRequest(w, errors.New("密码至少需要 6 个字符"))
+		return
+	}
+	if passwordMatchesIdentity(req.Password, email) {
+		badRequest(w, errors.New("密码不能与邮箱地址相同"))
 		return
 	}
 	displayName := strings.TrimSpace(req.DisplayName)
@@ -272,6 +327,10 @@ func (a *App) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, errors.New("新密码至少需要 6 个字符"))
 		return
 	}
+	if passwordMatchesIdentity(req.NewPassword, user.Email, user.LoginName) {
+		badRequest(w, errors.New("新密码不能与登录邮箱相同"))
+		return
+	}
 	row := a.db.QueryRowContext(r.Context(), `SELECT password_hash FROM users WHERE id=?`, user.ID)
 	var currentHash string
 	if err := row.Scan(&currentHash); err != nil {
@@ -302,9 +361,14 @@ func (a *App) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "failed to update mailbox password")
 		return
 	}
+	if _, err := tx.ExecContext(r.Context(), `DELETE FROM sessions WHERE user_id=?`, user.ID); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to revoke sessions")
+		return
+	}
 	if err := tx.Commit(); err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to save password")
 		return
 	}
+	http.SetCookie(w, &http.Cookie{Name: a.config().CookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode})
 	respondJSON(w, http.StatusOK, map[string]any{"ok": true})
 }

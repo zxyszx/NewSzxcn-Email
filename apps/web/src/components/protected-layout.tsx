@@ -152,7 +152,7 @@ function ProtectedContent() {
       <SidebarInset>
         <div className="admin-workspace-surface flex min-h-svh flex-col bg-muted/20">
           <div className="flex h-12 items-center gap-3 border-b bg-background px-3 md:hidden">
-            <SidebarTrigger aria-label="打开导航" />
+            <SidebarTrigger />
             <div className="min-w-0 flex-1 truncate text-sm font-semibold">
               {isAdminRoute ? visibleAdminSections.find((item) => item.key === adminSection)?.label || "系统管理" : "NewSzxcn 邮箱"}
             </div>

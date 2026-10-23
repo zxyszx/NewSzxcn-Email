@@ -28,6 +28,19 @@ func hasMinimumPasswordLength(password string) bool {
 	return utf8.RuneCountInString(password) >= minimumPasswordLength
 }
 
+func passwordMatchesIdentity(password string, identities ...string) bool {
+	password = strings.TrimSpace(password)
+	if password == "" {
+		return false
+	}
+	for _, identity := range identities {
+		if strings.EqualFold(password, strings.TrimSpace(identity)) {
+			return true
+		}
+	}
+	return false
+}
+
 func NewHTMLPolicy() *HTMLPolicy {
 	p := bluemonday.UGCPolicy()
 	p.AllowElements("html", "head", "body", "center", "font")

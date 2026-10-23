@@ -2081,9 +2081,10 @@ function MailboxManagement({
             <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{inboxShare.error.message}</div>
           ) : (
             <div className="space-y-4">
+			  {!inboxShare.data?.available && <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900" role="status">收件箱分享尚未由管理员配置，暂时无法开启或生成链接。</div>}
               <label className="flex min-h-12 items-center justify-between gap-4 rounded-md border px-3 py-2.5">
                 <span><span className="block text-sm font-medium">启用此邮箱的只读分享</span><span className="mt-0.5 block text-xs text-muted-foreground">必须主动勾选后才会生成分享链接</span></span>
-                <Checkbox checked={shareOptIn} disabled={inboxShareBusy} onCheckedChange={(checked) => setShareOptIn(checked === true)} />
+				<Checkbox checked={shareOptIn} disabled={inboxShareBusy || !inboxShare.data?.available} onCheckedChange={(checked) => setShareOptIn(checked === true)} />
               </label>
               <div className="flex items-center justify-between rounded-md border bg-muted/20 px-3 py-2.5 text-sm">
                 <span className="flex items-center gap-2"><span className={cn("size-2 rounded-full", inboxShare.data?.enabled ? "bg-emerald-500" : "bg-muted-foreground/50")} />{inboxShare.data?.enabled ? "分享已开启" : "分享未开启"}</span>
@@ -2091,7 +2092,7 @@ function MailboxManagement({
               </div>
               <div className="space-y-2">
                 <Label htmlFor="inbox-share-window">可查看的邮件时间</Label>
-                <Select value={String(shareWindowMinutes)} onValueChange={(value) => setShareWindowMinutes(Number(value))} disabled={inboxShareBusy}>
+				<Select value={String(shareWindowMinutes)} onValueChange={(value) => setShareWindowMinutes(Number(value))} disabled={inboxShareBusy || !inboxShare.data?.available}>
                   <SelectTrigger id="inbox-share-window" className="h-11"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="30">最近 30 分钟</SelectItem>
@@ -2111,7 +2112,7 @@ function MailboxManagement({
                       <span className="flex min-w-0 items-center gap-3">
                         <Checkbox
                           checked={shareFolderIds.includes(folder.id)}
-                          disabled={inboxShareBusy}
+						  disabled={inboxShareBusy || !inboxShare.data?.available}
                           onCheckedChange={(checked) => setShareFolderIds((items) => checked === true ? Array.from(new Set([...items, folder.id])) : items.filter((id) => id !== folder.id))}
                         />
                         <span className="truncate text-sm font-medium">{folderLabel(folder.name)}</span>
@@ -2138,7 +2139,7 @@ function MailboxManagement({
                     <Label>分享链接</Label>
                     <p className="mt-1 text-xs leading-5 text-muted-foreground">这个分享由旧版本创建，无法恢复原链接。重新生成一次后，新链接即可随时返回复制。</p>
                   </div>
-                  <Button type="button" variant="outline" className="w-full" disabled={inboxShareBusy || shareFolderIds.length === 0} onClick={() => setShareConfirm("reset")}><RefreshCcw className="h-4 w-4" />重新生成并显示链接</Button>
+				  <Button type="button" variant="outline" className="w-full" disabled={!inboxShare.data?.available || inboxShareBusy || shareFolderIds.length === 0} onClick={() => setShareConfirm("reset")}><RefreshCcw className="h-4 w-4" />重新生成并显示链接</Button>
                 </div>
               )}
               <p className="flex gap-2 text-xs leading-5 text-muted-foreground"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />访客只能查看所选时间和文件夹内的邮件及附件，不能回复、转发、删除或进入邮箱账号。</p>
@@ -2148,9 +2149,9 @@ function MailboxManagement({
           <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:justify-between sm:gap-2">
             <div className="flex gap-2">
               {inboxShare.data?.enabled && <Button type="button" variant="destructive" disabled={inboxShareBusy} onClick={() => setShareConfirm("disable")}>关闭分享</Button>}
-              {inboxShare.data?.enabled && <Button type="button" variant="outline" disabled={inboxShareBusy || shareFolderIds.length === 0} onClick={() => setShareConfirm("reset")}><RefreshCcw className="h-4 w-4" />重新生成链接</Button>}
+			  {inboxShare.data?.enabled && <Button type="button" variant="outline" disabled={!inboxShare.data?.available || inboxShareBusy || shareFolderIds.length === 0} onClick={() => setShareConfirm("reset")}><RefreshCcw className="h-4 w-4" />重新生成链接</Button>}
             </div>
-            <Button type="button" disabled={inboxShare.isLoading || inboxShare.isError || inboxShareBusy || (shareOptIn && shareFolderIds.length === 0) || (!shareOptIn && !inboxShare.data?.enabled)} onClick={saveInboxShare}>{inboxShareBusy ? "处理中" : !shareOptIn && inboxShare.data?.enabled ? "关闭分享" : inboxShare.data?.enabled ? "保存范围" : "开启并生成链接"}</Button>
+			<Button type="button" disabled={inboxShare.isLoading || inboxShare.isError || !inboxShare.data?.available || inboxShareBusy || (shareOptIn && shareFolderIds.length === 0) || (!shareOptIn && !inboxShare.data?.enabled)} onClick={saveInboxShare}>{inboxShareBusy ? "处理中" : !shareOptIn && inboxShare.data?.enabled ? "关闭分享" : inboxShare.data?.enabled ? "保存范围" : "开启并生成链接"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

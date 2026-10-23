@@ -39,6 +39,7 @@ type inboxShareFolder struct {
 }
 
 type inboxShareSettingsResponse struct {
+	Available      bool               `json:"available"`
 	Enabled        bool               `json:"enabled"`
 	MailboxID      string             `json:"mailboxId"`
 	MailboxAddress string             `json:"mailboxAddress"`
@@ -126,6 +127,10 @@ func (a *App) handleCreateInboxShare(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusNotFound, "mailbox not found")
 		return
 	}
+	if !a.inboxShareAvailable() {
+		respondError(w, http.StatusServiceUnavailable, "收件箱分享尚未配置")
+		return
+	}
 	windowMinutes, folderIDs, ok := a.parseInboxShareInput(w, r, mb.ID)
 	if !ok {
 		return
@@ -158,6 +163,10 @@ func (a *App) handleUpdateInboxShare(w http.ResponseWriter, r *http.Request) {
 	mb, err := a.mailboxForCurrentUserWithID(r, chi.URLParam(r, "id"))
 	if err != nil {
 		respondError(w, http.StatusNotFound, "mailbox not found")
+		return
+	}
+	if !a.inboxShareAvailable() {
+		respondError(w, http.StatusServiceUnavailable, "收件箱分享尚未配置")
 		return
 	}
 	windowMinutes, folderIDs, ok := a.parseInboxShareInput(w, r, mb.ID)
@@ -227,7 +236,7 @@ func (a *App) parseInboxShareInput(w http.ResponseWriter, r *http.Request, mailb
 }
 
 func (a *App) inboxShareSettings(ctx context.Context, mb *Mailbox) (inboxShareSettingsResponse, error) {
-	response := inboxShareSettingsResponse{MailboxID: mb.ID, MailboxAddress: mb.Address, WindowMinutes: 30, FolderIDs: []string{}, Folders: []inboxShareFolder{}}
+	response := inboxShareSettingsResponse{Available: a.inboxShareAvailable(), MailboxID: mb.ID, MailboxAddress: mb.Address, WindowMinutes: 30, FolderIDs: []string{}, Folders: []inboxShareFolder{}}
 	rows, err := a.db.QueryContext(ctx, `SELECT f.id,f.name,f.role,COUNT(m.id) FROM folders f LEFT JOIN messages m ON m.folder_id=f.id WHERE f.mailbox_id=? GROUP BY f.id,f.name,f.role,f.sort_order,f.created_at ORDER BY CASE WHEN lower(f.name)='inbox' THEN 0 ELSE 1 END,f.sort_order,f.created_at,f.name`, mb.ID)
 	if err != nil {
 		return response, err
@@ -278,6 +287,11 @@ func (a *App) inboxShareSettings(ctx context.Context, mb *Mailbox) (inboxShareSe
 		}
 	}
 	return response, nil
+}
+
+func (a *App) inboxShareAvailable() bool {
+	cfg := a.config()
+	return strings.TrimSpace(cfg.UpdateServiceToken) != "" || strings.TrimSpace(cfg.ExternalIMAPSecretKey) != ""
 }
 
 func inboxShareContains(items []string, value string) bool {

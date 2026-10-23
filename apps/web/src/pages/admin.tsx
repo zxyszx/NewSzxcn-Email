@@ -2490,8 +2490,10 @@ function CreateUserDialog({ permissionGroups, domains }: { permissionGroups: Per
       const inputPassword = String(form.get("password") || "")
       const confirmPassword = String(form.get("confirmPassword") || "")
       if (inputPassword !== confirmPassword) throw new Error("两次输入的密码不一致")
-      const password = inputPassword || email
+      if (!inputPassword) throw new Error("请输入密码")
+      const password = inputPassword
       if (password.length < 6) throw new Error("密码至少需要 6 位")
+	  if (password.toLocaleLowerCase() === email.toLocaleLowerCase()) throw new Error("密码不能与邮箱账号相同")
       return api.createUser({ email, displayName: String(form.get("displayName") || ""), password, role: "user", disabled: false, mailboxLimitOverride: mailboxLimitFromForm(form), storageQuotaMb: Number(form.get("storageQuotaMb") || defaultUserStorageQuotaMb), permissionGroupIds })
     },
     onSuccess: () => { invalidateAdmin(qc); setOpen(false); toast({ title: "账号已创建" }) },
@@ -2509,8 +2511,8 @@ function CreateUserDialog({ permissionGroups, domains }: { permissionGroups: Per
             <Field name="displayName" label="显示名称" placeholder="例如：SZX" />
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field name="password" label="密码（留空则使用邮箱账号）" type="password" required={false} autoComplete="new-password" />
-            <Field name="confirmPassword" label="再次输入密码" type="password" required={false} autoComplete="new-password" />
+            <Field name="password" label="密码" type="password" autoComplete="new-password" />
+			<Field name="confirmPassword" label="再次输入密码" type="password" autoComplete="new-password" />
           </div>
           <SelectField label="身份" value="user" onValueChange={() => undefined} items={[["user", "普通用户"]]} disabled />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

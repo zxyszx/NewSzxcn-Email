@@ -131,7 +131,7 @@ func LoadConfig() Config {
 		TelegramBodyMode:                normalizeTelegramBodyMode(getenv("LANQIN_TELEGRAM_BODY_MODE", "summary")),
 		TelegramMailboxIDs:              getenv("LANQIN_TELEGRAM_MAILBOX_IDS", ""),
 		TelegramIncludeUnregistered:     getenvBool("LANQIN_TELEGRAM_INCLUDE_UNREGISTERED", false),
-		MailTranslateEnabled:            getenvBool("LANQIN_MAIL_TRANSLATE_ENABLED", true),
+		MailTranslateEnabled:            getenvBool("LANQIN_MAIL_TRANSLATE_ENABLED", false),
 		MailTranslateMaxChars:           getenvInt("LANQIN_MAIL_TRANSLATE_MAX_CHARS", 8000),
 		DeliveryWebhookSecret:           getenv("LANQIN_DELIVERY_WEBHOOK_SECRET", ""),
 		StatusWebhookURL:                getenv("LANQIN_STATUS_WEBHOOK_URL", ""),

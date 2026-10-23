@@ -11,11 +11,12 @@ import TextAlign from "@tiptap/extension-text-align"
 import Placeholder from "@tiptap/extension-placeholder"
 import { BackgroundColor, Color, FontFamily, FontSize, TextStyle } from "@tiptap/extension-text-style"
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom"
-import { AlignCenter, AlignLeft, AlignRight, Archive, ArrowLeft, ArrowRight, AtSign, Ban, Bell, Bold, Bot, Briefcase, Calendar, Check, ChevronDown, Clock3, Code2, Copy, Download, Ellipsis, Eraser, Eye, FileText, Filter, Flag, Folder, Forward, GraduationCap, Heart, Highlighter, History, Image, Inbox, IndentDecrease, IndentIncrease, Italic, Link, List, ListOrdered, Mail, Mailbox as MailboxIcon, MailCheck, MailQuestion, Menu, Moon, PanelLeftOpen, Paperclip, PencilLine, Plane, Plus, Quote, Receipt, Redo2, RefreshCcw, Reply, ReplyAll, RotateCcw, Search, Send, Settings, ShieldCheck, ShoppingBag, Signature, SlidersHorizontal, Smile, Sparkles, Star, Strikethrough, Sun, Tag, Trash2, Type, Underline, Undo2, Upload, UserRound, Users, X } from "lucide-react"
+import { AlignCenter, AlignLeft, AlignRight, Archive, ArrowLeft, ArrowRight, AtSign, Ban, Bell, Bold, Bot, Briefcase, Calendar, Check, ChevronDown, Clock3, Code2, Copy, Download, Ellipsis, Eraser, Eye, FileText, Filter, Flag, Folder, Forward, GraduationCap, Heart, Highlighter, History, Image, Inbox, IndentDecrease, IndentIncrease, Italic, Link, List, ListOrdered, Mail, Mailbox as MailboxIcon, MailCheck, MailQuestion, Moon, Paperclip, PencilLine, Plane, Plus, Quote, Receipt, Redo2, RefreshCcw, Reply, ReplyAll, RotateCcw, Search, Send, Settings, ShieldCheck, ShoppingBag, Signature, SlidersHorizontal, Smile, Sparkles, Star, Strikethrough, Sun, Tag, Trash2, Type, Underline, Undo2, Upload, UserRound, Users, X } from "lucide-react"
 import {
   ContactCard20Regular,
   PersonAdd20Regular,
 } from "@fluentui/react-icons"
+import { PanelLeftOpen } from "lucide-react"
 import { api, ExternalImapAccount, ListResponse, Mailbox, MailFolder, MailLabel, MailMessage, MailSearchParams, SendPayload, DraftPayload, ScheduledSend, SendQueueItem, SendQueueAuditEvent, SendQueueStatus, PermissionLimits } from "@/lib/api"
 import { cn, decodeMimeHeader, formatBytes, formatDate, formatDateTime, generateLabelColor } from "@/lib/utils"
 import { applyThemeMode, getThemeMode, resolveThemeMode, subscribeToSystemTheme, type ThemeMode } from "@/lib/theme"
@@ -59,6 +60,7 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import { useToast } from "@/hooks/use-toast"
 import { hasPermission } from "@/lib/permissions"
 import { isDemoMode } from "@/lib/demo"
+import { bindMailFrameLinks } from "@/lib/mail-links"
 
 const folderIcons: Record<string, React.ReactNode> = { inbox: <Inbox className="h-4 w-4" />, sent: <Send className="h-4 w-4" />, drafts: <FileText className="h-4 w-4" />, archive: <Archive className="h-4 w-4" />, spam: <Ban className="h-4 w-4" />, trash: <Trash2 className="h-4 w-4" /> }
 function NetflixFolderIcon({ className }: { className?: string }) {
@@ -522,7 +524,7 @@ export function MailPage() {
     linkedMessageRef.current = ""
     setFolder(message.folder || "Inbox")
     if (message.mailboxId) setSelectedMailboxId(message.mailboxId)
-    if (!message.isRead && canOrganizeMail) markRead.mutate({ id: message.id, read: true })
+    if (!isDemoMode && !message.isRead && canOrganizeMail) markRead.mutate({ id: message.id, read: true })
   }, [canOrganizeMail, detail.data, markRead])
   const markExternalRead = useMutation({
     mutationFn: ({ id, remoteId, read }: { id: string; remoteId: string; read: boolean }) => api.markExternalRead(id, remoteId, read),
@@ -840,38 +842,49 @@ export function MailPage() {
   }, [activeMailboxId, inboxProbe.data?.items, toast])
 
   React.useEffect(() => {
-    if (isDemoMode) return
+    if (isDemoMode || !canReadMail) return
     const events = new EventSource("/api/events", { withCredentials: true })
+    let syncTimer: number | undefined
     events.addEventListener("sync", () => {
-      qc.invalidateQueries({ queryKey: ["messages"] })
-      qc.invalidateQueries({ queryKey: ["admin", "unknown-messages"] })
-      qc.invalidateQueries({ queryKey: ["folders"] })
-      qc.invalidateQueries({ queryKey: ["mail-stats"] })
-      qc.invalidateQueries({ queryKey: ["labels"] })
-      qc.invalidateQueries({ queryKey: ["mail-notifications"] })
+      if (syncTimer !== undefined) return
+      // A delivery batch needs one refresh, not one canceled request per message.
+      syncTimer = window.setTimeout(() => {
+        syncTimer = undefined
+        for (const queryKey of [
+          ["messages"], ["admin", "unknown-messages"], ["folders"], ["mailboxes"],
+          ["mail-stats"], ["labels"], ["mail-notifications"], ["external-messages"], ["mail-external-folders"],
+        ]) void qc.invalidateQueries({ queryKey })
+      }, 100)
     })
-    return () => events.close()
-  }, [qc])
+    return () => {
+      events.close()
+      window.clearTimeout(syncTimer)
+    }
+  }, [canReadMail, qc])
 
   React.useEffect(() => {
-    if (!publicSettings.data?.mailAutoRefresh) return
-    const timer = window.setInterval(() => {
+    const refresh = () => {
+      if (folderRefreshInFlightRef.current) return
+      folderRefreshInFlightRef.current = true
       setAutoRefreshing(true)
-      void Promise.all([
-        qc.invalidateQueries({ queryKey: ["messages"] }),
-        qc.invalidateQueries({ queryKey: ["admin", "unknown-messages"] }),
-        qc.invalidateQueries({ queryKey: ["external-messages"] }),
-        qc.invalidateQueries({ queryKey: ["mail-external-folders"] }),
-        qc.invalidateQueries({ queryKey: ["folders"] }),
-        qc.invalidateQueries({ queryKey: ["mail-stats"] }),
-        qc.invalidateQueries({ queryKey: ["labels"] }),
-        qc.invalidateQueries({ queryKey: ["scheduled-sends"] }),
-        qc.invalidateQueries({ queryKey: ["send-queue"] }),
-        qc.invalidateQueries({ queryKey: ["mail-notifications"] }),
-      ]).catch(() => undefined)
-      window.setTimeout(() => setAutoRefreshing(false), 600)
-    }, mailRefreshInterval || 30000)
-    return () => window.clearInterval(timer)
+      void refreshMailData(true).catch(() => undefined).finally(() => {
+        folderRefreshInFlightRef.current = false
+        setAutoRefreshing(false)
+      })
+    }
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refresh()
+    }
+    const timer = publicSettings.data?.mailAutoRefresh
+      ? window.setInterval(refresh, mailRefreshInterval || 30000)
+      : undefined
+    document.addEventListener("visibilitychange", onVisible)
+    window.addEventListener("online", refresh)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener("visibilitychange", onVisible)
+      window.removeEventListener("online", refresh)
+    }
   }, [mailRefreshInterval, publicSettings.data?.mailAutoRefresh, qc])
 
   const selected = detail.data
@@ -947,32 +960,28 @@ export function MailPage() {
   function toggleCompactSelect(messageId: string, checked: boolean) {
     setCompactSelectedIds((ids) => checked ? Array.from(new Set([...ids, messageId])) : ids.filter((id) => id !== messageId))
   }
-  async function refreshMailData() {
-    await Promise.all([
-      qc.invalidateQueries({ queryKey: ["messages"] }),
-      qc.invalidateQueries({ queryKey: ["admin", "unknown-messages"] }),
-      qc.invalidateQueries({ queryKey: ["external-messages"] }),
-      qc.invalidateQueries({ queryKey: ["mail-external-folders"] }),
-      qc.invalidateQueries({ queryKey: ["mail-external-accounts"] }),
-      qc.invalidateQueries({ queryKey: ["folders"] }),
-      qc.invalidateQueries({ queryKey: ["mailboxes"] }),
-      qc.invalidateQueries({ queryKey: ["mail-stats"] }),
-      qc.invalidateQueries({ queryKey: ["labels"] }),
-      qc.invalidateQueries({ queryKey: ["scheduled-sends"] }),
-      qc.invalidateQueries({ queryKey: ["send-queue"] }),
-    ])
+  async function refreshMailData(throwOnError = false) {
+    const results = await Promise.allSettled([
+      ["messages"], ["admin", "unknown-messages"], ["external-messages"],
+      ["mail-external-folders"], ["mail-external-accounts"], ["folders"],
+      ["mailboxes"], ["mail-stats"], ["labels"], ["scheduled-sends"], ["send-queue"], ["mail-notifications"],
+    ].map((queryKey) => qc.invalidateQueries({ queryKey }, { throwOnError })))
+    // Keep the refresh indicator active until every requested query has settled.
+    const failed = results.find((result) => result.status === "rejected")
+    if (failed?.status === "rejected") throw failed.reason
   }
   function refreshFolderAutomatically() {
     if (folderRefreshInFlightRef.current || refreshing) return
     folderRefreshInFlightRef.current = true
     setAutoRefreshing(true)
-    void refreshMailData().catch((error) => {
-      toast({ title: "自动刷新失败", description: error instanceof Error ? error.message : "请稍后重试" })
-    })
-    window.setTimeout(() => {
+    void refreshMailData(true).catch((error) => {
+      toast(isMobile
+        ? { title: "刷新失败，请重试", duration: 3000 }
+        : { title: "自动刷新失败", description: error instanceof Error ? error.message : "请稍后重试" })
+    }).finally(() => {
       folderRefreshInFlightRef.current = false
       setAutoRefreshing(false)
-    }, 600)
+    })
   }
   async function runBulkAction(action: BulkAction) {
     if (!canOrganizeMail) return
@@ -1065,19 +1074,19 @@ export function MailPage() {
   }
   function openReply(message: MailMessage) {
     if (!canSendMail) return
-    openCompose({ key: `reply-${message.id}-${Date.now()}`, mailboxId: message.mailboxId, to: message.from, subject: withPrefix(messageSubject(message), "Re:"), text: quoteMessage(message) })
+    openCompose({ key: `reply-${message.id}-${Date.now()}`, mailboxId: message.mailboxId, to: extractAddress(message.from), subject: withPrefix(messageSubject(message), "Re:"), text: quoteMessage(message) })
   }
   function openReplyAll(message: MailMessage) {
     if (!canSendMail) return
-    const ownAddresses = new Set([selectedMailbox?.address, message.mailboxAddress, message.recipientAddress].filter(Boolean).map((address) => address!.trim().toLowerCase()))
+    const ownAddresses = new Set([selectedMailbox?.address, message.mailboxAddress, message.recipientAddress, user?.email].map((address) => extractAddress(address).toLowerCase()).filter(Boolean))
     const seen = new Set<string>()
-    const recipients = [message.from, ...message.to, ...message.cc].filter((address) => {
-      const normalized = address.trim().toLowerCase()
+    const recipients = [message.from, ...message.to, ...message.cc].map((address) => extractAddress(address)).filter((address) => {
+      const normalized = address.toLowerCase()
       if (!normalized || ownAddresses.has(normalized) || seen.has(normalized)) return false
       seen.add(normalized)
       return true
     })
-    openCompose({ key: `reply-all-${message.id}-${Date.now()}`, mailboxId: message.mailboxId, to: recipients[0] || message.from, cc: recipients.slice(1).join(", "), subject: withPrefix(messageSubject(message), "Re:"), text: quoteMessage(message) })
+    openCompose({ key: `reply-all-${message.id}-${Date.now()}`, mailboxId: message.mailboxId, to: recipients[0] || extractAddress(message.from), cc: recipients.slice(1).join(", "), subject: withPrefix(messageSubject(message), "Re:"), text: quoteMessage(message) })
   }
   async function openForward(message: MailMessage) {
     if (!canSendMail) return
@@ -1390,7 +1399,7 @@ export function MailPage() {
       return
     }
     setSelectedId(messageId)
-    if (message && !message.isRead && canOrganizeMail && mailView !== "unknown") {
+    if (!isDemoMode && message && !message.isRead && canOrganizeMail && mailView !== "unknown") {
       if (mailView === "external" && selectedExternalAccountId) markExternalRead.mutate({ id: selectedExternalAccountId, remoteId: message.id, read: true })
       else markRead.mutate({ id: message.id, read: true })
     }
@@ -1399,17 +1408,22 @@ export function MailPage() {
     setSelectedId(null)
   }
   function refreshMail() {
-    if (refreshing || autoRefreshing) return
+    if (folderRefreshInFlightRef.current || refreshing || autoRefreshing) return
+    folderRefreshInFlightRef.current = true
     setRefreshing(true)
-    void refreshMailData().then(() => {
-      const refreshedAt = new Date()
-      toast({ title: "邮件已刷新", description: `更新于 ${refreshedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` })
+    void refreshMailData(true).then(() => {
+      if (!isMobile) {
+        const refreshedAt = new Date()
+        toast({ title: "邮件已刷新", description: `更新于 ${refreshedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` })
+      }
     }).catch((error) => {
-      toast({ title: "刷新失败", description: error instanceof Error ? error.message : "请稍后重试" })
-    })
-    window.setTimeout(() => {
+      toast(isMobile
+        ? { title: "刷新失败，请重试", duration: 3000 }
+        : { title: "刷新失败", description: error instanceof Error ? error.message : "请稍后重试" })
+    }).finally(() => {
+      folderRefreshInFlightRef.current = false
       setRefreshing(false)
-    }, 600)
+    })
   }
   async function exportCurrentMail() {
     if (!canExportCurrentView || exportingMail) return
@@ -1842,7 +1856,7 @@ export function MailPage() {
   )
 
   const mailRefreshTool = (
-    <Button type="button" size="icon" variant="ghost" onClick={() => void refreshMail()} disabled={refreshing || autoRefreshing} className={cn(isMobile ? "h-11 w-11" : "h-8 w-8", "text-muted-foreground hover:text-foreground", (refreshing || autoRefreshing) && "text-primary")} title={autoRefreshing ? "自动刷新中" : "刷新当前视图"} aria-label={autoRefreshing ? "自动刷新中" : "刷新当前视图"}>
+    <Button type="button" size="icon" variant="ghost" onClick={() => void refreshMail()} disabled={refreshing || autoRefreshing} aria-busy={refreshing || autoRefreshing} className={cn(isMobile ? "h-11 w-11" : "h-8 w-8", "text-muted-foreground hover:text-foreground", (refreshing || autoRefreshing) && "text-primary")} title={autoRefreshing ? "自动刷新中" : refreshing ? "刷新中" : "刷新当前视图"} aria-label={autoRefreshing ? "自动刷新中" : refreshing ? "刷新中" : "刷新当前视图"}>
       <RefreshCcw className={cn("h-4 w-4", (refreshing || autoRefreshing) && "animate-spin")} />
     </Button>
   )
@@ -1905,7 +1919,7 @@ export function MailPage() {
           <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-primary" aria-hidden="true" />
         )}
       </Button>
-      {advancedSearchOpen && (
+      {advancedSearchOpen && !isMobile && (
         <AdvancedSearchPanel
           query={query}
           draft={advancedSearchDraft}
@@ -1913,6 +1927,14 @@ export function MailPage() {
           onDraftChange={setAdvancedSearchDraft}
           onSubmit={applyAdvancedSearch}
         />
+      )}
+      {isMobile && (
+        <Sheet open={advancedSearchOpen} onOpenChange={setAdvancedSearchOpen}>
+          <SheetContent side="bottom" className="mobile-advanced-search-sheet max-h-[85dvh] overflow-y-auto rounded-t-lg p-0 pb-[env(safe-area-inset-bottom)]" aria-describedby={undefined}>
+            <SheetTitle className="px-6 pb-2 pt-5">高级搜索</SheetTitle>
+            <AdvancedSearchPanel embedded query={query} draft={advancedSearchDraft} onQueryChange={setQuery} onDraftChange={setAdvancedSearchDraft} onSubmit={applyAdvancedSearch} />
+          </SheetContent>
+        </Sheet>
       )}
     </div>
   )
@@ -2014,7 +2036,7 @@ export function MailPage() {
       canManageLabels={canManageLabels && mailView !== "external" && mailView !== "unknown"}
       canDownloadAttachments={canDownloadAttachments}
       language={language}
-      tools={isMobile ? mailRefreshTool : mailTransferTools}
+      tools={isMobile ? <>{mailRefreshTool}<MailFilterMenu focused={focusedInbox} onFocusedChange={setFocusedInbox} filter={mailFilter} onFilterChange={setMailFilter} constraint={mailConstraint} onConstraintChange={setMailConstraint} sort={mailSort} onSortChange={setMailSort} onSettings={openSettings} /></> : mailTransferTools}
       search={mailSearchControl}
     />
   ) : (
@@ -2179,7 +2201,7 @@ export function MailPage() {
               <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2">
                 <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
                   <SheetTrigger asChild>
-                    <Button size="icon" variant="ghost" aria-label="打开导航"><PanelLeftOpen className="h-4 w-4" /></Button>
+                    <Button size="icon" variant="ghost" className="h-11 w-11 shrink-0" aria-label="展开邮箱侧边栏" title="展开邮箱侧边栏"><PanelLeftOpen className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" /></Button>
                   </SheetTrigger>
                   <SheetContent side="left" className="w-[86vw] max-w-80 p-0 [&>button]:hidden" aria-describedby={undefined}>
                     <SheetTitle className="sr-only">邮箱导航</SheetTitle>
@@ -2385,7 +2407,7 @@ function UtilityCommandBar({ refreshing, searchControl, leadingControl, onNaviga
     <TooltipProvider delayDuration={300}>
       <div className="desktop-commandbar utility-commandbar" role="toolbar" aria-label="邮箱功能工具栏">
         <div className="desktop-commandbar-leading">
-          <MailIconButton label="返回邮件导航" onClick={onNavigation} className="folder-toolbar-toggle"><Menu strokeWidth={1.35} /></MailIconButton>
+          <MailIconButton label="返回邮件" onClick={onNavigation} className="folder-toolbar-toggle"><ArrowLeft strokeWidth={1.75} /></MailIconButton>
           {leadingControl}
         </div>
         <div className="desktop-commandbar-actions">{searchControl}</div>
@@ -2461,7 +2483,7 @@ function MailFilterMenu({ focused, onFocusedChange, filter, onFilterChange, cons
   ]
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label="筛选与排序" title="筛选与排序"><Filter className="h-4 w-4" /></Button></DropdownMenuTrigger>
+      <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon" className={cn("h-8 w-8 max-md:h-11 max-md:w-11", (filter !== "all" || constraint !== "all" || focused || sort !== "date-desc") && "bg-accent text-accent-foreground")} aria-label="筛选与排序" title="筛选与排序"><Filter className="h-4 w-4" /></Button></DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="mail-filter-menu w-60">
         <DropdownMenuItem onSelect={() => onFocusedChange(false)}>{!focused ? <Check /> : <span className="h-4 w-4" />}收件箱</DropdownMenuItem>
         <DropdownMenuItem onSelect={() => onFocusedChange(true)}>{focused ? <Check /> : <span className="h-4 w-4" />}重点收件箱</DropdownMenuItem>
@@ -2654,7 +2676,7 @@ function menuAnchorOrder(name: string) {
   }
 }
 
-function AdvancedSearchPanel({ query, draft, onQueryChange, onDraftChange, onSubmit }: { query: string; draft: AdvancedMailSearchDraft; onQueryChange: (query: string) => void; onDraftChange: (draft: AdvancedMailSearchDraft) => void; onSubmit: (draft: AdvancedMailSearchDraft) => void }) {
+function AdvancedSearchPanel({ query, draft, onQueryChange, onDraftChange, onSubmit, embedded = false }: { query: string; draft: AdvancedMailSearchDraft; onQueryChange: (query: string) => void; onDraftChange: (draft: AdvancedMailSearchDraft) => void; onSubmit: (draft: AdvancedMailSearchDraft) => void; embedded?: boolean }) {
   const update = <K extends keyof AdvancedMailSearchDraft>(key: K, value: AdvancedMailSearchDraft[K]) => onDraftChange({ ...draft, [key]: value })
   const [moreOpen, setMoreOpen] = React.useState(() => Boolean(draft.startDate || draft.endDate || draft.unread || draft.starred))
   const [dateMode, setDateMode] = React.useState<"any" | "range">(() => draft.startDate || draft.endDate ? "range" : "any")
@@ -2668,7 +2690,7 @@ function AdvancedSearchPanel({ query, draft, onQueryChange, onDraftChange, onSub
 
   return (
     <form
-      className="advanced-search-panel absolute left-0 top-full z-50 w-full border text-xs text-popover-foreground shadow-md"
+      className={cn("advanced-search-panel w-full text-xs text-popover-foreground", embedded ? "relative" : "absolute left-0 top-full z-50 border shadow-md")}
       onSubmit={(event) => {
         event.preventDefault()
         onSubmit(draft)
@@ -2677,14 +2699,13 @@ function AdvancedSearchPanel({ query, draft, onQueryChange, onDraftChange, onSub
       <div className="advanced-search-scope-row">
         <span>搜索范围</span>
         <strong>当前文件夹</strong>
-        <ChevronDown aria-hidden="true" />
       </div>
       <div className="advanced-search-fields">
         <AdvancedSearchField label="发件人"><Input value={draft.from} onChange={(event) => update("from", event.target.value)} aria-label="发件人" autoComplete="off" data-1p-ignore="true" data-lpignore="true" data-bwignore="true" /></AdvancedSearchField>
         <AdvancedSearchField label="收件人"><Input value={draft.to} onChange={(event) => update("to", event.target.value)} aria-label="收件人" autoComplete="off" data-1p-ignore="true" data-lpignore="true" data-bwignore="true" /></AdvancedSearchField>
         <AdvancedSearchField label="主题"><Input value={draft.subject} onChange={(event) => update("subject", event.target.value)} aria-label="主题" autoComplete="off" data-1p-ignore="true" data-lpignore="true" data-bwignore="true" /></AdvancedSearchField>
         <AdvancedSearchField label="关键词"><Input value={query} onChange={(event) => onQueryChange(event.target.value)} aria-label="关键词" autoComplete="off" data-1p-ignore="true" data-lpignore="true" data-bwignore="true" /></AdvancedSearchField>
-        <div className="advanced-search-row advanced-search-date-row"><span>日期</span><Select value={dateMode} onValueChange={(value: "any" | "range") => { setDateMode(value); if (value === "range") setMoreOpen(true); else { update("startDate", ""); update("endDate", "") } }}><SelectTrigger aria-label="日期范围"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="any">任何</SelectItem><SelectItem value="range">日期范围</SelectItem></SelectContent></Select></div>
+        <div className="advanced-search-row advanced-search-date-row"><span>日期</span><Select value={dateMode} onValueChange={(value: "any" | "range") => { setDateMode(value); if (value === "range") setMoreOpen(true); else onDraftChange({ ...draft, startDate: "", endDate: "" }) }}><SelectTrigger aria-label="日期范围"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="any">任何</SelectItem><SelectItem value="range">日期范围</SelectItem></SelectContent></Select></div>
         <div className="advanced-search-row advanced-search-switch-row"><span>附件</span><Switch className="advanced-search-switch" checked={draft.hasAttachments} onCheckedChange={(checked) => update("hasAttachments", checked)} aria-label="有附件" /></div>
       </div>
       <Button type="button" variant="ghost" className="advanced-search-more" onClick={() => setMoreOpen((open) => !open)} aria-expanded={moreOpen}><Plus aria-hidden="true" />添加更多选项</Button>
@@ -2696,7 +2717,7 @@ function AdvancedSearchPanel({ query, draft, onQueryChange, onDraftChange, onSub
         </div>
       )}
       <div className="advanced-search-footer">
-        <Button type="button" variant="ghost" className="advanced-search-save" disabled={!query.trim() && !hasAdvancedMailSearch(draft)}>保存搜索条件</Button>
+        <Button type="button" variant="ghost" className="advanced-search-save" disabled title="暂不支持保存搜索条件">保存搜索条件</Button>
         <Button type="submit" className="advanced-search-submit">搜索<ArrowRight aria-hidden="true" /></Button>
       </div>
     </form>
@@ -3772,11 +3793,12 @@ function TranslatableMailBody({ message, language }: { message: MailMessage; lan
   const [translatedHtml, setTranslatedHtml] = React.useState("")
   const [showTranslated, setShowTranslated] = React.useState(false)
   const [truncated, setTruncated] = React.useState(false)
+  const [translationConsentOpen, setTranslationConsentOpen] = React.useState(false)
   const [autoTranslate, setAutoTranslate] = React.useState(() => {
     try {
-      return window.localStorage.getItem("newszxcn.mail.auto-translate") !== "false"
+      return window.localStorage.getItem("newszxcn.mail.auto-translate") === "true"
     } catch {
-      return true
+      return false
     }
   })
   const { toast } = useToast()
@@ -3825,7 +3847,7 @@ function TranslatableMailBody({ message, language }: { message: MailMessage; lan
     translate.mutate({ force: false })
   }, [autoTranslate, message.id, message.externalAccountId, shouldShow, targetLanguage, translationKey])
 
-  const changeAutoTranslate = (checked: boolean) => {
+  const persistAutoTranslate = (checked: boolean) => {
     setAutoTranslate(checked)
     if (!checked) setShowTranslated(false)
     try {
@@ -3833,6 +3855,13 @@ function TranslatableMailBody({ message, language }: { message: MailMessage; lan
     } catch {
       // Keep the setting for this session when browser storage is unavailable.
     }
+  }
+  const changeAutoTranslate = (checked: boolean) => {
+    if (checked) {
+      setTranslationConsentOpen(true)
+      return
+    }
+    persistAutoTranslate(false)
   }
 
   return (
@@ -3843,6 +3872,7 @@ function TranslatableMailBody({ message, language }: { message: MailMessage; lan
             <div className="text-muted-foreground">
               {translatedText ? `已翻译为 ${translationTargetLabel(language)}，当前${showTranslated ? "显示译文" : "显示原文"}` : `检测到邮件可能不是当前语言，可翻译为 ${translationTargetLabel(language)}`}
               {truncated && <span className="ml-1">（内容较长，仅翻译前半部分）</span>}
+              <span className="mt-1 block text-xs">翻译时邮件正文会发送给 Google 翻译服务。</span>
             </div>
             <div className="flex items-center gap-2">
               <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap text-xs text-muted-foreground">
@@ -3856,6 +3886,14 @@ function TranslatableMailBody({ message, language }: { message: MailMessage; lan
         </div>
       )}
       {translatedText && showTranslated ? <MailHtmlFrame message={translatedMessage} /> : <MailHtmlFrame message={message} />}
+      <ConfirmDialog
+        open={translationConsentOpen}
+        title="启用自动翻译？"
+        description="启用后，系统会自动将需要翻译的邮件正文发送给 Google 翻译服务。请确认你同意共享这些内容。"
+        confirmText="同意并启用"
+        onOpenChange={setTranslationConsentOpen}
+        onConfirm={() => { persistAutoTranslate(true); setTranslationConsentOpen(false) }}
+      />
     </>
   )
 }
@@ -3890,14 +3928,18 @@ function plainTextToMailHtml(text: string) {
 function MailHtmlFrame({ message }: { message: MailMessage }) {
   const iframeRef = React.useRef<HTMLIFrameElement>(null)
   const [height, setHeight] = React.useState(260)
-  const srcDoc = React.useMemo(() => buildMailFrameSrcDoc(message.bodyHtml || "", message.bodyText || ""), [message.bodyHtml, message.bodyText])
+  const [allowRemoteImages, setAllowRemoteImages] = React.useState(false)
+  const preparedFrame = React.useMemo(() => buildMailFrameSrcDoc(message.bodyHtml || "", message.bodyText || "", allowRemoteImages), [allowRemoteImages, message.bodyHtml, message.bodyText])
+  const srcDoc = preparedFrame.srcDoc
+
+  React.useEffect(() => setAllowRemoteImages(false), [message.id])
 
   const resize = React.useCallback(() => {
     const doc = iframeRef.current?.contentDocument
     if (!doc) return
     const body = doc.body
-    const html = doc.documentElement
-    const nextHeight = Math.max(180, Math.ceil(Math.max(body?.scrollHeight || 0, body?.offsetHeight || 0, html?.scrollHeight || 0, html?.offsetHeight || 0)))
+    // The document height includes the iframe viewport and prevents short mail from shrinking.
+    const nextHeight = Math.max(80, Math.ceil(Math.max(body?.scrollHeight || 0, body?.offsetHeight || 0)))
     setHeight(nextHeight)
   }, [])
 
@@ -3906,14 +3948,14 @@ function MailHtmlFrame({ message }: { message: MailMessage }) {
     const frame = iframeRef.current
     if (!frame) return
     let observer: ResizeObserver | undefined
+    let unbindLinks: (() => void) | undefined
     const timers = [window.setTimeout(resize, 0), window.setTimeout(resize, 120), window.setTimeout(resize, 600)]
     const attach = () => {
       const doc = frame.contentDocument
       if (!doc) return
-      doc.querySelectorAll("a[href]").forEach((link) => {
-        link.setAttribute("target", "_blank")
-        link.setAttribute("rel", "noopener noreferrer")
-      })
+      unbindLinks?.()
+      unbindLinks = bindMailFrameLinks(doc)
+      observer?.disconnect()
       resize()
       if ("ResizeObserver" in window) {
         observer = new ResizeObserver(resize)
@@ -3923,8 +3965,10 @@ function MailHtmlFrame({ message }: { message: MailMessage }) {
       doc.querySelectorAll("img").forEach((img) => img.addEventListener("load", resize, { once: true }))
     }
     frame.addEventListener("load", attach)
+    if (frame.contentDocument?.readyState === "complete") attach()
     return () => {
       frame.removeEventListener("load", attach)
+      unbindLinks?.()
       observer?.disconnect()
       timers.forEach((timer) => window.clearTimeout(timer))
     }
@@ -3932,11 +3976,17 @@ function MailHtmlFrame({ message }: { message: MailMessage }) {
 
   return (
     <div className="mail-message-paper mx-auto w-full max-w-[1120px] overflow-hidden rounded-lg border">
+      {preparedFrame.hasRemoteContent && !allowRemoteImages && (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          <span>为保护隐私，已阻止邮件中的远程图片。</span>
+          <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setAllowRemoteImages(true)}><Image className="h-3.5 w-3.5" />加载图片</Button>
+        </div>
+      )}
       <iframe
         ref={iframeRef}
         title="邮件正文"
         className="block w-full border-0 bg-white"
-        sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+        sandbox="allow-same-origin"
         referrerPolicy="no-referrer"
         srcDoc={srcDoc}
         style={{ height }}
@@ -4264,8 +4314,8 @@ function MessageMetaPanel({ message, availableLabels, onAddLabel, onRemoveLabel,
   }, [message.id])
 
   return (
-    <div className="overflow-hidden rounded-lg border bg-muted/20 text-sm">
-      <div className="flex min-w-0 items-center gap-3 p-3">
+    <div className="mail-detail-meta overflow-hidden rounded-lg border bg-muted/20 text-sm">
+      <div className="mail-message-meta-summary flex min-w-0 items-center gap-3 p-3">
         <Avatar className="size-9 shrink-0 rounded-full">
           <AvatarFallback className="bg-primary text-sm font-semibold text-primary-foreground">{accountInitial(fromName, fromAddress)}</AvatarFallback>
         </Avatar>
@@ -4514,6 +4564,26 @@ function labelDotColor(label: MailLabel) {
   return label.color?.trim() || generateLabelColor(label.name).backgroundColor
 }
 
+function ComposeSenderPicker({ mailboxes, selected, onSelect }: { mailboxes: Mailbox[]; selected?: Mailbox; onSelect: (id: string) => void }) {
+  const [query, setQuery] = React.useState("")
+  const needle = query.trim().toLowerCase()
+  const matches = mailboxes.filter((item) => `${item.address} ${item.displayName || ""}`.toLowerCase().includes(needle))
+  return (
+    <DropdownMenu onOpenChange={() => setQuery("")}>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" variant="ghost" aria-label="发件邮箱" className="h-11 min-w-0 flex-1 justify-between gap-2 px-0 font-normal">
+          <span className="truncate">{selected?.address || "选择发件邮箱"}</span><ChevronDown className="h-4 w-4 shrink-0" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-0 max-w-[calc(100vw-32px)]">
+        <div className="p-1"><Input autoFocus aria-label="搜索发件邮箱" placeholder="搜索邮箱名称或地址" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.stopPropagation()} className="h-11 text-base" /></div>
+        {matches.map((item) => <DropdownMenuCheckboxItem key={item.id} checked={selected?.id === item.id} onSelect={() => onSelect(item.id)} className="min-h-11"><span className="min-w-0 truncate" title={item.address}>{item.address}</span></DropdownMenuCheckboxItem>)}
+        {matches.length === 0 && <DropdownMenuItem disabled>没有匹配邮箱</DropdownMenuItem>}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 function ComposeDialog({ mailboxes, mailbox, open, draft, limits, canSend, canManageDrafts, canSchedule, canManageSignatures, onOpenChange, onSent }: { mailboxes: Mailbox[]; mailbox?: Mailbox; open: boolean; draft?: ComposeDraft; limits?: PermissionLimits; canSend: boolean; canManageDrafts: boolean; canSchedule: boolean; canManageSignatures: boolean; onOpenChange: (v: boolean) => void; onSent: () => void }) {
   const { toast } = useToast()
   const qc = useQueryClient()
@@ -4646,7 +4716,7 @@ function ComposeDialog({ mailboxes, mailbox, open, draft, limits, canSend, canMa
   }, [files])
 
   React.useEffect(() => {
-    if (!open || closing || sendStartedRef.current || !hasDraftContent || !canManageDrafts) return
+    if (isDemoMode || !open || closing || sendStartedRef.current || !hasDraftContent || !canManageDrafts) return
     const payloadKey = JSON.stringify({ ...composePayload, draftId })
     if (payloadKey === lastSavedPayloadRef.current) return
     const timer = window.setTimeout(async () => {
@@ -4792,7 +4862,7 @@ function ComposeDialog({ mailboxes, mailbox, open, draft, limits, canSend, canMa
 
   async function closeCompose() {
     if (closing) return
-    if (!canManageDrafts || sendStartedRef.current || !hasDraftContent) {
+    if (isDemoMode || !canManageDrafts || sendStartedRef.current || !hasDraftContent) {
       onOpenChange(false)
       return
     }
@@ -4831,23 +4901,16 @@ function ComposeDialog({ mailboxes, mailbox, open, draft, limits, canSend, canMa
         <form key={draft?.key || "new"} className="flex min-h-0 min-w-0 flex-1 flex-col" onSubmit={submit}>
           <DialogHeader className="compose-dialog-header border-b px-4 py-3 text-left sm:px-5">
             <DialogTitle className="flex min-w-0 flex-col gap-1 pr-8 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:pr-6">
-              <span>{draftId ? "编辑草稿" : "写信"}</span>
+              <span>{draftId ? "编辑草稿" : draft?.key.startsWith("reply-all-") ? "回复全部" : draft?.key.startsWith("reply-") ? "回复" : "写信"}</span>
               <span className={cn("text-xs font-normal", draftStatus === "error" ? "text-destructive" : "text-muted-foreground")}>
-                {draftStatus === "saving" ? "正在保存草稿..." : draftStatus === "saved" && lastSavedAt ? `草稿已保存 ${lastSavedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : draftStatus === "error" ? "草稿保存失败" : ""}
+                {isDemoMode ? "只读演示，关闭后不保存草稿" : draftStatus === "saving" ? "正在保存草稿..." : draftStatus === "saved" && lastSavedAt ? `草稿已保存 ${lastSavedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : draftStatus === "error" ? "草稿保存失败" : ""}
               </span>
             </DialogTitle>
           </DialogHeader>
           <div className="compose-fields flex min-h-0 flex-1 flex-col overflow-y-auto">
             <ComposeField label="发件邮箱">
               {mailboxes.length > 1 ? (
-                <Select value={senderMailbox?.id || ""} onValueChange={setSenderMailboxId}>
-                  <SelectTrigger aria-label="发件邮箱" className="h-10 flex-1 rounded-none border-0 px-0 shadow-none focus:ring-0">
-                    <SelectValue placeholder="选择发件邮箱" />
-                  </SelectTrigger>
-                  <SelectContent className="max-w-[calc(100vw-2rem)]">
-                    {mailboxes.map((item) => <SelectItem key={item.id} value={item.id}>{item.address}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <ComposeSenderPicker mailboxes={mailboxes} selected={senderMailbox} onSelect={setSenderMailboxId} />
               ) : (
                 <div className="flex h-10 min-w-0 flex-1 select-none items-center gap-2 text-sm font-medium" aria-label={`发件邮箱：${senderMailbox?.address || "未选择"}`}>
                   <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -4857,10 +4920,11 @@ function ComposeDialog({ mailboxes, mailbox, open, draft, limits, canSend, canMa
             </ComposeField>
             <ComposeField
               label="收件人"
+              htmlFor="compose-to"
               action={
                 <div className="compose-recipient-actions flex shrink-0 flex-wrap items-center justify-start gap-1 text-sm sm:justify-end sm:gap-2">
-                  <Button type="button" variant="ghost" size="sm" className="h-8 px-2 font-normal" onClick={() => setShowCc((value) => !value)}>抄送</Button>
-                  <Button type="button" variant="ghost" size="sm" className="h-8 px-2 font-normal" onClick={() => setShowBcc((value) => !value)}>密送</Button>
+                  <Button type="button" variant={showCc ? "secondary" : "ghost"} size="sm" className="h-11 gap-1 px-2 font-normal" aria-expanded={showCc} aria-controls="compose-cc" onClick={() => setShowCc((value) => !value)}>抄送<ChevronDown aria-hidden="true" className={cn("h-4 w-4", showCc && "rotate-180")} /></Button>
+                  <Button type="button" variant={showBcc ? "secondary" : "ghost"} size="sm" className="h-11 gap-1 px-2 font-normal" aria-expanded={showBcc} aria-controls="compose-bcc" onClick={() => setShowBcc((value) => !value)}>密送<ChevronDown aria-hidden="true" className={cn("h-4 w-4", showBcc && "rotate-180")} /></Button>
                   <div className="flex items-center gap-2 rounded-md px-2 py-1">
                     <Checkbox id="compose-send-separately" checked={sendSeparately} onCheckedChange={(value) => setSendSeparately(value === true)} />
                     <Label htmlFor="compose-send-separately" className="cursor-pointer text-sm font-normal">分别发送</Label>
@@ -4868,20 +4932,20 @@ function ComposeDialog({ mailboxes, mailbox, open, draft, limits, canSend, canMa
                 </div>
               }
             >
-              <Input name="to" placeholder="name@example.com，多个地址用逗号或空格分隔" value={toValue} onChange={(event) => setToValue(event.target.value)} required className="h-10 flex-1 rounded-none border-0 px-0 shadow-none focus-visible:ring-0" />
+              <Input id="compose-to" name="to" placeholder="name@example.com，多个地址用逗号或空格分隔" value={toValue} onChange={(event) => setToValue(event.target.value)} required className="h-10 flex-1 rounded-none border-0 px-0 shadow-none focus-visible:ring-0" />
             </ComposeField>
             {showCc && (
-              <ComposeField label="抄送">
-                <Input name="cc" placeholder="cc@example.com" value={ccValue} onChange={(event) => setCcValue(event.target.value)} className="h-10 flex-1 rounded-none border-0 px-0 shadow-none focus-visible:ring-0" />
+              <ComposeField label="抄送" htmlFor="compose-cc">
+                <Input id="compose-cc" name="cc" aria-label="抄送邮箱" placeholder="输入抄送邮箱地址" value={ccValue} onChange={(event) => setCcValue(event.target.value)} className="h-10 flex-1 rounded-none border-0 px-0 shadow-none focus-visible:ring-0" />
               </ComposeField>
             )}
             {showBcc && (
-              <ComposeField label="密送">
-                <Input name="bcc" placeholder="bcc@example.com" value={bccValue} onChange={(event) => setBccValue(event.target.value)} className="h-10 flex-1 rounded-none border-0 px-0 shadow-none focus-visible:ring-0" />
+              <ComposeField label="密送" htmlFor="compose-bcc">
+                <Input id="compose-bcc" name="bcc" aria-label="密送邮箱" placeholder="输入密送邮箱地址" value={bccValue} onChange={(event) => setBccValue(event.target.value)} className="h-10 flex-1 rounded-none border-0 px-0 shadow-none focus-visible:ring-0" />
               </ComposeField>
             )}
-            <ComposeField label="主题">
-              <Input name="subject" placeholder="输入主题" value={subjectValue} onChange={(event) => setSubjectValue(event.target.value)} className="h-10 flex-1 rounded-none border-0 px-0 shadow-none focus-visible:ring-0" />
+            <ComposeField label="主题" htmlFor="compose-subject">
+              <Input id="compose-subject" name="subject" placeholder="输入主题" value={subjectValue} onChange={(event) => setSubjectValue(event.target.value)} className="h-10 flex-1 rounded-none border-0 px-0 shadow-none focus-visible:ring-0" />
             </ComposeField>
             {defaultSignature.isError && (
               <div className="flex items-center justify-between gap-3 border-b bg-destructive/5 px-4 py-2 text-xs text-destructive sm:px-6" role="alert">
@@ -4938,10 +5002,10 @@ function ComposeDialog({ mailboxes, mailbox, open, draft, limits, canSend, canMa
   )
 }
 
-function ComposeField({ label, children, action }: { label: string; children: React.ReactNode; action?: React.ReactNode }) {
+function ComposeField({ label, children, action, htmlFor }: { label: string; children: React.ReactNode; action?: React.ReactNode; htmlFor?: string }) {
   return (
     <div className="compose-field flex min-h-12 flex-col gap-1 border-b px-4 py-1.5 transition-colors sm:flex-row sm:items-center sm:gap-2 sm:px-5">
-      <Label className="shrink-0 text-sm font-normal text-muted-foreground sm:w-16">{label}</Label>
+      <Label htmlFor={htmlFor} className="shrink-0 text-sm font-normal text-muted-foreground sm:w-16">{label}</Label>
       <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
         {children}
         {action}
@@ -5873,30 +5937,44 @@ function plainTextToHtmlFragment(value: string) { return value.split("\n").map((
 function escapeHtml(value: string) {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;")
 }
-function buildMailFrameSrcDoc(bodyHtml: string, bodyText: string) {
+function buildMailFrameSrcDoc(bodyHtml: string, bodyText: string, allowRemoteImages = false) {
   const rawBody = bodyHtml.trim() ? bodyHtml : `<pre>${escapeHtml(bodyText || "")}</pre>`
   const sanitized = DOMPurify.sanitize(rawBody, {
     ADD_ATTR: ["style", "type", "align", "valign", "bgcolor", "border", "cellpadding", "cellspacing", "width", "height"],
     ADD_TAGS: ["html", "head", "body", "style", "center", "font"],
     WHOLE_DOCUMENT: /<html[\s>]/i.test(rawBody) || /<body[\s>]/i.test(rawBody),
   })
-  if (/<html[\s>]/i.test(sanitized) || /<body[\s>]/i.test(sanitized)) {
-    const hasHead = /<head[\s>]/i.test(sanitized)
-    const withBase = hasHead
-      ? sanitized.replace(/<head([^>]*)>/i, `<head$1><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><base target="_blank">${mailFrameBaseStyle()}`)
-      : sanitized.replace(/<html([^>]*)>/i, `<html$1><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><base target="_blank">${mailFrameBaseStyle()}</head>`)
-    return /<!doctype/i.test(withBase) ? withBase : `<!doctype html>${withBase}`
-  }
-  return `<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<base target="_blank">
-${mailFrameBaseStyle()}
-</head>
-<body>${sanitized}</body>
-</html>`
+  const doc = new DOMParser().parseFromString(sanitized, "text/html")
+  let hasRemoteContent = /url\(\s*["']?(?:https?:)?\/\//i.test(sanitized)
+  doc.querySelectorAll("img").forEach((img) => {
+    const src = img.getAttribute("src") || ""
+    const srcset = img.getAttribute("srcset") || ""
+    const remote = isRemoteMailResource(src) || srcset.split(",").some((candidate) => isRemoteMailResource(candidate.trim().split(/\s+/)[0] || ""))
+    if (!remote) return
+    hasRemoteContent = true
+    if (!allowRemoteImages) {
+      img.removeAttribute("src")
+      img.removeAttribute("srcset")
+      img.setAttribute("data-remote-image-blocked", "true")
+    }
+  })
+  doc.querySelectorAll("base, meta[http-equiv='Content-Security-Policy' i]").forEach((element) => element.remove())
+  const charset = doc.createElement("meta")
+  charset.setAttribute("charset", "utf-8")
+  const viewport = doc.createElement("meta")
+  viewport.setAttribute("name", "viewport")
+  viewport.setAttribute("content", "width=device-width, initial-scale=1")
+  const csp = doc.createElement("meta")
+  csp.setAttribute("http-equiv", "Content-Security-Policy")
+  csp.setAttribute("content", `default-src 'none'; img-src ${allowRemoteImages ? "http: https: " : ""}data: blob:; style-src 'unsafe-inline'; font-src data:; connect-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'`)
+  const base = doc.createElement("base")
+  base.setAttribute("target", "_self")
+  doc.head.prepend(charset, viewport, csp, base)
+  doc.head.insertAdjacentHTML("beforeend", mailFrameBaseStyle())
+  return { srcDoc: `<!doctype html>${doc.documentElement.outerHTML}`, hasRemoteContent }
+}
+function isRemoteMailResource(value: string) {
+  return /^(?:https?:)?\/\//i.test(value.trim())
 }
 function mailFrameBaseStyle() {
   return `<style>

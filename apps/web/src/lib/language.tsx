@@ -549,7 +549,7 @@ function localizeTextNode(node: Text, language: Language) {
   if (!current.trim()) return
   let source = textSources.get(node)
   const last = textLastApplied.get(node)
-  if (!source || (last !== undefined && current !== last && shouldTranslate(current))) {
+  if (!source || (current !== last && current !== source)) {
     source = current
     textSources.set(node, source)
   }
@@ -574,7 +574,7 @@ function localizeAttributes(element: Element, language: Language) {
       applied = {}
       attrLastApplied.set(element, applied)
     }
-    if (!sources[attr] || (applied[attr] !== undefined && current !== applied[attr] && shouldTranslate(current))) sources[attr] = current
+    if (!sources[attr] || (current !== applied[attr] && current !== sources[attr])) sources[attr] = current
     const source = sources[attr]
     if (!source || !shouldTranslate(source)) continue
     const next = translateUiText(source, language)

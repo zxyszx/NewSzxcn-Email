@@ -789,26 +789,44 @@ func (a *App) normalizeExternalIMAPPayload(ctx context.Context, req externalIMAP
 }
 
 func (a *App) validateExternalIMAPHost(ctx context.Context, host string) error {
-	if a.config().ExternalIMAPAllowPrivateHosts {
-		return nil
+	_, err := a.resolveExternalIMAPHost(ctx, host)
+	return err
+}
+
+func (a *App) resolveExternalIMAPHost(ctx context.Context, host string) ([]net.IP, error) {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return nil, errors.New("host is required")
 	}
-	if strings.EqualFold(host, "localhost") {
-		return errors.New("localhost is not allowed")
+	if !a.config().ExternalIMAPAllowPrivateHosts && strings.EqualFold(host, "localhost") {
+		return nil, errors.New("localhost is not allowed")
 	}
-	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
-	if err != nil {
-		if ip := net.ParseIP(host); ip != nil {
-			ips = []net.IP{ip}
-		} else {
-			return fmt.Errorf("failed to resolve host: %w", err)
+	var ips []net.IP
+	if ip := net.ParseIP(host); ip != nil {
+		ips = []net.IP{ip}
+	} else {
+		lookup := a.lookupIP
+		if lookup == nil {
+			lookup = net.DefaultResolver.LookupIP
 		}
+		var err error
+		ips, err = lookup(ctx, "ip", host)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve host: %w", err)
+		}
+	}
+	if len(ips) == 0 {
+		return nil, errors.New("host resolved without an IP address")
+	}
+	if a.config().ExternalIMAPAllowPrivateHosts {
+		return ips, nil
 	}
 	for _, ip := range ips {
 		if !isPublicExternalIMAPIP(ip) {
-			return errors.New("private or local IMAP hosts are not allowed")
+			return nil, errors.New("private or local IMAP hosts are not allowed")
 		}
 	}
-	return nil
+	return ips, nil
 }
 
 func isPublicExternalIMAPIP(ip net.IP) bool {
@@ -1482,26 +1500,34 @@ func escapeDownloadFilename(name string) string {
 }
 
 func (a *App) openExternalIMAPClient(ctx context.Context, account externalIMAPAccountRecord) (externalIMAPClient, error) {
-	if err := a.validateExternalIMAPHost(ctx, account.Host); err != nil {
+	ips, err := a.resolveExternalIMAPHost(ctx, account.Host)
+	if err != nil {
 		return nil, err
 	}
-	addr := net.JoinHostPort(account.Host, strconv.Itoa(account.Port))
 	options := &imapclient.Options{
 		Dialer:    &net.Dialer{Timeout: 10 * time.Second},
 		TLSConfig: &tls.Config{ServerName: account.Host, MinVersion: tls.VersionTLS12},
 	}
 	var c *imapclient.Client
-	var err error
-	switch account.TLSMode {
-	case externalIMAPTLS:
-		c, err = imapclient.DialTLS(addr, options)
-	case externalIMAPStartTLS:
-		c, err = imapclient.DialStartTLS(addr, options)
-	default:
-		c, err = imapclient.DialInsecure(addr, options)
+	var dialErr error
+	for _, ip := range ips {
+		// Dial the address that was validated above. TLS still verifies the
+		// configured hostname, so DNS cannot change the destination after SSRF checks.
+		addr := net.JoinHostPort(ip.String(), strconv.Itoa(account.Port))
+		switch account.TLSMode {
+		case externalIMAPTLS:
+			c, dialErr = imapclient.DialTLS(addr, options)
+		case externalIMAPStartTLS:
+			c, dialErr = imapclient.DialStartTLS(addr, options)
+		default:
+			c, dialErr = imapclient.DialInsecure(addr, options)
+		}
+		if dialErr == nil {
+			break
+		}
 	}
-	if err != nil {
-		return nil, err
+	if c == nil {
+		return nil, dialErr
 	}
 	if account.AuthMode == externalIMAPAuthOAuth2 {
 		token, err := a.externalIMAPOAuthAccessToken(ctx, account)

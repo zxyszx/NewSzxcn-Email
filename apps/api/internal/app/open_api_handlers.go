@@ -215,6 +215,10 @@ func (a *App) handleOpenAPICreateMailbox(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	address := localPart + "@" + domain.Name
+	if strings.TrimSpace(req.UserID) == "" && passwordMatchesIdentity(req.Password, address, req.OwnerEmail) {
+		badRequest(w, errors.New("password must not equal the login email"))
+		return
+	}
 	displayName := strings.TrimSpace(req.DisplayName)
 	if displayName == "" {
 		displayName = address
@@ -403,9 +407,13 @@ func (a *App) handleOpenAPIResetMailboxPassword(w http.ResponseWriter, r *http.R
 		badRequest(w, errors.New("password must be at least 6 characters"))
 		return
 	}
-	var userID string
-	if err := a.db.QueryRowContext(r.Context(), `SELECT user_id FROM mailboxes WHERE id=?`, chi.URLParam(r, "id")).Scan(&userID); err != nil {
+	var userID, email, loginName string
+	if err := a.db.QueryRowContext(r.Context(), `SELECT u.id,u.email,u.login_name FROM mailboxes mb JOIN users u ON u.id=mb.user_id WHERE mb.id=?`, chi.URLParam(r, "id")).Scan(&userID, &email, &loginName); err != nil {
 		respondError(w, http.StatusNotFound, "mailbox not found")
+		return
+	}
+	if passwordMatchesIdentity(req.Password, email, loginName) {
+		badRequest(w, errors.New("password must not equal the login email"))
 		return
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
@@ -422,6 +430,10 @@ func (a *App) handleOpenAPIResetMailboxPassword(w http.ResponseWriter, r *http.R
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(r.Context(), `UPDATE users SET password_hash=?,updated_at=? WHERE id=?`, string(hash), now, userID); err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to reset password")
+		return
+	}
+	if _, err := tx.ExecContext(r.Context(), `DELETE FROM sessions WHERE user_id=?`, userID); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to revoke sessions")
 		return
 	}
 	res, err := tx.ExecContext(r.Context(), `UPDATE mailboxes SET password_hash=?,updated_at=? WHERE user_id=?`, string(hash), now, userID)

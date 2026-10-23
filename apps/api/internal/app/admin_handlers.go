@@ -177,6 +177,10 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, errors.New("password must be at least 6 characters"))
 		return
 	}
+	if passwordMatchesIdentity(req.Password, primaryEmail, req.LoginName) {
+		badRequest(w, errors.New("密码不能与登录邮箱相同"))
+		return
+	}
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to hash password")
@@ -375,6 +379,12 @@ func (a *App) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "failed to update user")
 		return
 	}
+	if disabled && !existing.Disabled {
+		if _, err := tx.ExecContext(r.Context(), `DELETE FROM sessions WHERE user_id=?`, id); err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to revoke sessions")
+			return
+		}
+	}
 	if shouldUpdatePermissionGroups {
 		if err := a.setUserPermissionGroups(r.Context(), tx, id, permissionGroupIDs, current); err != nil {
 			badRequest(w, err)
@@ -400,7 +410,8 @@ func (a *App) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleResetUserPassword(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	if target, err := a.userByID(r.Context(), id); err != nil {
+	target, err := a.userByID(r.Context(), id)
+	if err != nil {
 		respondError(w, http.StatusNotFound, "user not found")
 		return
 	} else if target.Role == "admin" {
@@ -419,6 +430,10 @@ func (a *App) handleResetUserPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	if !hasMinimumPasswordLength(req.Password) {
 		badRequest(w, errors.New("password must be at least 6 characters"))
+		return
+	}
+	if passwordMatchesIdentity(req.Password, target.Email, target.LoginName) {
+		badRequest(w, errors.New("密码不能与登录邮箱相同"))
 		return
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
@@ -445,6 +460,10 @@ func (a *App) handleResetUserPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := tx.ExecContext(r.Context(), `UPDATE mailboxes SET password_hash=?, updated_at=? WHERE user_id=?`, string(hash), now, id); err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to update mailbox passwords")
+		return
+	}
+	if _, err := tx.ExecContext(r.Context(), `DELETE FROM sessions WHERE user_id=?`, id); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to revoke sessions")
 		return
 	}
 	if err := tx.Commit(); err != nil {
@@ -679,6 +698,10 @@ func (a *App) handleCreateMailbox(w http.ResponseWriter, r *http.Request) {
 		ownerEmail, err := cleanPrimaryEmail(firstNonEmpty(ownerEmailInput, address))
 		if err != nil {
 			badRequest(w, err)
+			return
+		}
+		if passwordMatchesIdentity(req.Password, ownerEmail, address, req.OwnerLoginName) {
+			badRequest(w, errors.New("密码不能与登录邮箱相同"))
 			return
 		}
 		err = tx.QueryRowContext(r.Context(), `SELECT id,disabled,password_hash,role,storage_quota_mb FROM users WHERE email=?`, ownerEmail).Scan(&userID, &disabled, &passwordHash, &ownerRole, &ownerStorageQuotaMB)

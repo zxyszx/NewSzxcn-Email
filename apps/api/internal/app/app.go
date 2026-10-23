@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,6 +29,7 @@ type App struct {
 	db                 *sql.DB
 	log                *slog.Logger
 	now                func() time.Time
+	lookupIP           func(context.Context, string, string) ([]net.IP, error)
 	policy             *HTMLPolicy
 	workerCancel       context.CancelFunc
 	workerWG           sync.WaitGroup
@@ -96,7 +98,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	}
 	db.SetMaxOpenConns(1)
 
-	a := &App{cfg: cfg, db: db, log: logger, now: time.Now, policy: NewHTMLPolicy(), maildirHealth: newMaildirSyncHealthTracker(), telegramURL: "https://api.telegram.org", telegramPairs: map[string]telegramPairing{}, telegramMailWake: make(chan struct{}, 1), backupTransfers: map[string]*backupTransfer{}}
+	a := &App{cfg: cfg, db: db, log: logger, now: time.Now, lookupIP: net.DefaultResolver.LookupIP, policy: NewHTMLPolicy(), maildirHealth: newMaildirSyncHealthTracker(), telegramURL: "https://api.telegram.org", telegramPairs: map[string]telegramPairing{}, telegramMailWake: make(chan struct{}, 1), backupTransfers: map[string]*backupTransfer{}}
 	a.externalIMAP = a
 	if err := a.configureSQLite(context.Background()); err != nil {
 		db.Close()
@@ -239,6 +241,13 @@ func (a *App) migrate(ctx context.Context) error {
 			token_hash TEXT NOT NULL UNIQUE,
 			expires_at TEXT NOT NULL,
 			created_at TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS auth_rate_limits (
+			key_hash TEXT PRIMARY KEY,
+			failures INTEGER NOT NULL DEFAULT 0,
+			window_started_at TEXT NOT NULL,
+			blocked_until TEXT NOT NULL DEFAULT '',
+			updated_at TEXT NOT NULL
 		)`,
 		`CREATE TABLE IF NOT EXISTS two_factor_recovery_codes (
 			id TEXT PRIMARY KEY,
@@ -1724,14 +1733,12 @@ func (a *App) seed(ctx context.Context) error {
 		return errors.New("LANQIN_ADMIN_EMAIL must be set to a valid email for a new installation")
 	}
 
-	adminPassword := cfg.AdminPassword
+	adminPassword := strings.TrimSpace(cfg.AdminPassword)
 	if adminPassword == "" {
-		buf := make([]byte, 16)
-		if _, err := rand.Read(buf); err != nil {
-			return err
-		}
-		adminPassword = base64.RawURLEncoding.EncodeToString(buf)
-		a.log.Warn("LANQIN_ADMIN_PASSWORD not set; generated random password", "password", adminPassword)
+		return errors.New("LANQIN_ADMIN_PASSWORD must be set for a new installation")
+	}
+	if !hasMinimumPasswordLength(adminPassword) || passwordMatchesIdentity(adminPassword, adminEmail) {
+		return errors.New("LANQIN_ADMIN_PASSWORD must be at least 6 characters and must not equal LANQIN_ADMIN_EMAIL")
 	}
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte(adminPassword), bcrypt.DefaultCost)
 	if err != nil {
