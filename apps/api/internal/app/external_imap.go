@@ -789,6 +789,11 @@ func (a *App) normalizeExternalIMAPPayload(ctx context.Context, req externalIMAP
 }
 
 func (a *App) validateExternalIMAPHost(ctx context.Context, host string) error {
+	// Private-host mode historically allowed accounts to be saved while their
+	// internal DNS was unavailable. Resolve and pin the destination at connect time.
+	if a.config().ExternalIMAPAllowPrivateHosts {
+		return nil
+	}
 	_, err := a.resolveExternalIMAPHost(ctx, host)
 	return err
 }
