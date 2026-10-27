@@ -767,11 +767,6 @@ export function MailPage() {
     }
   }, [])
   React.useEffect(() => {
-    document.documentElement.classList.add("workspace-ui")
-    return () => document.documentElement.classList.remove("workspace-ui")
-  }, [])
-
-  React.useEffect(() => {
     const unlock = () => {
       const AudioContextCtor = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
       if (AudioContextCtor && !mailAudioContextRef.current) {

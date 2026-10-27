@@ -333,10 +333,6 @@ export function ProfilePage() {
       applyTheme(dark, true, false)
     })
   }, [themeMode])
-  React.useEffect(() => {
-    document.documentElement.classList.add("workspace-ui")
-    return () => document.documentElement.classList.remove("workspace-ui")
-  }, [])
 
   const logout = useLogout()
   async function copy(text: string) { await navigator.clipboard.writeText(text); toast({ title: "已复制" }) }
@@ -369,7 +365,7 @@ export function ProfilePage() {
           setThemeMode(nextMode)
           setDarkMode(!darkMode)
           applyThemeMode(nextMode, true)
-        }} onBack={() => navigate("/")} />
+        }} onBack={() => navigate("/mail")} />
       </div>
       <nav className="min-h-0 flex-1 overflow-y-auto p-2">
         <div className="px-2 pb-2 pt-2 text-xs font-semibold text-muted-foreground">管理</div>

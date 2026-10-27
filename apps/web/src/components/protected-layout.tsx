@@ -64,11 +64,12 @@ function ProtectedContent() {
     applyTheme(darkMode, themeMountedRef.current, false)
     themeMountedRef.current = true
   }, [darkMode])
-  React.useEffect(() => {
-    if (!isAdminRoute) return
+  // Keep the workspace canvas across sibling routes; page cleanup must not
+  // expose the document's default background for a frame while navigating.
+  React.useLayoutEffect(() => {
     document.documentElement.classList.add("workspace-ui")
     return () => document.documentElement.classList.remove("workspace-ui")
-  }, [isAdminRoute])
+  }, [])
 
   const adminSection = new URLSearchParams(location.search).get("section") || "overview"
   const visibleAdminSections = adminSections.filter((item) => hasAnyPermission(user, item.permissions) && (item.key !== "backups" || user.role === "admin"))
