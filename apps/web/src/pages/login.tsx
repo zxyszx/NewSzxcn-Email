@@ -9,6 +9,7 @@ import { PasswordInput } from "@/components/ui/password-input"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
 import { useToast } from "@/hooks/use-toast"
 import { safeReturnPath } from "@/lib/navigation"
 import { isDemoMode, publicAsset } from "@/lib/demo"
@@ -25,6 +26,7 @@ export function LoginPage() {
   const publicSettings = useQuery({ queryKey: ["public-settings"], queryFn: api.publicSettings, staleTime: 0, refetchOnMount: "always" })
   const [turnstileToken, setTurnstileToken] = React.useState("")
   const [challengeToken, setChallengeToken] = React.useState("")
+  const [rememberDevice, setRememberDevice] = React.useState(import.meta.env.VITE_NATIVE_APP === "true")
   const [loginOpen, setLoginOpen] = React.useState(false)
   const [visualTheme, setVisualTheme] = React.useState<"day" | "night">(() => {
     const savedTheme = window.localStorage.getItem("newszxcn:landing-theme")
@@ -35,9 +37,13 @@ export function LoginPage() {
   const transitionTimerRef = React.useRef<number | null>(null)
   const heroRef = React.useRef<HTMLElement>(null)
   const login = useMutation({
-    mutationFn: (form: FormData) => challengeToken
-      ? api.login({ challengeToken, twoFactorCode: String(form.get("twoFactorCode") || "") })
-      : api.login({ email: String(form.get("email") || ""), password: String(form.get("password") || ""), turnstileToken }),
+    mutationFn: (form: FormData) => {
+      // Older servers reject unknown JSON fields, so negotiate support first.
+      const persistentSession = (publicSettings.data?.rememberDeviceHours || 0) > 0 ? { rememberDevice } : {}
+      return challengeToken
+        ? api.login({ challengeToken, twoFactorCode: String(form.get("twoFactorCode") || ""), ...persistentSession })
+        : api.login({ email: String(form.get("email") || ""), password: String(form.get("password") || ""), turnstileToken, ...persistentSession })
+    },
     onSuccess: async (data) => {
       if (data.twoFactorRequired && data.challengeToken) {
         setTransitionPhase("idle")
@@ -168,6 +174,9 @@ export function LoginPage() {
               turnstileRequired={turnstileRequired}
               turnstileSiteKey={publicSettings.data?.turnstileSiteKey || ""}
               demoMode={isDemoMode}
+              rememberDevice={rememberDevice}
+              rememberDeviceHours={publicSettings.data?.rememberDeviceHours || 0}
+              onRememberDevice={setRememberDevice}
               onTurnstileToken={setTurnstileToken}
               onBackToLogin={() => setChallengeToken("")}
               onRegister={startRegisterTransition}
@@ -216,7 +225,7 @@ export function LoginPage() {
   )
 }
 
-function LoginArtwork({ challengeToken, leaving, loginPending, openRegistration, turnstileRequired, turnstileSiteKey, demoMode, onTurnstileToken, onBackToLogin, onRegister, onSubmit }: {
+function LoginArtwork({ challengeToken, leaving, loginPending, openRegistration, turnstileRequired, turnstileSiteKey, demoMode, rememberDevice, rememberDeviceHours, onRememberDevice, onTurnstileToken, onBackToLogin, onRegister, onSubmit }: {
   challengeToken: string
   leaving: boolean
   loginPending: boolean
@@ -224,6 +233,9 @@ function LoginArtwork({ challengeToken, leaving, loginPending, openRegistration,
   turnstileRequired: boolean
   turnstileSiteKey: string
   demoMode: boolean
+  rememberDevice: boolean
+  rememberDeviceHours: number
+  onRememberDevice: (checked: boolean) => void
   onTurnstileToken: (token: string) => void
   onBackToLogin: () => void
   onRegister: () => void
@@ -277,6 +289,12 @@ function LoginArtwork({ challengeToken, leaving, loginPending, openRegistration,
             </div>
           )}
 
+          {rememberDeviceHours > 0 && (
+            <label className="flex min-h-11 cursor-pointer items-center gap-3 text-sm text-white/80">
+              <Checkbox checked={rememberDevice} onCheckedChange={(checked) => onRememberDevice(checked === true)} disabled={loginPending} />
+              在此设备保持登录（{Math.ceil(rememberDeviceHours / 24)} 天）
+            </label>
+          )}
           {!challengeToken && turnstileRequired && <TurnstileBox siteKey={turnstileSiteKey} onToken={onTurnstileToken} />}
 
           <Button className="space-auth-submit space-serif" disabled={loginPending}>

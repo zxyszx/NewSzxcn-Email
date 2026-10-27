@@ -18,6 +18,7 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 		TurnstileToken string `json:"turnstileToken"`
 		ChallengeToken string `json:"challengeToken"`
 		TwoFactorCode  string `json:"twoFactorCode"`
+		RememberDevice bool   `json:"rememberDevice"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		badRequest(w, err)
@@ -66,7 +67,7 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 		a.deleteLoginChallenge(r.Context(), challenge.ID)
 		a.clearAuthRateLimits(r.Context(), rateTargets...)
-		if err := a.issueSession(w, r, user.ID); err != nil {
+		if err := a.issueLoginSession(w, r, user.ID, req.RememberDevice); err != nil {
 			respondError(w, http.StatusInternalServerError, "登录失败，请稍后重试")
 			return
 		}
@@ -132,7 +133,7 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 		respondJSON(w, http.StatusOK, map[string]any{"twoFactorRequired": true, "challengeToken": challengeToken})
 		return
 	}
-	if err := a.issueSession(w, r, user.ID); err != nil {
+	if err := a.issueLoginSession(w, r, user.ID, req.RememberDevice); err != nil {
 		respondError(w, http.StatusInternalServerError, "登录失败，请稍后重试")
 		return
 	}

@@ -39,7 +39,7 @@ type translateMailMessageResponse struct {
 
 func (a *App) handleTranslateMailMessage(w http.ResponseWriter, r *http.Request) {
 	if !a.config().MailTranslateEnabled {
-		respondError(w, http.StatusForbidden, "mail translation is disabled")
+		respondError(w, http.StatusForbidden, "邮件翻译尚未启用，请联系管理员开启服务端翻译功能")
 		return
 	}
 	var req translateMailMessageRequest
@@ -85,7 +85,7 @@ func (a *App) handleTranslateMailMessage(w http.ResponseWriter, r *http.Request)
 
 func (a *App) handleTranslateExternalIMAPMessage(w http.ResponseWriter, r *http.Request) {
 	if !a.config().MailTranslateEnabled {
-		respondError(w, http.StatusForbidden, "mail translation is disabled")
+		respondError(w, http.StatusForbidden, "邮件翻译尚未启用，请联系管理员开启服务端翻译功能")
 		return
 	}
 	var req translateMailMessageRequest

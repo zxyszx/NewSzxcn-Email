@@ -5323,7 +5323,10 @@ func TestUserMailSignaturesDefaultResolution(t *testing.T) {
 
 func TestUserTwoFactorSetupAndLogin(t *testing.T) {
 	a := newTestApp(t)
-	a.updateConfig(func(cfg *Config) { cfg.TwoFactorEnabled = true })
+	a.updateConfig(func(cfg *Config) {
+		cfg.TwoFactorEnabled = true
+		cfg.RememberDeviceTTLHours = 24 * 90
+	})
 	ts := httptest.NewServer(a.Router())
 	defer ts.Close()
 	client := &testClient{t: t, server: ts}
@@ -5365,14 +5368,17 @@ func TestUserTwoFactorSetupAndLogin(t *testing.T) {
 		TwoFactorRequired bool   `json:"twoFactorRequired"`
 		ChallengeToken    string `json:"challengeToken"`
 	}
-	if status := fresh.do("POST", "/api/auth/login", map[string]string{"email": "admin@lanqin.local", "password": "ChangeMe123!"}, &challenge); status != http.StatusOK || !challenge.TwoFactorRequired || challenge.ChallengeToken == "" || fresh.cookie != nil {
+	if status := fresh.do("POST", "/api/auth/login", map[string]any{"email": "admin@lanqin.local", "password": "ChangeMe123!", "rememberDevice": true}, &challenge); status != http.StatusOK || !challenge.TwoFactorRequired || challenge.ChallengeToken == "" || fresh.cookie != nil {
 		t.Fatalf("challenge status=%d challenge=%+v cookie=%v", status, challenge, fresh.cookie)
 	}
 	if status := fresh.do("POST", "/api/auth/login", map[string]string{"challengeToken": challenge.ChallengeToken, "twoFactorCode": "000000"}, &out); status != http.StatusUnauthorized {
 		t.Fatalf("wrong challenge status=%d body=%v", status, out)
 	}
-	if status := fresh.do("POST", "/api/auth/login", map[string]string{"challengeToken": challenge.ChallengeToken, "twoFactorCode": enabled.RecoveryCodes[0]}, &login); status != http.StatusOK || fresh.cookie == nil {
+	if status := fresh.do("POST", "/api/auth/login", map[string]any{"challengeToken": challenge.ChallengeToken, "twoFactorCode": enabled.RecoveryCodes[0], "rememberDevice": true}, &login); status != http.StatusOK || fresh.cookie == nil {
 		t.Fatalf("recovery login status=%d body=%v cookie=%v", status, login, fresh.cookie)
+	}
+	if fresh.cookie.MaxAge != 90*24*3600 {
+		t.Fatalf("MFA did not retain persistent login: MaxAge=%d", fresh.cookie.MaxAge)
 	}
 	reused := &testClient{t: t, server: ts}
 	if status := reused.do("POST", "/api/auth/login", map[string]string{"email": "admin@lanqin.local", "password": "ChangeMe123!"}, &challenge); status != http.StatusOK || !challenge.TwoFactorRequired || challenge.ChallengeToken == "" {

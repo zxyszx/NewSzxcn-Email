@@ -4,10 +4,41 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
 )
+
+func TestPublicTranslationAvailabilityMatchesServer(t *testing.T) {
+	a := newTestApp(t)
+	ts := httptest.NewServer(a.Router())
+	defer ts.Close()
+	client := &testClient{t: t, server: ts}
+	for _, enabled := range []bool{false, true, false} {
+		cfg := a.config()
+		cfg.MailTranslateEnabled = enabled
+		a.setConfig(cfg)
+		var settings map[string]any
+		if code := client.do("GET", "/api/public/settings", nil, &settings); code != http.StatusOK || settings["mailTranslateEnabled"] != enabled {
+			t.Fatalf("translation availability does not match server: status=%d enabled=%v", code, enabled)
+		}
+	}
+}
+
+func TestDisabledTranslationRejectsBeforeReadingMail(t *testing.T) {
+	a := newTestApp(t)
+	cfg := a.config()
+	cfg.MailTranslateEnabled = false
+	a.setConfig(cfg)
+	for _, handler := range []http.HandlerFunc{a.handleTranslateMailMessage, a.handleTranslateExternalIMAPMessage} {
+		recorder := httptest.NewRecorder()
+		handler(recorder, httptest.NewRequest(http.MethodPost, "/translate", strings.NewReader(`{}`)))
+		if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "邮件翻译尚未启用") {
+			t.Fatalf("disabled translation returned unexpected response: %d", recorder.Code)
+		}
+	}
+}
 
 func TestGoogleTranslateRequestUsesFormBody(t *testing.T) {
 	text := strings.Repeat("长邮件正文", 2000)

@@ -1219,14 +1219,23 @@
 /* ===== 邮件 HTML 内容渲染 ===== */
 .mail-message-paper {
   background: #fff;
-  border-color: hsl(212 45% 66% / 0.58);
-  box-shadow: 0 18px 44px hsl(214 48% 24% / 0.14), inset 0 1px 0 hsl(0 0% 100% / 0.9);
+  border-color: hsl(var(--border));
+  border-radius: 12px;
+  box-shadow: none;
 }
 
 .dark .mail-message-paper {
-  border-color: hsl(235 68% 68% / 0.42);
-  box-shadow: 0 22px 58px hsl(240 75% 2% / 0.5), 0 0 0 1px hsl(230 100% 88% / 0.05);
+  border-color: hsl(var(--border));
+  box-shadow: none;
 }
+
+.mail-reader-subject { line-height: 1.4; overflow-wrap: anywhere; }
+.mail-message-meta-summary { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 12px; }
+.mail-reader-date { align-self: start; max-width: 130px; padding-top: 4px; text-align: right; line-height: 1.6; }
+.mail-reader-addresses { overflow-wrap: anywhere; }
+.mail-translation-bar { border-color: hsl(var(--border)); background: hsl(var(--muted) / 0.4); }
+.mail-translation-bar > div > :first-child { flex: 1 1 220px; font-size: 12px; line-height: 1.6; }
+.mail-translation-bar > div > :last-child { flex-wrap: wrap; }
 
 .mail-message-paper iframe {
   color-scheme: light;
@@ -1728,10 +1737,10 @@ vue-devtools-anchor,
 .mobile-advanced-search-sheet .advanced-search-submit { font-size: 14px; }
 
 @media (max-width: 767px) {
-  .mail-detail-meta { border: 0; border-radius: 0; background: transparent; }
-  .mail-message-meta-summary { display: grid; grid-template-columns: 36px minmax(0, 1fr); padding: 0; gap: 8px 12px; }
-  .mail-message-meta-summary > :last-child { grid-column: 2; display: flex; align-items: center; justify-content: space-between; text-align: left; }
-  .mail-message-meta-summary > :last-child > button { width: 44px; height: 44px; margin: 0; }
+  .mail-message-meta-summary { grid-template-columns: 40px minmax(0, 1fr); gap: 2px 12px; }
+  .mail-message-meta-summary > :first-child { grid-row: span 2; align-self: start; }
+  .mail-reader-date { grid-column: 2; max-width: 100%; padding: 0; text-align: left; }
+  .mail-translation-bar button { min-height: 44px; }
 }
 
 .advanced-search-scope-row {
@@ -2725,7 +2734,7 @@ html.workspace-ui [data-slot="dialog-content"].verified-email-dialog [data-slot=
 .calendar-pane { min-width: 0; min-height: 0; overflow: hidden; border-radius: 16px; background: var(--mail-glass-calendar); color: hsl(var(--foreground)); backdrop-filter: blur(18px) saturate(120%); }
 
 .mail-reading-actions { display: flex; flex: none; align-items: center; gap: 2px; }
-.mail-reading-actions [data-slot="button"] { width: 34px; height: 34px; border-radius: 9px; color: hsl(var(--muted-foreground)); }
+.mail-reading-actions [data-slot="button"] { width: auto; min-width: 34px; height: 34px; padding-inline: 8px; border-radius: 9px; color: hsl(var(--muted-foreground)); }
 .mail-reading-actions [data-slot="button"]:hover { background: color-mix(in srgb, var(--mail-accent-color) 12%, transparent); color: hsl(var(--foreground)); }
 .mail-reading-actions svg { width: 17px; height: 17px; stroke-width: 1.7; }
 .calendar-heading, .calendar-month-nav { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px 8px; }

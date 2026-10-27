@@ -2123,7 +2123,7 @@ export function MailPage() {
                 </Button>
               )}
               <div className="mb-4 flex items-center justify-between gap-3">
-                <h2 className="min-w-0 flex-1 truncate text-xl font-semibold" title={selected.subject}>{selected.subject}</h2>
+                <h2 className="mail-reader-subject min-w-0 flex-1 break-words text-xl font-semibold" title={selected.subject}>{messageSubject(selected)}</h2>
                 <div className="mail-reading-actions">
                   {canSendMail && <Button type="button" variant="ghost" size="sm" className="gap-1.5 px-2" onClick={() => openReply(selected)} aria-label="回复" title="回复"><Reply className="h-4 w-4" /><span className="hidden xl:inline">回复</span></Button>}
                   {canSendMail && <Button type="button" variant="ghost" size="sm" className="gap-1.5 px-2" onClick={() => openReplyAll(selected)} aria-label="回复全部" title="回复全部"><ReplyAll className="h-4 w-4" /><span className="hidden xl:inline">回复全部</span></Button>}
@@ -2144,7 +2144,7 @@ export function MailPage() {
               />
             </div>
             <ScrollArea className="min-h-0 flex-1">
-              <div className="px-5 py-4">
+              <div className="mail-reader-content px-4 py-4 sm:px-5">
                 <TranslatableMailBody message={selected} language={language} />
                 {selected.attachments && selected.attachments.length > 0 && <div className="mt-8 rounded-lg border p-4"><div className="mb-3 font-medium">附件</div><div className="space-y-2">{selected.attachments.map((a) => canDownloadAttachments ? <a className="flex items-center justify-between rounded-md border p-3 text-sm hover:bg-accent" href={attachmentHref(selected, a.id)} key={a.id}><span className="flex items-center gap-2"><Paperclip className="h-4 w-4" />{a.filename}</span><span className="text-muted-foreground">{formatBytes(a.sizeBytes)}</span></a> : <div className="flex items-center justify-between rounded-md border p-3 text-sm text-muted-foreground" key={a.id}><span className="flex items-center gap-2"><Paperclip className="h-4 w-4" />{a.filename}</span><span>{formatBytes(a.sizeBytes)}</span></div>)}</div></div>}
               </div>
@@ -3764,7 +3764,7 @@ function CompactMessageDetail({
             <div className="w-full px-4 py-3 sm:px-5 sm:py-4">
               <div className="space-y-3 border-b pb-3">
                 <div className="flex items-start gap-3">
-                  <h1 className="min-w-0 flex-1 break-words text-lg font-semibold leading-6 sm:text-xl">{messageSubject(selected)}</h1>
+                  <h1 className="mail-reader-subject min-w-0 flex-1 break-words text-lg font-semibold leading-6 sm:text-xl">{messageSubject(selected)}</h1>
                   {canOrganize && <Button type="button" variant="ghost" size="icon" aria-label={selected.isStarred ? "取消星标" : "添加星标"} className="text-muted-foreground hover:text-yellow-500" onClick={() => onStar(selected)}>
                     <Star className={cn("h-5 w-5", selected.isStarred && "fill-yellow-400 text-yellow-500")} />
                   </Button>}
@@ -3789,6 +3789,8 @@ function CompactMessageDetail({
 
 function TranslatableMailBody({ message, language }: { message: MailMessage; language: Language }) {
   const qc = useQueryClient()
+  const translationSettings = useQuery({ queryKey: ["public-settings"], queryFn: api.publicSettings })
+  const translationEnabled = translationSettings.data?.mailTranslateEnabled === true
   const [translatedText, setTranslatedText] = React.useState("")
   const [translatedHtml, setTranslatedHtml] = React.useState("")
   const [showTranslated, setShowTranslated] = React.useState(false)
@@ -3815,6 +3817,7 @@ function TranslatableMailBody({ message, language }: { message: MailMessage; lan
   }, [])
   const translate = useMutation({
     mutationFn: async ({ force = false }: { force?: boolean } = {}) => {
+      if (!translationEnabled) throw new Error("邮件翻译尚未启用，请联系管理员开启服务端翻译功能。")
       if (!force) {
         const cached = qc.getQueryData<Awaited<ReturnType<typeof api.translateMessage>>>(translationKey)
         if (cached) return cached
@@ -3838,14 +3841,14 @@ function TranslatableMailBody({ message, language }: { message: MailMessage; lan
   }, [message.id, message.externalAccountId, language, translationKey])
 
   React.useEffect(() => {
-    if (!autoTranslate || !shouldShow || translate.isPending) return
+    if (!translationEnabled || !autoTranslate || !shouldShow || translate.isPending) return
     const cached = qc.getQueryData<Awaited<ReturnType<typeof api.translateMessage>>>(translationKey)
     if (cached) {
       applyTranslation(cached)
       return
     }
     translate.mutate({ force: false })
-  }, [autoTranslate, message.id, message.externalAccountId, shouldShow, targetLanguage, translationKey])
+  }, [translationEnabled, autoTranslate, message.id, message.externalAccountId, shouldShow, targetLanguage, translationKey])
 
   const persistAutoTranslate = (checked: boolean) => {
     setAutoTranslate(checked)
@@ -3867,20 +3870,20 @@ function TranslatableMailBody({ message, language }: { message: MailMessage; lan
   return (
     <>
       {(shouldShow || translatedText) && (
-        <div className="mb-4 rounded-lg border bg-muted/30 p-3 text-sm">
+        <div className="mail-translation-bar mb-4 rounded-lg border bg-muted/30 p-3 text-sm">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-muted-foreground">
-              {translatedText ? `已翻译为 ${translationTargetLabel(language)}，当前${showTranslated ? "显示译文" : "显示原文"}` : `检测到邮件可能不是当前语言，可翻译为 ${translationTargetLabel(language)}`}
+              {!translationEnabled ? translationSettings.isError ? "无法读取翻译设置，请稍后重试。" : translationSettings.isPending ? "正在读取翻译设置…" : "邮件翻译尚未启用，请联系管理员开启服务端翻译功能。" : translatedText ? `已翻译为 ${translationTargetLabel(language)}，当前${showTranslated ? "显示译文" : "显示原文"}` : `检测到邮件可能不是当前语言，可翻译为 ${translationTargetLabel(language)}`}
               {truncated && <span className="ml-1">（内容较长，仅翻译前半部分）</span>}
               <span className="mt-1 block text-xs">翻译时邮件正文会发送给 Google 翻译服务。</span>
             </div>
             <div className="flex items-center gap-2">
               <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap text-xs text-muted-foreground">
-                <Switch checked={autoTranslate} onCheckedChange={changeAutoTranslate} aria-label="自动翻译邮件" />
+                <Switch checked={translationEnabled && autoTranslate} disabled={!translationEnabled} onCheckedChange={changeAutoTranslate} aria-label="自动翻译邮件" />
                 自动翻译
               </label>
               {translatedText && <Button type="button" variant="ghost" size="sm" onClick={() => setShowTranslated((value) => !value)}>{showTranslated ? "显示原文" : "显示译文"}</Button>}
-              <Button type="button" variant="outline" size="sm" disabled={translate.isPending} onClick={() => translate.mutate({ force: !!translatedText })}>{translate.isPending ? "翻译中..." : translatedText ? "重新翻译" : "翻译"}</Button>
+              <Button type="button" variant="outline" size="sm" disabled={!translationEnabled || translate.isPending} onClick={() => translate.mutate({ force: !!translatedText })}>{translate.isPending ? "翻译中..." : translatedText ? "重新翻译" : "翻译"}</Button>
             </div>
           </div>
         </div>
@@ -4314,14 +4317,14 @@ function MessageMetaPanel({ message, availableLabels, onAddLabel, onRemoveLabel,
   }, [message.id])
 
   return (
-    <div className="mail-detail-meta overflow-hidden rounded-lg border bg-muted/20 text-sm">
-      <div className="mail-message-meta-summary flex min-w-0 items-center gap-3 p-3">
-        <Avatar className="size-9 shrink-0 rounded-full">
+    <div className="mail-detail-meta min-w-0 text-sm">
+      <div className="mail-message-meta-summary">
+        <Avatar className="size-10 shrink-0 rounded-full">
           <AvatarFallback className="bg-primary text-sm font-semibold text-primary-foreground">{accountInitial(fromName, fromAddress)}</AvatarFallback>
         </Avatar>
         <button
           type="button"
-          className="min-w-0 flex-1 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          className="min-h-11 min-w-0 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           onClick={() => setExpanded((value) => !value)}
           aria-expanded={expanded}
           aria-label={expanded ? "收起邮件详细信息" : "展开邮件详细信息"}
@@ -4330,27 +4333,15 @@ function MessageMetaPanel({ message, availableLabels, onAddLabel, onRemoveLabel,
             <span className="truncate font-medium text-foreground" title={senderTitle(message)}>{fromName}</span>
             <span className="hidden min-w-0 truncate text-xs text-muted-foreground sm:inline" title={fromAddress}>&lt;{fromAddress}&gt;</span>
           </div>
-          <div className="mt-0.5 truncate text-xs text-muted-foreground">
-            {to.length > 0 ? `发送至 ${to.join(", ")}` : deliveredTo ? `投递至 ${deliveredTo}` : "未填写收件人"}
+          <div className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+            <span className="truncate">{to.length > 0 ? `发送至 ${to.join(", ")}` : deliveredTo ? `投递至 ${deliveredTo}` : "未填写收件人"}</span>
+            <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition-transform duration-200 motion-reduce:transition-none", expanded && "rotate-180")} />
           </div>
         </button>
-        <div className="shrink-0 text-right">
-          <div className="text-xs text-muted-foreground">{formatDateTime(message.receivedAt)}</div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="mt-0.5 h-7 w-7 text-muted-foreground"
-            onClick={() => setExpanded((value) => !value)}
-            aria-label={expanded ? "收起邮件详细信息" : "展开邮件详细信息"}
-            title={expanded ? "收起详细信息" : "查看详细信息"}
-          >
-            <ChevronDown className={cn("h-4 w-4 transition-transform duration-200", expanded && "rotate-180")} />
-          </Button>
-        </div>
+        <time className="mail-reader-date text-xs text-muted-foreground" dateTime={message.receivedAt} title={formatDateTime(message.receivedAt)}>{formatDateTime(message.receivedAt)}</time>
       </div>
       {expanded && (
-        <div className="space-y-2 border-t px-3 py-3 pl-[3.75rem]">
+        <div className="mail-reader-addresses mt-3 space-y-2 rounded-xl border bg-muted/20 p-3 sm:ml-[52px]">
           <MessageMetaRow label="发件人地址">
             <span className="break-all">{fromAddress}</span>
           </MessageMetaRow>
@@ -5938,7 +5929,7 @@ function escapeHtml(value: string) {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;")
 }
 function buildMailFrameSrcDoc(bodyHtml: string, bodyText: string, allowRemoteImages = false) {
-  const rawBody = bodyHtml.trim() ? bodyHtml : `<pre>${escapeHtml(bodyText || "")}</pre>`
+  const rawBody = bodyHtml.trim() ? bodyHtml : `<div class="mail-plain-text">${escapeHtml(bodyText || "")}</div>`
   const sanitized = DOMPurify.sanitize(rawBody, {
     ADD_ATTR: ["style", "type", "align", "valign", "bgcolor", "border", "cellpadding", "cellspacing", "width", "height"],
     ADD_TAGS: ["html", "head", "body", "style", "center", "font"],
@@ -5971,6 +5962,7 @@ function buildMailFrameSrcDoc(bodyHtml: string, bodyText: string, allowRemoteIma
   base.setAttribute("target", "_self")
   doc.head.prepend(charset, viewport, csp, base)
   doc.head.insertAdjacentHTML("beforeend", mailFrameBaseStyle())
+  doc.body.classList.add("mail-reader-body")
   return { srcDoc: `<!doctype html>${doc.documentElement.outerHTML}`, hasRemoteContent }
 }
 function isRemoteMailResource(value: string) {
@@ -5984,9 +5976,14 @@ function mailFrameBaseStyle() {
     overflow-wrap: anywhere;
     -webkit-text-size-adjust: 100%;
     font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
-    font-size: 14px;
-    line-height: 1.5;
+    font-size: 15px;
+    line-height: 1.65;
   }
+  body.mail-reader-body { padding: 20px 24px; }
+  .mail-plain-text { white-space: pre-wrap; }
+  body > p:first-child { margin-top: 0; }
+  body > p:last-child { margin-bottom: 0; }
+  @media (max-width: 480px) { body.mail-reader-body { padding: 4px 0; } }
   *, *::before, *::after { box-sizing: border-box; }
   img { max-width: 100%; height: auto; }
   table { max-width: 100%; }

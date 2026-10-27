@@ -88,14 +88,16 @@ type systemSettingsUpdate struct {
 }
 
 type PublicSettings struct {
-	OpenRegistration    bool           `json:"openRegistration"`
-	TurnstileEnabled    bool           `json:"turnstileEnabled"`
-	TurnstileSiteKey    string         `json:"turnstileSiteKey"`
-	PublicHostname      string         `json:"publicHostname"`
-	MailAutoRefresh     bool           `json:"mailAutoRefresh"`
-	MailRefreshMs       int            `json:"mailRefreshMs"`
-	ExternalIMAPEnabled bool           `json:"externalImapEnabled"`
-	MailboxDomains      []PublicDomain `json:"mailboxDomains,omitempty"`
+	RememberDeviceHours  int            `json:"rememberDeviceHours"`
+	OpenRegistration     bool           `json:"openRegistration"`
+	TurnstileEnabled     bool           `json:"turnstileEnabled"`
+	TurnstileSiteKey     string         `json:"turnstileSiteKey"`
+	PublicHostname       string         `json:"publicHostname"`
+	MailAutoRefresh      bool           `json:"mailAutoRefresh"`
+	MailRefreshMs        int            `json:"mailRefreshMs"`
+	ExternalIMAPEnabled  bool           `json:"externalImapEnabled"`
+	MailTranslateEnabled bool           `json:"mailTranslateEnabled"`
+	MailboxDomains       []PublicDomain `json:"mailboxDomains,omitempty"`
 }
 
 type PublicDomain struct {
@@ -119,6 +121,8 @@ func (a *App) handlePublicSettings(w http.ResponseWriter, r *http.Request) {
 		refreshSeconds = 30
 	}
 	settings := PublicSettings{OpenRegistration: cfg.OpenRegistration, TurnstileEnabled: enabled, TurnstileSiteKey: cfg.TurnstileSiteKey, PublicHostname: cfg.PublicHostname, MailAutoRefresh: cfg.MailAutoRefresh, MailRefreshMs: refreshSeconds * 1000, ExternalIMAPEnabled: cfg.ExternalIMAPEnabled}
+	settings.MailTranslateEnabled = cfg.MailTranslateEnabled
+	settings.RememberDeviceHours = a.rememberDeviceHours()
 
 	// Include available domains for mailbox creation during registration
 	if cfg.OpenRegistration {
