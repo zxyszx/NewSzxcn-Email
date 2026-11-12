@@ -151,7 +151,7 @@ func (a *App) syncDueExternalIMAPAccounts(ctx context.Context) {
 	if !a.config().ExternalIMAPEnabled {
 		return
 	}
-	rows, err := a.db.QueryContext(ctx, `SELECT id FROM external_imap_accounts WHERE enabled=1 AND storage_mode=? ORDER BY COALESCE(last_sync_at, created_at) ASC LIMIT 10`, externalIMAPStorageLocal)
+	rows, err := a.db.QueryContext(ctx, `SELECT id FROM external_imap_accounts WHERE enabled=1 AND storage_mode=? AND user_id IN (SELECT id FROM users WHERE disabled=0) AND (?=0 OR instr(',' || ? || ',', ',' || user_id || ',')>0) ORDER BY COALESCE(last_sync_at, created_at) ASC LIMIT 10`, externalIMAPStorageLocal, boolInt(a.config().ExternalIMAPRestricted), a.config().ExternalIMAPUserIDs)
 	if err != nil {
 		a.log.Warn("failed to list external imap accounts", "error", err)
 		return
@@ -168,10 +168,39 @@ func (a *App) syncDueExternalIMAPAccounts(ctx context.Context) {
 	}
 }
 
+// The platform OAuth client and encryption key are shared infrastructure;
+// mailbox credentials and ownership remain scoped to each individual user.
+func (a *App) externalIMAPAllowed(user *User) bool {
+	cfg := a.config()
+	if !cfg.ExternalIMAPEnabled || user == nil || user.Disabled || !userHasPermission(user, PermissionMailAccess) {
+		return false
+	}
+	if !cfg.ExternalIMAPRestricted {
+		return true
+	}
+	for _, id := range strings.Split(cfg.ExternalIMAPUserIDs, ",") {
+		if id == user.ID {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *App) externalIMAPAllowedByID(ctx context.Context, userID string) bool {
+	user, err := a.userByID(ctx, userID)
+	return err == nil && a.externalIMAPAllowed(user)
+}
+
 func (a *App) requireExternalIMAPEnabled(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !a.config().ExternalIMAPEnabled {
 			respondError(w, http.StatusForbidden, "external imap is disabled")
+			return
+		}
+		// OAuth callbacks have no authenticated session; validate their signed
+		// state owner separately before exchanging the authorization code.
+		if user := currentUser(r); user != nil && !a.externalIMAPAllowed(user) {
+			respondError(w, http.StatusForbidden, "当前账号未获准使用外部邮箱，请联系管理员")
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -484,6 +513,10 @@ func (a *App) handleExternalIMAPOAuthCallback(w http.ResponseWriter, r *http.Req
 	state, err := a.decryptExternalIMAPOAuthState(r.URL.Query().Get("state"))
 	if err != nil || state.Provider != provider || state.ExpiresAt < a.now().Unix() {
 		respondError(w, http.StatusBadRequest, "invalid oauth state")
+		return
+	}
+	if !a.externalIMAPAllowedByID(r.Context(), state.UserID) {
+		respondError(w, http.StatusForbidden, "当前账号未获准使用外部邮箱")
 		return
 	}
 	if oauthErr := strings.TrimSpace(r.URL.Query().Get("error")); oauthErr != "" {
@@ -1080,6 +1113,9 @@ func (a *App) syncExternalIMAPAccount(ctx context.Context, accountID string) (Ex
 	if err != nil {
 		return ExternalIMAPSyncRun{}, err
 	}
+	if !a.externalIMAPAllowedByID(ctx, account.UserID) {
+		return ExternalIMAPSyncRun{}, errors.New("external imap access denied")
+	}
 	if account.StorageMode != externalIMAPStorageLocal {
 		return ExternalIMAPSyncRun{}, errors.New("account is not configured for local storage")
 	}
@@ -1115,6 +1151,9 @@ func (a *App) syncExternalIMAPAccountFolder(ctx context.Context, accountID, fold
 	account, err := a.externalIMAPAccountByID(ctx, accountID)
 	if err != nil {
 		return ExternalIMAPSyncRun{}, err
+	}
+	if !a.externalIMAPAllowedByID(ctx, account.UserID) {
+		return ExternalIMAPSyncRun{}, errors.New("external imap access denied")
 	}
 	if account.StorageMode != externalIMAPStorageLocal {
 		return ExternalIMAPSyncRun{}, errors.New("account is not configured for local storage")

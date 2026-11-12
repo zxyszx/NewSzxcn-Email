@@ -321,7 +321,7 @@ export function MailPage() {
   const canViewUnknownMail = user?.role === "admin"
   const canApplyMailbox = hasPermission(user, "mail.mailboxes.apply")
   const publicSettings = useQuery({ queryKey: ["public-settings"], queryFn: api.publicSettings })
-  const externalImapEnabled = publicSettings.data?.externalImapEnabled ?? false
+  const externalImapEnabled = (publicSettings.data?.externalImapEnabled ?? false) && (me.data?.externalImapAllowed ?? true)
 
   React.useEffect(() => {
     if (!user) return

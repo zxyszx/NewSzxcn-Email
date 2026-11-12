@@ -24,6 +24,7 @@ import (
 )
 
 type App struct {
+	personalSMTPSender func(Config, string, []string, []byte) error
 	cfg                Config
 	cfgMu              sync.RWMutex
 	db                 *sql.DB
@@ -656,6 +657,16 @@ func (a *App) migrate(ctx context.Context) error {
 			created_at TEXT NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_pop3_events_user_created ON pop3_events(user_id, created_at)`,
+		`CREATE TABLE IF NOT EXISTS smtp_pools (scope TEXT PRIMARY KEY, settings TEXT NOT NULL, cursor INTEGER NOT NULL DEFAULT 0)`,
+		`CREATE TABLE IF NOT EXISTS smtp_pool_assignments (queue_id TEXT NOT NULL, recipient TEXT NOT NULL, scope TEXT NOT NULL, account_id TEXT NOT NULL, PRIMARY KEY(queue_id,recipient))`,
+		`CREATE TABLE IF NOT EXISTS personal_smtp_routes (
+            user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            enabled INTEGER NOT NULL DEFAULT 0,
+            gmail_address TEXT NOT NULL DEFAULT '',
+            password_ciphertext TEXT NOT NULL DEFAULT '',
+            microsoft INTEGER NOT NULL DEFAULT 0,
+            yahoo INTEGER NOT NULL DEFAULT 0
+        )`,
 		`CREATE TABLE IF NOT EXISTS external_imap_accounts (
 			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

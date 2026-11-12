@@ -33,6 +33,8 @@ type SystemSettings struct {
 	UserMailboxDomainIDs               []string `json:"userMailboxDomainIds"`
 	ReservedMailboxPrefixes            string   `json:"reservedMailboxPrefixes"`
 	ExternalIMAPEnabled                bool     `json:"externalImapEnabled"`
+	ExternalIMAPRestricted             bool     `json:"externalImapRestricted"`
+	ExternalIMAPUserIDs                []string `json:"externalImapUserIds"`
 	ExternalIMAPSecretSet              bool     `json:"externalImapSecretSet"`
 	ExternalIMAPSyncSeconds            int      `json:"externalImapSyncSeconds"`
 	ExternalIMAPAllowPrivateHosts      bool     `json:"externalImapAllowPrivateHosts"`
@@ -49,42 +51,44 @@ type SystemSettings struct {
 }
 
 type systemSettingsUpdate struct {
-	PublicHostname                  string   `json:"publicHostname"`
-	PublicBaseURL                   string   `json:"publicBaseUrl"`
-	SMTPHost                        string   `json:"smtpHost"`
-	SMTPPort                        string   `json:"smtpPort"`
-	SMTPUsername                    string   `json:"smtpUsername"`
-	SMTPPassword                    string   `json:"smtpPassword"`
-	SMTPRequireTLS                  bool     `json:"smtpRequireTls"`
-	MaildirRoot                     string   `json:"maildirRoot"`
-	MaildirScanSeconds              int      `json:"maildirScanSeconds"`
-	SessionTTLHours                 int      `json:"sessionTtlHours"`
-	AllowInsecureHTTP               bool     `json:"allowInsecureHttp"`
-	OpenRegistration                bool     `json:"openRegistration"`
-	TwoFactorEnabled                bool     `json:"twoFactorEnabled"`
-	TurnstileEnabled                bool     `json:"turnstileEnabled"`
-	TurnstileSiteKey                string   `json:"turnstileSiteKey"`
-	TurnstileSecretKey              string   `json:"turnstileSecretKey"`
-	CatchAllEnabled                 bool     `json:"catchAllEnabled"`
-	MailAutoRefresh                 bool     `json:"mailAutoRefresh"`
-	MailRefreshSeconds              int      `json:"mailRefreshSeconds"`
-	UserMailboxApplyEnabled         bool     `json:"userMailboxApplyEnabled"`
-	UserMailboxDomainIDs            []string `json:"userMailboxDomainIds"`
-	ReservedMailboxPrefixes         string   `json:"reservedMailboxPrefixes"`
-	ExternalIMAPEnabled             bool     `json:"externalImapEnabled"`
-	ExternalIMAPSecretKey           string   `json:"externalImapSecretKey"`
-	ExternalIMAPSyncSeconds         int      `json:"externalImapSyncSeconds"`
-	ExternalIMAPAllowPrivateHosts   bool     `json:"externalImapAllowPrivateHosts"`
-	ExternalIMAPGmailClientID       string   `json:"externalImapGmailClientId"`
-	ExternalIMAPGmailClientSecret   string   `json:"externalImapGmailClientSecret"`
-	ExternalIMAPOutlookClientID     string   `json:"externalImapOutlookClientId"`
-	ExternalIMAPOutlookClientSecret string   `json:"externalImapOutlookClientSecret"`
-	TelegramMailEnabled             bool     `json:"telegramMailEnabled"`
-	TelegramBotToken                string   `json:"telegramBotToken"`
-	TelegramPrivateChatID           string   `json:"telegramPrivateChatId"`
-	TelegramBodyMode                string   `json:"telegramBodyMode"`
-	TelegramMailboxIDs              []string `json:"telegramMailboxIds"`
-	TelegramIncludeUnregistered     bool     `json:"telegramIncludeUnregistered"`
+	PublicHostname                  string    `json:"publicHostname"`
+	PublicBaseURL                   string    `json:"publicBaseUrl"`
+	SMTPHost                        string    `json:"smtpHost"`
+	SMTPPort                        string    `json:"smtpPort"`
+	SMTPUsername                    string    `json:"smtpUsername"`
+	SMTPPassword                    string    `json:"smtpPassword"`
+	SMTPRequireTLS                  bool      `json:"smtpRequireTls"`
+	MaildirRoot                     string    `json:"maildirRoot"`
+	MaildirScanSeconds              int       `json:"maildirScanSeconds"`
+	SessionTTLHours                 int       `json:"sessionTtlHours"`
+	AllowInsecureHTTP               bool      `json:"allowInsecureHttp"`
+	OpenRegistration                bool      `json:"openRegistration"`
+	TwoFactorEnabled                bool      `json:"twoFactorEnabled"`
+	TurnstileEnabled                bool      `json:"turnstileEnabled"`
+	TurnstileSiteKey                string    `json:"turnstileSiteKey"`
+	TurnstileSecretKey              string    `json:"turnstileSecretKey"`
+	CatchAllEnabled                 bool      `json:"catchAllEnabled"`
+	MailAutoRefresh                 bool      `json:"mailAutoRefresh"`
+	MailRefreshSeconds              int       `json:"mailRefreshSeconds"`
+	UserMailboxApplyEnabled         bool      `json:"userMailboxApplyEnabled"`
+	UserMailboxDomainIDs            []string  `json:"userMailboxDomainIds"`
+	ReservedMailboxPrefixes         string    `json:"reservedMailboxPrefixes"`
+	ExternalIMAPEnabled             bool      `json:"externalImapEnabled"`
+	ExternalIMAPRestricted          *bool     `json:"externalImapRestricted"`
+	ExternalIMAPUserIDs             *[]string `json:"externalImapUserIds"`
+	ExternalIMAPSecretKey           string    `json:"externalImapSecretKey"`
+	ExternalIMAPSyncSeconds         int       `json:"externalImapSyncSeconds"`
+	ExternalIMAPAllowPrivateHosts   bool      `json:"externalImapAllowPrivateHosts"`
+	ExternalIMAPGmailClientID       string    `json:"externalImapGmailClientId"`
+	ExternalIMAPGmailClientSecret   string    `json:"externalImapGmailClientSecret"`
+	ExternalIMAPOutlookClientID     string    `json:"externalImapOutlookClientId"`
+	ExternalIMAPOutlookClientSecret string    `json:"externalImapOutlookClientSecret"`
+	TelegramMailEnabled             bool      `json:"telegramMailEnabled"`
+	TelegramBotToken                string    `json:"telegramBotToken"`
+	TelegramPrivateChatID           string    `json:"telegramPrivateChatId"`
+	TelegramBodyMode                string    `json:"telegramBodyMode"`
+	TelegramMailboxIDs              []string  `json:"telegramMailboxIds"`
+	TelegramIncludeUnregistered     bool      `json:"telegramIncludeUnregistered"`
 }
 
 type PublicSettings struct {
@@ -202,6 +206,23 @@ func (a *App) handleUpdateSystemSettings(w http.ResponseWriter, r *http.Request)
 	next.UserMailboxDomainIDs = strings.Join(cleanIDList(req.UserMailboxDomainIDs), ",")
 	next.ReservedMailboxPrefixes = strings.Join(parseReservedPrefixes(req.ReservedMailboxPrefixes), ",")
 	next.ExternalIMAPEnabled = req.ExternalIMAPEnabled
+	if req.ExternalIMAPRestricted != nil {
+		next.ExternalIMAPRestricted = *req.ExternalIMAPRestricted
+	}
+	if req.ExternalIMAPUserIDs != nil {
+		ids := cleanIDList(*req.ExternalIMAPUserIDs)
+		if len(ids) > 1000 {
+			badRequest(w, errors.New("外部邮箱授权用户不能超过 1000 个"))
+			return
+		}
+		for _, id := range ids {
+			if _, err := a.userByID(r.Context(), id); err != nil {
+				badRequest(w, errors.New("外部邮箱授权用户不存在，请刷新用户列表"))
+				return
+			}
+		}
+		next.ExternalIMAPUserIDs = strings.Join(ids, ",")
+	}
 	if strings.TrimSpace(req.ExternalIMAPSecretKey) != "" {
 		next.ExternalIMAPSecretKey = strings.TrimSpace(req.ExternalIMAPSecretKey)
 	}
@@ -352,6 +373,8 @@ func (a *App) systemSettingsSnapshot() SystemSettings {
 		UserMailboxDomainIDs:               cleanIDList(strings.Split(cfg.UserMailboxDomainIDs, ",")),
 		ReservedMailboxPrefixes:            strings.Join(parseReservedPrefixes(cfg.ReservedMailboxPrefixes), "\n"),
 		ExternalIMAPEnabled:                cfg.ExternalIMAPEnabled,
+		ExternalIMAPRestricted:             cfg.ExternalIMAPRestricted,
+		ExternalIMAPUserIDs:                cleanIDList(strings.Split(cfg.ExternalIMAPUserIDs, ",")),
 		ExternalIMAPSecretSet:              strings.TrimSpace(cfg.ExternalIMAPSecretKey) != "",
 		ExternalIMAPSyncSeconds:            cfg.ExternalIMAPSyncSeconds,
 		ExternalIMAPAllowPrivateHosts:      cfg.ExternalIMAPAllowPrivateHosts,
@@ -431,6 +454,10 @@ func (a *App) loadPersistedSystemSettings(ctx context.Context) error {
 			cfg.UserMailboxDomainIDs = value
 		case "reservedMailboxPrefixes":
 			cfg.ReservedMailboxPrefixes = value
+		case "externalImapRestricted":
+			cfg.ExternalIMAPRestricted = value == "true"
+		case "externalImapUserIds":
+			cfg.ExternalIMAPUserIDs = value
 		case "externalImapEnabled":
 			cfg.ExternalIMAPEnabled = value == "true"
 		case "externalImapSecretKey":
@@ -494,6 +521,8 @@ func (a *App) saveSystemSettings(ctx context.Context, cfg Config, clearPendingTe
 		"userMailboxApplyEnabled":         strconv.FormatBool(cfg.UserMailboxApplyEnabled),
 		"userMailboxDomainIds":            strings.Join(cleanIDList(strings.Split(cfg.UserMailboxDomainIDs, ",")), ","),
 		"reservedMailboxPrefixes":         strings.Join(parseReservedPrefixes(cfg.ReservedMailboxPrefixes), ","),
+		"externalImapRestricted":          strconv.FormatBool(cfg.ExternalIMAPRestricted),
+		"externalImapUserIds":             cfg.ExternalIMAPUserIDs,
 		"externalImapEnabled":             strconv.FormatBool(cfg.ExternalIMAPEnabled),
 		"externalImapSecretKey":           cfg.ExternalIMAPSecretKey,
 		"externalImapSyncSeconds":         strconv.Itoa(cfg.ExternalIMAPSyncSeconds),

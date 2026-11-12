@@ -262,7 +262,7 @@ func (a *App) processSendQueueItem(ctx context.Context, id string) {
 		return
 	}
 	trackedMIME := addMessageHeader(item.MIMEBytes, "X-LanQin-Queue-ID", item.ID)
-	if err := a.sendSMTP(item.MailFrom, item.Recipients, trackedMIME); err != nil {
+	if err := a.sendQueueWithPersonalRoute(ctx, item, trackedMIME); err != nil {
 		a.markSendQueueFailed(ctx, item, err)
 		return
 	}
@@ -429,6 +429,15 @@ func (a *App) hasSendQueueDeliveredMarker(id string) (bool, error) {
 }
 
 func (a *App) deleteSendQueueDeliveredMarker(id string) {
+	if _, err := a.db.Exec(`DELETE FROM smtp_pool_assignments WHERE queue_id=?`, id); err != nil {
+		a.log.Warn("failed to clean SMTP assignment", "id", id)
+	}
+
+	// Clean recipient markers after completion or an explicit new submission.
+	paths, _ := filepath.Glob(a.sendQueueDeliveredMarkerPath(id + ".rcpt.*"))
+	for _, path := range paths {
+		_ = os.Remove(path)
+	}
 	err := os.Remove(a.sendQueueDeliveredMarkerPath(id))
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		a.log.Warn("failed to remove send queue delivered marker", "id", id, "error", err)

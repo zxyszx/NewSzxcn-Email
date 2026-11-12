@@ -276,6 +276,8 @@ export type SystemSettings = {
   userMailboxDomainIds: string[]
   reservedMailboxPrefixes: string
   externalImapEnabled: boolean
+  externalImapRestricted?: boolean
+  externalImapUserIds?: string[]
   externalImapSecretSet: boolean
   externalImapSyncSeconds: number
   externalImapAllowPrivateHosts: boolean
@@ -301,3 +303,17 @@ export type LoginResponse = { user?: User; twoFactorRequired?: boolean; challeng
 export type RegisterPayload = { email: string; displayName: string; password: string; turnstileToken?: string; domainId?: string; localPart?: string }
 export type TwoFactorEnableResponse = { user: User; recoveryCodes: string[] }
 export type BulkMoveResult = { ok: boolean; moved: number; failed: number; message: string; items: { id: string; mailboxId?: string; ok: boolean; message: string }[] }
+
+export type SmtpPoolAccount = {
+  id: string; name: string; host: string; port: number; username: string; from: string;
+  enabled: boolean; rotateAfter: number; password?: string; passwordSet: boolean;
+}
+export type SmtpPoolSettings = {
+  source: "inherit" | "personal"; enabled: boolean; allProviders: boolean; providers: string[];
+  domains: string[]; strategy: "rotate" | "single"; accountId: string; accounts: SmtpPoolAccount[];
+}
+export type SmtpPoolResponse = {
+  settings: SmtpPoolSettings;
+  providers: {id: string; name: string; domains: string[] | null}[];
+  shared?: {enabled: boolean; accountCount: number; allProviders: boolean; providers: string[]; domains: string[]; strategy: string};
+}
