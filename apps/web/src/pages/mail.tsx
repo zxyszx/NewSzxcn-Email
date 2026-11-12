@@ -2057,7 +2057,6 @@ export function MailPage() {
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <div className="flex items-center gap-1">
                 <Checkbox aria-label="选择当前页邮件" checked={compactAllSelected ? true : compactSomeSelected ? "indeterminate" : false} onCheckedChange={(value) => toggleCompactSelectAll(value === true)} />
-                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
               </div>
               <div className="mail-list-toolbar-main flex min-w-0 flex-1 items-center gap-1.5">
                 <h1 key={viewTitle} className="shrink-0 whitespace-nowrap text-xl font-bold leading-none text-foreground">{mailView === "label" && selectedLabel ? selectedLabel.name : viewTitle}</h1>
@@ -2476,9 +2475,21 @@ function MailFilterMenu({ focused, onFocusedChange, filter, onFilterChange, cons
   const sorts: { value: MailSort; label: string }[] = [
     { value: "date-desc", label: "日期（由新到旧）" }, { value: "date-asc", label: "日期（由旧到新）" }, { value: "sender", label: "发件人" }, { value: "flagged", label: "标记" }, { value: "size-desc", label: "大小" }, { value: "importance", label: "重要性" }, { value: "subject", label: "主题" }, { value: "category", label: "类别" },
   ]
+  const activeLabels = [
+    ...(focused ? ["重点收件箱"] : []),
+    ...(filter !== "all" ? [filters.find((item) => item.value === filter)!.label] : []),
+    ...(constraint !== "all" ? [{ recipient: "收件人是我", mentioned: "提及我", category: "类别" }[constraint]] : []),
+    ...(sort !== "date-desc" ? [sorts.find((item) => item.value === sort)!.label] : []),
+  ]
+  const summary = activeLabels.join("、")
   return (
+    <div className="mail-filter-control flex min-w-0 flex-wrap items-center justify-end gap-1">
+      {activeLabels.length > 0 && <div role="status" aria-label={`当前筛选与排序：${summary}`} className="flex min-w-0 items-center gap-1 rounded-md bg-accent px-2 text-sm text-accent-foreground">
+        <span className="max-w-40 truncate max-md:max-w-24" title={summary}>{summary}</span>
+        <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0 max-md:h-11 max-md:w-11" aria-label="清除筛选并恢复默认排序" title="清除筛选并恢复默认排序" onClick={() => { onFocusedChange(false); onFilterChange("all"); onConstraintChange("all"); onSortChange("date-desc") }}><X className="h-4 w-4" /></Button>
+      </div>}
     <DropdownMenu>
-      <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon" className={cn("h-8 w-8 max-md:h-11 max-md:w-11", (filter !== "all" || constraint !== "all" || focused || sort !== "date-desc") && "bg-accent text-accent-foreground")} aria-label="筛选与排序" title="筛选与排序"><Filter className="h-4 w-4" /></Button></DropdownMenuTrigger>
+      <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon" className={cn("h-8 w-8 max-md:h-11 max-md:w-11", activeLabels.length > 0 && "bg-accent text-accent-foreground")} aria-label={summary ? `筛选与排序，当前：${summary}` : "筛选与排序"} title={summary ? `筛选与排序，当前：${summary}` : "筛选与排序"}><Filter className="h-4 w-4" /></Button></DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="mail-filter-menu w-60">
         <DropdownMenuItem onSelect={() => onFocusedChange(false)}>{!focused ? <Check /> : <span className="h-4 w-4" />}收件箱</DropdownMenuItem>
         <DropdownMenuItem onSelect={() => onFocusedChange(true)}>{focused ? <Check /> : <span className="h-4 w-4" />}重点收件箱</DropdownMenuItem>
@@ -2495,6 +2506,7 @@ function MailFilterMenu({ focused, onFocusedChange, filter, onFilterChange, cons
         <DropdownMenuItem onSelect={onSettings}><Settings />设置……</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+    </div>
   )
 }
 
