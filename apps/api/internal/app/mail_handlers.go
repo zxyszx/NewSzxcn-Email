@@ -1889,7 +1889,7 @@ func (a *App) handleRetrySendQueue(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusNotFound, "send queue item not found")
 		return
 	}
-	a.deleteSendQueueDeliveredMarker(id)
+	// Preserve accepted recipient markers and account assignments on manual retry.
 	a.recordSendAudit(r.Context(), sendAuditRetry, sendQueueStatusQueued, sendAuditInput{
 		QueueID:       item.ID,
 		UserID:        user.ID,

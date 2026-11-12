@@ -49,6 +49,8 @@ type Config struct {
 	UserMailboxApplyEnabled         bool
 	UserMailboxDomainIDs            string
 	ReservedMailboxPrefixes         string
+	ExternalIMAPRestricted          bool
+	ExternalIMAPUserIDs             string
 	ExternalIMAPEnabled             bool
 	ExternalIMAPSecretKey           string
 	ExternalIMAPSyncSeconds         int

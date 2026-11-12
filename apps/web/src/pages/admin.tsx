@@ -1,6 +1,7 @@
+import { SmtpPoolSettingsPanel } from "@/components/smtp-pool-settings"
 import * as React from "react"
 import DOMPurify from "dompurify"
-import { useSearchParams } from "react-router-dom"
+import { Link, useSearchParams } from "react-router-dom"
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight, Circle, ClipboardList, Clock3, Cloud, Copy, Database, Download, ExternalLink, Eye, EyeOff, Globe2, HardDrive, KeyRound, Loader2, Mail, MoreHorizontal, RefreshCcw, Search, Send, ShieldCheck, Trash2, UserRound } from "lucide-react"
 import { api, AdminOverview, AdminUser, Alias, DNSRecord, Domain, Mailbox as MailboxType, MailMessage, MailTemplate, MaildirSyncHealth, PermissionGroup, PermissionInfo, PermissionLimits, SystemSettings } from "@/lib/api"
@@ -1592,6 +1593,11 @@ function SystemSettingsSection({ settings, domains, initialTab }: { settings?: S
   const [userMailboxApplyEnabled, setUserMailboxApplyEnabled] = React.useState(() => settings?.userMailboxApplyEnabled ?? false)
   const [userMailboxDomainIds, setUserMailboxDomainIds] = React.useState<string[]>(() => settings?.userMailboxDomainIds || [])
   const [externalImapEnabled, setExternalImapEnabled] = React.useState(() => settings?.externalImapEnabled ?? false)
+  const [externalImapRestricted, setExternalImapRestricted] = React.useState(() => settings?.externalImapRestricted ?? false)
+  const [externalImapUserIds, setExternalImapUserIds] = React.useState<string[]>(() => settings?.externalImapUserIds || [])
+  const [externalUserSearch, setExternalUserSearch] = React.useState("")
+  const externalUsers = useQuery({ queryKey: ["admin", "users"], queryFn: api.users, enabled: settingsTab === "externalImap" && hasPermission(user, "admin.users.view") })
+  const matchingExternalUsers = (externalUsers.data?.items || []).filter((item) => `${item.displayName} ${item.email} ${item.loginName || ""}`.toLowerCase().includes(externalUserSearch.trim().toLowerCase()))
   const [externalImapAllowPrivateHosts, setExternalImapAllowPrivateHosts] = React.useState(() => settings?.externalImapAllowPrivateHosts ?? false)
   React.useEffect(() => {
     if (!settings) return
@@ -1605,6 +1611,8 @@ function SystemSettingsSection({ settings, domains, initialTab }: { settings?: S
     setUserMailboxApplyEnabled(settings.userMailboxApplyEnabled)
     setUserMailboxDomainIds(settings.userMailboxDomainIds || [])
     setExternalImapEnabled(settings.externalImapEnabled)
+    setExternalImapRestricted(settings.externalImapRestricted ?? false)
+    setExternalImapUserIds(settings.externalImapUserIds || [])
     setExternalImapAllowPrivateHosts(settings.externalImapAllowPrivateHosts)
   }, [settings])
   const save = useMutation({
@@ -1632,6 +1640,8 @@ function SystemSettingsSection({ settings, domains, initialTab }: { settings?: S
       userMailboxDomainIds,
       reservedMailboxPrefixes: fieldValue(form, "reservedMailboxPrefixes", settings?.reservedMailboxPrefixes || ""),
       externalImapEnabled,
+      externalImapRestricted,
+      externalImapUserIds,
       externalImapSecretKey: fieldValue(form, "externalImapSecretKey", ""),
       externalImapSyncSeconds: fieldNumber(form, "externalImapSyncSeconds", settings?.externalImapSyncSeconds || 300),
       externalImapAllowPrivateHosts,
@@ -1651,6 +1661,7 @@ function SystemSettingsSection({ settings, domains, initialTab }: { settings?: S
       qc.invalidateQueries({ queryKey: ["admin", "maildir-sync", "health"] })
       qc.invalidateQueries({ queryKey: ["dns-records"] })
       qc.invalidateQueries({ queryKey: ["public-settings"] })
+      qc.invalidateQueries({ queryKey: ["me"] })
       toast({ title: "系统设置已保存" })
     },
     onError: (e) => toast({ title: "保存失败", description: e.message }),
@@ -1808,42 +1819,69 @@ function SystemSettingsSection({ settings, domains, initialTab }: { settings?: S
 
       {settingsTab === "externalImap" && <Card>
         <CardHeader>
-          <CardTitle>外部 IMAP 接入</CardTitle>
+          <CardTitle className="flex items-center gap-2"><Mail className="size-5" />外部邮箱服务</CardTitle>
+          <p className="text-sm leading-6 text-muted-foreground">授权用户可默认使用后台共享发信账号池，也可选择自己的个人配置。</p>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
-            默认关闭。关闭后前台会隐藏外部 IMAP 接入，相关后端接口也会返回禁用。
+            后台账号池为授权用户提供共享发信通道，凭据不会显示给用户。个人 IMAP 收信账号仍按用户隔离。Google / 微软应用用于登录授权。
+            <Link className="mt-2 flex min-h-11 items-center gap-2 font-medium text-primary hover:underline" to="/profile?tab=external">管理我自己的外部 IMAP<ExternalLink className="size-4" /></Link>
           </div>
-          <SwitchRow label="启用外部 IMAP" checked={externalImapEnabled} onCheckedChange={setExternalImapEnabled} />
+          <SwitchRow label="启用外部 IMAP 服务" checked={externalImapEnabled} onCheckedChange={setExternalImapEnabled} />
           {externalImapEnabled && (
             <div className="space-y-4 border-t pt-4">
+              <section className="space-y-3 rounded-xl border bg-muted/20 p-4">
+                <h3 className="font-semibold">使用范围</h3>
+                <Select value={externalImapRestricted ? "selected" : "all"} onValueChange={(value) => setExternalImapRestricted(value === "selected")}>
+                  <SelectTrigger aria-label="外部邮箱使用范围"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="all">全部用户</SelectItem><SelectItem value="selected">仅指定用户</SelectItem></SelectContent>
+                </Select>
+                <p className="text-sm leading-6 text-muted-foreground">授权用户的个人设置会显示“外部 IMAP”，默认使用后台发信配置，也可选择个人配置。取消授权后停止新的外部连接和自动同步，保留账号配置。</p>
+                {externalImapRestricted && <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm"><span>已选择 {externalImapUserIds.length} 位用户</span><Button type="button" variant="outline" size="sm" onClick={() => setExternalImapUserIds(externalUsers.data?.items.map(item => item.id) || [])} disabled={!externalUsers.isSuccess}>全选当前用户</Button><Button type="button" variant="outline" size="sm" onClick={() => setExternalImapUserIds([])}>清空</Button><Button type="button" variant="outline" size="sm" onClick={() => setExternalImapUserIds(user ? [user.id] : [])}>仅我自己</Button></div>
+                  <Input type="search" aria-label="搜索可授权用户" placeholder="搜索用户名或邮箱" value={externalUserSearch} onChange={(event) => setExternalUserSearch(event.target.value)} />
+                  {externalUsers.isLoading && <p role="status" className="text-sm text-muted-foreground">加载用户中…</p>}
+                  {externalUsers.isError && <QueryFailure error={externalUsers.error} onRetry={() => { void externalUsers.refetch() }} />}
+                  {!hasPermission(user, "admin.users.view") && <p className="text-sm text-muted-foreground">需要账号查看权限才能选择其他用户；仍可选择“仅我自己”。</p>}
+                  <div className="max-h-64 overflow-y-auto rounded-lg border bg-background divide-y">
+                    {matchingExternalUsers.map((item) => <label key={item.id} className="flex min-h-12 cursor-pointer items-center gap-3 p-3 hover:bg-muted/50">
+                      <Checkbox checked={externalImapUserIds.includes(item.id)} onCheckedChange={(checked) => setExternalImapUserIds((ids) => checked === true ? [...new Set([...ids, item.id])] : ids.filter((id) => id !== item.id))} />
+                      <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{item.displayName || item.loginName || item.email}{item.id === user?.id ? "（我）" : ""}</span><span className="block truncate text-xs text-muted-foreground">{item.email}{item.disabled ? " · 账号已停用" : ""}</span></span>
+                    </label>)}
+                    {externalUsers.isSuccess && matchingExternalUsers.length === 0 && <p className="p-4 text-sm text-muted-foreground">没有匹配的用户</p>}
+                  </div>
+                </div>}
+              </section>
+              <SmtpPoolSettingsPanel admin disabled={!canUpdateSettings} />
+              <h3 className="font-semibold">同步与凭据保护</h3>
               <div className="grid gap-4 md:grid-cols-2">
                 <Field name="externalImapSecretKey" label={settings?.externalImapSecretSet ? "密码加密密钥（留空不变）" : "密码加密密钥"} type="password" required={!settings?.externalImapSecretSet} />
                 <Field name="externalImapSyncSeconds" label="后台同步间隔秒数" type="number" min={30} defaultValue={String(settings?.externalImapSyncSeconds || 300)} />
               </div>
               <SwitchRow label="允许 localhost / 内网 / link-local IMAP 主机" checked={externalImapAllowPrivateHosts} onCheckedChange={setExternalImapAllowPrivateHosts} />
               <Separator />
-              <div className="space-y-3">
+              <details className="space-y-3 rounded-xl border p-4">
+                <summary className="cursor-pointer text-sm font-semibold">Google 登录授权配置</summary>
                 <div>
                   <div className="font-medium">Gmail OAuth2</div>
-                  <div className="text-xs text-muted-foreground">回调地址：{(settings?.publicBaseUrl || "${LANQIN_PUBLIC_BASE_URL}").replace(/\/$/, "")}/api/external-imap-oauth/gmail/callback</div>
+                  <div className="break-all text-xs leading-5 text-muted-foreground">回调地址：{(settings?.publicBaseUrl || "${LANQIN_PUBLIC_BASE_URL}").replace(/\/$/, "")}/api/external-imap-oauth/gmail/callback</div>
                 </div>
                 <div className="grid gap-4 md:grid-cols-2">
                   <Field name="externalImapGmailClientId" label="Gmail Client ID" defaultValue={settings?.externalImapGmailClientId || ""} required={false} />
                   <Field name="externalImapGmailClientSecret" label={settings?.externalImapGmailClientSecretSet ? "Gmail Client Secret（留空不变）" : "Gmail Client Secret"} type="password" required={false} />
                 </div>
-              </div>
-              <Separator />
-              <div className="space-y-3">
+              </details>
+              <details className="space-y-3 rounded-xl border p-4">
+                <summary className="cursor-pointer text-sm font-semibold">微软登录授权配置</summary>
                 <div>
                   <div className="font-medium">Microsoft 365 / Outlook OAuth2</div>
-                  <div className="text-xs text-muted-foreground">回调地址：{(settings?.publicBaseUrl || "${LANQIN_PUBLIC_BASE_URL}").replace(/\/$/, "")}/api/external-imap-oauth/outlook/callback</div>
+                  <div className="break-all text-xs leading-5 text-muted-foreground">回调地址：{(settings?.publicBaseUrl || "${LANQIN_PUBLIC_BASE_URL}").replace(/\/$/, "")}/api/external-imap-oauth/outlook/callback</div>
                 </div>
                 <div className="grid gap-4 md:grid-cols-2">
                   <Field name="externalImapOutlookClientId" label="Outlook Client ID" defaultValue={settings?.externalImapOutlookClientId || ""} required={false} />
                   <Field name="externalImapOutlookClientSecret" label={settings?.externalImapOutlookClientSecretSet ? "Outlook Client Secret（留空不变）" : "Outlook Client Secret"} type="password" required={false} />
                 </div>
-              </div>
+              </details>
             </div>
           )}
         </CardContent>

@@ -275,7 +275,7 @@ func (a *App) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleMe(w http.ResponseWriter, r *http.Request) {
-	respondJSON(w, http.StatusOK, map[string]any{"user": currentUser(r)})
+	respondJSON(w, http.StatusOK, map[string]any{"user": currentUser(r), "externalImapAllowed": a.externalIMAPAllowed(currentUser(r))})
 }
 
 func (a *App) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {

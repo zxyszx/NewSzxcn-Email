@@ -1,3 +1,4 @@
+import { SmtpPoolSettingsPanel } from "@/components/smtp-pool-settings"
 import * as React from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearchParams } from "react-router-dom"
@@ -33,13 +34,14 @@ import { Switch } from "@/components/ui/switch"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { useToast } from "@/hooks/use-toast"
 
-type Tab = "profile" | "mailboxes" | "contacts" | "cleanup" | "cleanupQueue" | "rules" | "blocked" | "stats" | "apiTokens"
+type Tab = "external" | "profile" | "mailboxes" | "contacts" | "cleanup" | "cleanupQueue" | "rules" | "blocked" | "stats" | "apiTokens"
 type AccountSettingsTab = "account" | "mail" | "clients" | "security" | "appearance"
 type MailboxView = "mine" | "external" | "forwarding" | "verified"
 type PendingConfirm = { title: string; description?: string; confirmText: string; destructive?: boolean; onConfirm: () => void }
 type RetryableQuery = { isLoading: boolean; isError: boolean; error: Error | null; refetch: () => Promise<unknown> }
 const tabs: Record<Tab, { label: string; icon: React.ReactNode }> = {
   profile: { label: "账号设置", icon: <Settings className="h-4 w-4" /> },
+  external: { label: "外部 IMAP", icon: <Mail className="h-4 w-4" /> },
   mailboxes: { label: "邮箱管理", icon: <Mail className="h-4 w-4" /> },
   contacts: { label: "联系人管理", icon: <Contact className="h-4 w-4" /> },
   cleanup: { label: "邮件清理", icon: <Trash2 className="h-4 w-4" /> },
@@ -98,6 +100,7 @@ export function ProfilePage() {
   const canConfigureMailboxApply = hasPermission(user, "admin.settings.update")
   const visibleTabKeys = tabKeys.filter((key) => {
     if (key === "profile") return true
+    if (key === "external") return canAccessMail && me.data?.externalImapAllowed === true
     if (key === "mailboxes") return canAccessMail || canApplyMailbox
     if (key === "contacts") return canManageContacts
     if (key === "cleanup") return canOrganizeMail
@@ -112,7 +115,7 @@ export function ProfilePage() {
   const accountTab: AccountSettingsTab = rawAccountTab && accountSettingTabs.some((item) => item.key === rawAccountTab) ? rawAccountTab : "account"
   const mailboxes = useQuery({ queryKey: ["mailboxes", "mine"], queryFn: api.myMailboxes, enabled: canAccessMail })
   const mailboxApplyOptions = useQuery({ queryKey: ["mailbox-apply-options"], queryFn: api.mailboxApplyOptions, enabled: canApplyMailbox && tab === "mailboxes" })
-  const publicSettings = useQuery({ queryKey: ["public-settings"], queryFn: api.publicSettings, enabled: tab === "mailboxes" || (tab === "profile" && accountTab === "clients") })
+  const publicSettings = useQuery({ queryKey: ["public-settings"], queryFn: api.publicSettings, enabled: tab === "external" || tab === "mailboxes" || (tab === "profile" && accountTab === "clients") })
   const apiTokens = useQuery({ queryKey: ["api-tokens"], queryFn: api.apiTokens, enabled: tab === "apiTokens" })
   const contacts = useQuery({ queryKey: ["contacts"], queryFn: api.contacts, enabled: canManageContacts && tab === "contacts" })
   const signatures = useQuery({ queryKey: ["signatures"], queryFn: api.signatures, enabled: canManageSignatures && tab === "profile" && accountTab === "mail" })
@@ -122,16 +125,16 @@ export function ProfilePage() {
   const blocked = useQuery({ queryKey: ["blocked-senders"], queryFn: api.blockedSenders, enabled: canManageBlocked && tab === "blocked" })
   const selectedMailbox = React.useMemo(() => mailboxes.data?.items.find((m) => m.id === mailboxId), [mailboxes.data?.items, mailboxId])
   const activeMailboxId = selectedMailbox?.id || ""
-  const externalImapEnabled = publicSettings.data?.externalImapEnabled ?? false
-  const externalImapAccounts = useQuery({ queryKey: ["external-imap-accounts"], queryFn: () => api.externalImapAccounts(), enabled: tab === "mailboxes" && canAccessMail && externalImapEnabled })
+  const externalImapEnabled = (publicSettings.data?.externalImapEnabled ?? false) && (me.data?.externalImapAllowed ?? true)
+  const externalImapAccounts = useQuery({ queryKey: ["external-imap-accounts"], queryFn: () => api.externalImapAccounts(), enabled: (tab === "mailboxes" || tab === "external") && canAccessMail && externalImapEnabled })
   React.useEffect(() => {
     if (!externalRunAccountId) return
     if (externalImapAccounts.data?.items.some((item) => item.id === externalRunAccountId)) return
     setExternalRunAccountId("")
   }, [externalImapAccounts.data?.items, externalRunAccountId])
   const selectedExternalRunAccount = externalImapAccounts.data?.items.find((item) => item.id === externalRunAccountId)
-  const externalRunFolders = useQuery({ queryKey: ["external-imap-run-folders", externalRunAccountId], queryFn: () => api.externalFolders(externalRunAccountId), enabled: tab === "mailboxes" && !!externalRunAccountId && !!selectedExternalRunAccount && canAccessMail && externalImapEnabled })
-  const externalSyncRuns = useQuery({ queryKey: ["external-imap-sync-runs", externalRunAccountId], queryFn: () => api.externalImapSyncRuns(externalRunAccountId), enabled: tab === "mailboxes" && !!externalRunAccountId && !!selectedExternalRunAccount && canAccessMail && externalImapEnabled })
+  const externalRunFolders = useQuery({ queryKey: ["external-imap-run-folders", externalRunAccountId], queryFn: () => api.externalFolders(externalRunAccountId), enabled: (tab === "mailboxes" || tab === "external") && !!externalRunAccountId && !!selectedExternalRunAccount && canAccessMail && externalImapEnabled })
+  const externalSyncRuns = useQuery({ queryKey: ["external-imap-sync-runs", externalRunAccountId], queryFn: () => api.externalImapSyncRuns(externalRunAccountId), enabled: (tab === "mailboxes" || tab === "external") && !!externalRunAccountId && !!selectedExternalRunAccount && canAccessMail && externalImapEnabled })
   const labels = useQuery({ queryKey: ["labels", activeMailboxId], queryFn: () => api.labels(activeMailboxId), enabled: !!activeMailboxId && ((tab === "profile" && accountTab === "mail" && (canReadMail || canManageLabels)) || (tab === "rules" && canManageRules)) })
   const accountStats = useQuery({ queryKey: ["mail-stats", "all", 30], queryFn: () => api.mailStats("all", 30), enabled: canViewStats && tab === "profile" && accountTab === "account" })
   const mailboxStats = useQuery({ queryKey: ["mail-stats", activeMailboxId, 30], queryFn: () => api.mailStats(activeMailboxId, 30), enabled: !!activeMailboxId && canViewStats && (tab === "cleanup" || tab === "cleanupQueue") })
@@ -517,8 +520,11 @@ export function ProfilePage() {
         }}
       />
     )
-    if (tab === "mailboxes") return (
+    if (tab === "mailboxes" || tab === "external") return (
+      <>
+      {tab === "external" && externalImapEnabled && <SmtpPoolSettingsPanel />}
       <MailboxManagement
+        externalOnly={tab === "external"}
         mailboxes={canAccessMail ? mailboxes.data?.items || [] : []}
         applyOptions={mailboxApplyOptions.data}
         applyPending={applyMailbox.isPending}
@@ -545,6 +551,7 @@ export function ProfilePage() {
         onSyncExternal={(id) => syncExternalImap.mutate(id)}
         onSyncExternalFolder={(id, folder) => syncExternalImapFolder.mutate({ id, folder })}
       />
+      </>
     )
     if (tab === "contacts") return <ContactsSection items={contacts.data?.items || []} loading={contacts.isLoading} pending={createContact.isPending} onCreate={(form) => createContact.mutate(form)} onDelete={(id) => deleteContact.mutate(id)} onCopy={copy} />
     if (tab === "cleanup") return <CleanupSection mailbox={selectedMailbox} stats={canViewStats ? mailboxStats.data : undefined} showStats={canViewStats} pending={cleanup.isPending} onCleanup={(target) => cleanup.mutate(target)} />
@@ -562,7 +569,7 @@ export function ProfilePage() {
       if (accountTab === "mail") return [mailboxes, labels, signatures]
       return [mailboxes, publicSettings]
     }
-    if (tab === "mailboxes") return [mailboxes, mailboxApplyOptions, publicSettings, externalImapAccounts, externalRunFolders, externalSyncRuns]
+    if (tab === "mailboxes" || tab === "external") return [mailboxes, mailboxApplyOptions, publicSettings, externalImapAccounts, externalRunFolders, externalSyncRuns]
     if (tab === "contacts") return [contacts]
     if (tab === "cleanup" || tab === "cleanupQueue") return [mailboxes, mailboxStats]
     if (tab === "rules") return [mailboxes, rules, ruleForwarding, labels]
@@ -1235,6 +1242,7 @@ function CleanupQueueSection({ mailbox, stats }: { mailbox?: Mailbox; stats?: Ma
 }
 
 function MailboxManagement({
+  externalOnly = false,
   mailboxes,
   applyOptions,
   applyPending,
@@ -1261,6 +1269,7 @@ function MailboxManagement({
   onSyncExternal,
   onSyncExternalFolder,
 }: {
+  externalOnly?: boolean
   mailboxes: Mailbox[]
   applyOptions?: MailboxApplyOptions
   applyPending: boolean
@@ -1292,7 +1301,7 @@ function MailboxManagement({
   const isMobile = useIsMobile()
   const [mailboxViewParams, setMailboxViewParams] = useSearchParams()
   const rawMailboxView = mailboxViewParams.get("mailboxView")
-  const mailboxView: MailboxView = rawMailboxView === "external" || rawMailboxView === "forwarding" || rawMailboxView === "verified" ? rawMailboxView : "mine"
+  const mailboxView: MailboxView = externalOnly ? "external" : rawMailboxView === "external" || rawMailboxView === "forwarding" || rawMailboxView === "verified" ? rawMailboxView : "mine"
   const canApply = !!applyOptions?.enabled && (applyOptions.domains || []).length > 0
   const [domainId, setDomainId] = React.useState(() => applyOptions?.domains?.[0]?.id || "")
   const [localPart, setLocalPart] = React.useState("")
@@ -1621,7 +1630,7 @@ function MailboxManagement({
 
   return (
     <div className="profile-mailbox-sections space-y-1">
-      <section className="overflow-hidden rounded-lg border bg-card">
+      {!externalOnly && <section className="overflow-hidden rounded-lg border bg-card">
         <MailboxViewTabs value={mailboxView} onChange={setMailboxView} pendingCount={pendingVerifiedEmailItems.length + failedVerifiedEmailItems.length} />
         {mailboxView === "mine" && (
           <div className="grid grid-cols-3 gap-2 border-t p-2.5 sm:p-3">
@@ -1637,7 +1646,7 @@ function MailboxManagement({
             <MailboxStatCard icon={<CheckCircle2 className="h-5 w-5" />} label="最近验证" value={latestVerifiedAt ? new Date(latestVerifiedAt).toLocaleDateString() : "--"} tone="violet" compact />
           </div>
         )}
-      </section>
+      </section>}
 
       {mailboxView === "mine" && <>
       {isMobile ? (
@@ -1822,15 +1831,15 @@ function MailboxManagement({
       {mailboxView === "external" && !externalImapEnabled && (
         <section className="rounded-lg border bg-card px-4 py-6 sm:px-6">
           <h2 className="font-semibold">外部邮箱尚未启用</h2>
-          <p className="mt-2 text-sm text-muted-foreground">请联系管理员开启外部邮箱接入，并配置凭据加密密钥。现有邮箱不受影响。</p>
+          <p className="mt-2 text-sm text-muted-foreground">请联系管理员开启服务并为你的账号授权。开通后，你可以在这里添加自己的外部邮箱，其他用户无法使用你的连接。</p>
         </section>
       )}
       {mailboxView === "external" && externalImapEnabled && (
         <section className="rounded-lg border bg-card">
           <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6">
             <div>
-              <h2 className="text-lg font-semibold leading-7">外部邮箱</h2>
-              <p className="text-sm text-muted-foreground">{externalAccounts.length} 个账号 · IMAP 收信</p>
+              <h2 className="text-base font-semibold leading-7">我的外部收信账号</h2>
+              <p className="text-sm text-muted-foreground">{externalAccounts.length} 个账号 · 仅当前用户可用</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <ExternalImapOAuthDialog provider="gmail" selectedMailbox={selectedMailbox} disabled={!selectedMailbox} pending={externalPending} onStart={onStartExternalOAuth} />

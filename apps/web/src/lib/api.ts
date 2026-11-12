@@ -1,4 +1,4 @@
-import type { User, AdminUser, AdminOverview, Domain, Mailbox, Alias, MailFolder, MailLabel, MailMessage, MailTranslation, DNSRecord, DNSCheckResult, ListResponse, SendPayload, DraftPayload, ScheduleSendPayload, ScheduledSend, SendQueueItem, SendQueueAuditEvent, SendQueueStatus, Contact, MailSignature, MailRule, MailRuleCondition, MailRuleAction, BlockedSender, MailStats, ForwardingSettings, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapOAuthStartPayload, ExternalImapSyncRun, MailboxApplyOptions, MailTemplate, MaildirSyncHealth, SystemSettings, SystemSettingsPayload, SystemVersion, SystemUpdateResult, BackupList, PublicSettings, LoginPayload, LoginResponse, RegisterPayload, PermissionGroup, PermissionInfo, PermissionKey, PermissionLimits, APIToken, TwoFactorEnableResponse, BulkMoveResult, TelegramPrivateChat, TelegramPairing, UserTelegramSettings, InboxShareSettings, InboxShareSummary, SharedInboxMessages, SharedInboxMessageDetail } from "./api-types"
+import type { SmtpPoolSettings, SmtpPoolResponse, User, AdminUser, AdminOverview, Domain, Mailbox, Alias, MailFolder, MailLabel, MailMessage, MailTranslation, DNSRecord, DNSCheckResult, ListResponse, SendPayload, DraftPayload, ScheduleSendPayload, ScheduledSend, SendQueueItem, SendQueueAuditEvent, SendQueueStatus, Contact, MailSignature, MailRule, MailRuleCondition, MailRuleAction, BlockedSender, MailStats, ForwardingSettings, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapOAuthStartPayload, ExternalImapSyncRun, MailboxApplyOptions, MailTemplate, MaildirSyncHealth, SystemSettings, SystemSettingsPayload, SystemVersion, SystemUpdateResult, BackupList, PublicSettings, LoginPayload, LoginResponse, RegisterPayload, PermissionGroup, PermissionInfo, PermissionKey, PermissionLimits, APIToken, TwoFactorEnableResponse, BulkMoveResult, TelegramPrivateChat, TelegramPairing, UserTelegramSettings, InboxShareSettings, InboxShareSummary, SharedInboxMessages, SharedInboxMessageDetail } from "./api-types"
 import { DemoApiError, demoRequest } from "./demo-api"
 import { isDemoMode } from "./demo"
 export * from "./api-types"
@@ -131,7 +131,7 @@ export const api = {
   register: (payload: RegisterPayload) => request<{ user: User }>("/api/auth/register", { method: "POST", body: JSON.stringify(payload) }),
   login: (payload: LoginPayload) => request<LoginResponse>("/api/auth/login", { method: "POST", body: JSON.stringify(payload) }),
   logout: () => request<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
-  me: () => request<{ user: User }>("/api/me"),
+  me: () => request<{ user: User; externalImapAllowed?: boolean }>("/api/me"),
   updateProfile: (payload: { displayName: string }) => request<{ user: User }>("/api/me/profile", { method: "POST", body: JSON.stringify(payload) }),
   userTelegramSettings: () => request<UserTelegramSettings>("/api/me/telegram"),
   updateUserTelegramSettings: (payload: { enabled: boolean; botToken: string; privateChatId: string; mailboxIds: string[] }) => request<UserTelegramSettings>("/api/me/telegram", { method: "POST", body: JSON.stringify(payload) }),
@@ -155,6 +155,10 @@ export const api = {
   setDefaultSignature: (id: string) => request<MailSignature>(`/api/me/signatures/${id}/default`, { method: "POST" }),
   deleteSignature: (id: string) => request<{ ok: boolean }>(`/api/me/signatures/${id}`, { method: "DELETE" }),
   defaultSignature: (mailboxId?: string) => request<{ signature: MailSignature | null }>(`/api/me/signatures/default${mailboxId ? `?mailboxId=${encodeURIComponent(mailboxId)}` : ""}`),
+  smtpPool: (admin = false) => request<SmtpPoolResponse>(admin ? "/api/admin/smtp-pool" : "/api/me/smtp-pool"),
+  saveSmtpPool: (payload: SmtpPoolSettings, admin = false) => request<SmtpPoolResponse>(admin ? "/api/admin/smtp-pool" : "/api/me/smtp-pool", {method: "POST", body: JSON.stringify(payload)}),
+  personalSmtpRoute: () => request<{ enabled: boolean; gmailAddress: string; passwordSet: boolean; microsoft: boolean; yahoo: boolean }>("/api/me/personal-smtp-route"),
+  savePersonalSmtpRoute: (payload: { enabled: boolean; gmailAddress: string; appPassword: string; microsoft: boolean; yahoo: boolean }) => request<{ enabled: boolean; gmailAddress: string; passwordSet: boolean; microsoft: boolean; yahoo: boolean }>("/api/me/personal-smtp-route", { method: "POST", body: JSON.stringify(payload) }),
   rules: () => request<ListResponse<MailRule>>("/api/me/rules"),
   createRule: (payload: { mailboxId: string; name: string; matchMode: "all" | "any"; conditions: MailRuleCondition[]; actions: MailRuleAction[]; applyToExisting: boolean; stopProcessing: boolean; enabled: boolean }) => request<MailRule>("/api/me/rules", { method: "POST", body: JSON.stringify(payload) }),
   updateRule: (id: string, payload: Partial<{ mailboxId: string; name: string; matchMode: "all" | "any"; conditions: MailRuleCondition[]; actions: MailRuleAction[]; applyToExisting: boolean; stopProcessing: boolean; enabled: boolean }>) => request<MailRule>(`/api/me/rules/${id}`, { method: "POST", body: JSON.stringify(payload) }),
