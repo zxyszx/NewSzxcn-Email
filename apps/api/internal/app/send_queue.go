@@ -92,9 +92,28 @@ func (a *App) enqueueSend(ctx context.Context, in sendQueueInput) (string, error
 		}
 		if existingID != id {
 			if status == sendQueueStatusDelivered || status == sendQueueStatusCanceled || (status == sendQueueStatusFailed && attemptCount >= maxAttempts) {
-				_, err := a.db.ExecContext(ctx, `UPDATE send_queue SET user_id=?,sent_message_id=?,mail_from=?,header_from=?,recipients_json=?,mime_base64=?,status=?,attempt_count=0,next_attempt_at=?,last_error='',updated_at=?,delivered_at=NULL WHERE id=? AND status=?`,
+				tx, err := a.db.BeginTx(ctx, nil)
+				if err != nil {
+					return "", err
+				}
+				res, err := tx.ExecContext(ctx, `UPDATE send_queue SET user_id=?,sent_message_id=?,mail_from=?,header_from=?,recipients_json=?,mime_base64=?,status=?,attempt_count=0,next_attempt_at=?,last_error='',updated_at=?,delivered_at=NULL WHERE id=? AND status=?`,
 					in.UserID, in.SentMessageID, normalizeEmail(in.MailFrom), normalizeEmail(in.HeaderFrom), recipientsJSON, mimeBase64, sendQueueStatusQueued, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), existingID, status)
 				if err != nil {
+					tx.Rollback()
+					return "", err
+				}
+				changed, err := res.RowsAffected()
+				if err != nil {
+					tx.Rollback()
+					return "", err
+				}
+				if changed > 0 {
+					if _, err = tx.ExecContext(ctx, `DELETE FROM send_queue_recipient_receipts WHERE queue_id=?`, existingID); err != nil {
+						tx.Rollback()
+						return "", err
+					}
+				}
+				if err = tx.Commit(); err != nil {
 					return "", err
 				}
 				a.deleteSendQueueDeliveredMarker(existingID)
@@ -262,7 +281,7 @@ func (a *App) processSendQueueItem(ctx context.Context, id string) {
 		return
 	}
 	trackedMIME := addMessageHeader(item.MIMEBytes, "X-LanQin-Queue-ID", item.ID)
-	if err := a.sendSMTP(item.MailFrom, item.Recipients, trackedMIME); err != nil {
+	if err := a.sendRoutedQueueItem(ctx, item, trackedMIME); err != nil {
 		a.markSendQueueFailed(ctx, item, err)
 		return
 	}

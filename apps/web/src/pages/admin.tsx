@@ -1,4 +1,5 @@
 import * as React from "react"
+import smtpProviderCatalog from "../../../api/internal/app/smtp_providers.json"
 import DOMPurify from "dompurify"
 import { useSearchParams } from "react-router-dom"
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
@@ -1583,6 +1584,10 @@ function SystemSettingsSection({ settings, domains, initialTab }: { settings?: S
   const [settingsTab, setSettingsTab] = React.useState<SettingsTab>(() => requestedTab && ["base", "smtp", "storage", "mail", "externalImap", "templates", "security"].includes(requestedTab) ? requestedTab : "base")
   const maildirHealth = useQuery({ queryKey: ["admin", "maildir-sync", "health"], queryFn: api.maildirSyncHealth, enabled: canSettingsView && settingsTab === "storage" })
   const [smtpRequireTls, setSmtpRequireTls] = React.useState(() => settings?.smtpRequireTls ?? false)
+  const [smtpRelayProviders, setSmtpRelayProviders] = React.useState<string[]>(() => settings?.smtpRelayProviders ?? ["all"])
+  const [smtpRelayDomains, setSmtpRelayDomains] = React.useState(() => settings?.smtpRelayDomains || "")
+  const [smtpDirectHost, setSmtpDirectHost] = React.useState(() => settings?.smtpDirectHost || "127.0.0.1")
+  const [smtpDirectPort, setSmtpDirectPort] = React.useState(() => settings?.smtpDirectPort || "25")
   const [allowInsecureHttp, setAllowInsecureHttp] = React.useState(() => settings?.allowInsecureHttp ?? true)
   const [openRegistration, setOpenRegistration] = React.useState(() => settings?.openRegistration ?? false)
   const [twoFactorEnabled, setTwoFactorEnabled] = React.useState(() => settings?.twoFactorEnabled ?? false)
@@ -1596,6 +1601,10 @@ function SystemSettingsSection({ settings, domains, initialTab }: { settings?: S
   React.useEffect(() => {
     if (!settings) return
     setSmtpRequireTls(settings.smtpRequireTls)
+    setSmtpRelayProviders(settings.smtpRelayProviders ?? ["all"])
+    setSmtpRelayDomains(settings.smtpRelayDomains || "")
+    setSmtpDirectHost(settings.smtpDirectHost || "127.0.0.1")
+    setSmtpDirectPort(settings.smtpDirectPort || "25")
     setAllowInsecureHttp(settings.allowInsecureHttp)
     setOpenRegistration(settings.openRegistration)
     setTwoFactorEnabled(settings.twoFactorEnabled)
@@ -1616,6 +1625,10 @@ function SystemSettingsSection({ settings, domains, initialTab }: { settings?: S
       smtpUsername: fieldValue(form, "smtpUsername", settings?.smtpUsername || ""),
       smtpPassword: fieldValue(form, "smtpPassword", ""),
       smtpRequireTls,
+      smtpRelayProviders,
+      smtpRelayDomains,
+      smtpDirectHost,
+      smtpDirectPort,
       maildirRoot: fieldValue(form, "maildirRoot", settings?.maildirRoot || ""),
       maildirScanSeconds: fieldNumber(form, "maildirScanSeconds", settings?.maildirScanSeconds || 30),
       sessionTtlHours: fieldNumber(form, "sessionTtlHours", settings?.sessionTtlHours || 168),
@@ -1663,6 +1676,10 @@ function SystemSettingsSection({ settings, domains, initialTab }: { settings?: S
     settings.smtpUsername,
     settings.smtpPasswordSet,
     settings.smtpRequireTls,
+    (settings.smtpRelayProviders ?? ["all"]).join(","),
+    settings.smtpRelayDomains,
+    settings.smtpDirectHost,
+    settings.smtpDirectPort,
     settings.maildirRoot,
     settings.maildirScanSeconds,
     settings.sessionTtlHours,
@@ -1739,12 +1756,41 @@ function SystemSettingsSection({ settings, domains, initialTab }: { settings?: S
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
-            <div className="font-medium text-foreground">当前默认：内置 Postfix</div>
-            <div>Host 填 127.0.0.1、端口 25、用户名/密码留空、强制 TLS 关闭。这里的“强制 TLS”仅用于外部 SMTP 中继（587 STARTTLS 或 465 TLS）。</div>
+            <div className="font-medium text-foreground">SMTP 发信通道</div>
+            <div>使用内置 Postfix 时填 127.0.0.1:25，用户名和密码留空。配置外部中继时使用服务商提供的主机及认证信息，开启 TLS（587 STARTTLS 或 465 TLS）。中继需支持你的发件域名；普通 Gmail 不能保证保留自建邮箱发件地址。</div>
           </div>
+          <section className="space-y-3 rounded-lg border p-4" aria-labelledby="smtp-routing-title">
+            <h3 id="smtp-routing-title" className="font-medium">通过中继发送的收件邮箱厂商</h3>
+            <p className="text-sm text-muted-foreground">常见邮箱按国内、国外分组；其他邮箱或自建邮箱可填写收件域名，按需通过中继发送。</p>
+            <p className="text-sm text-muted-foreground">选中的厂商通过下方 SMTP 通道发送，未选中的由本机 Postfix 直接投递。选择“全部”沿用原来的全局发信方式；全部取消则全部直发。</p>
+            {[
+              { label: "通用规则", providers: [{ key: "all", label: "全部厂商" }, { key: "custom", label: "自定义域名（含自建邮箱）" }] },
+              ...["国内邮箱", "国外邮箱"].map((group) => ({ label: group, providers: smtpProviderCatalog.filter((provider) => provider.commonGroup === group) })),
+              { label: "其他已选厂商", providers: smtpProviderCatalog.filter((provider) => !provider.commonGroup && smtpRelayProviders.includes(provider.key)) },
+            ].filter((group) => group.providers.length > 0).map((group) => (
+              <div key={group.label} className="space-y-2">
+                <div className="text-sm font-medium">{group.label}</div>
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {group.providers.map((provider) => (
+                    <Label key={provider.key} htmlFor={`smtp-provider-${provider.key}`} className="flex min-h-11 cursor-pointer items-center gap-3 rounded-md border px-3 py-2 text-sm">
+                      <Checkbox id={`smtp-provider-${provider.key}`} checked={smtpRelayProviders.includes(provider.key)} onCheckedChange={(checked) => setSmtpRelayProviders((current) => checked === true ? (provider.key === "all" ? ["all"] : [...current.filter((key) => key !== "all" && key !== provider.key), provider.key]) : current.filter((key) => key !== provider.key))} />
+                      {provider.label}
+                    </Label>
+                  ))}
+                </div>
+              </div>
+            ))}
+            {smtpRelayProviders.includes("custom") && <Field name="smtpRelayDomains" label="收件域名（多个用逗号分隔，含自建邮箱）" value={smtpRelayDomains} onChange={(event) => setSmtpRelayDomains(event.target.value)} placeholder="example.com, example.org" required />}
+            {smtpRelayProviders.includes("custom") && <p className="text-sm text-muted-foreground">遇到其他需要中继的邮箱，可先添加其完整收件域名临时使用；不需要填写邮箱地址或网址，子域名需单独添加。</p>}
+            {!smtpRelayProviders.includes("all") && <div className="grid gap-4 md:grid-cols-2">
+              <Field name="smtpDirectHost" label="本机 Postfix 主机" value={smtpDirectHost} onChange={(event) => setSmtpDirectHost(event.target.value)} placeholder="127.0.0.1" />
+              <Field name="smtpDirectPort" label="本机 Postfix 端口" type="number" min={1} max={65535} value={smtpDirectPort} onChange={(event) => setSmtpDirectPort(event.target.value)} />
+              <p className="text-sm text-muted-foreground md:col-span-2">整合部署通常使用 127.0.0.1:25；分组件部署填写 Postfix 服务名。自定义企业域名通过 MX 识别厂商，识别暂时失败时保留队列重试。</p>
+            </div>}
+          </section>
           <div className="grid gap-4 md:grid-cols-2">
-            <Field name="smtpHost" label="发信主机" defaultValue={settings?.smtpHost || ""} placeholder="127.0.0.1" required={false} />
-            <Field name="smtpPort" label="发信端口" defaultValue={settings?.smtpPort || "25"} />
+            <Field name="smtpHost" label="SMTP 通道主机" defaultValue={settings?.smtpHost || ""} placeholder="127.0.0.1" required={false} />
+            <Field name="smtpPort" label="SMTP 通道端口" defaultValue={settings?.smtpPort || "25"} />
             <Field name="smtpUsername" label="中继用户名（内置 Postfix 留空）" defaultValue={settings?.smtpUsername || ""} required={false} />
             <Field name="smtpPassword" label={settings?.smtpPasswordSet ? "中继密码（留空不变）" : "中继密码（内置 Postfix 留空）"} type="password" required={false} />
             <SwitchRow label="外部中继强制 TLS" checked={smtpRequireTls} onCheckedChange={setSmtpRequireTls} className="md:col-span-2" />

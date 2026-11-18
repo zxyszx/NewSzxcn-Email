@@ -247,7 +247,9 @@ func sendSMTPMessage(client *smtp.Client, auth smtp.Auth, from string, recipient
 	if err := wc.Close(); err != nil {
 		return err
 	}
-	return client.Quit()
+	// DATA success is final; a QUIT disconnect must not trigger duplicate delivery.
+	_ = client.Quit()
+	return nil
 }
 
 func addMessageHeader(raw []byte, name, value string) []byte {

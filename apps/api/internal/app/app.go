@@ -30,6 +30,7 @@ type App struct {
 	log                *slog.Logger
 	now                func() time.Time
 	lookupIP           func(context.Context, string, string) ([]net.IP, error)
+	lookupMX           func(context.Context, string) ([]*net.MX, error)
 	policy             *HTMLPolicy
 	workerCancel       context.CancelFunc
 	workerWG           sync.WaitGroup
@@ -521,6 +522,11 @@ func (a *App) migrate(ctx context.Context) error {
 			updated_at TEXT NOT NULL,
 			delivered_at TEXT
 		)`,
+		`CREATE TABLE IF NOT EXISTS send_queue_recipient_receipts (
+ queue_id TEXT NOT NULL REFERENCES send_queue(id) ON DELETE CASCADE,
+ recipient TEXT NOT NULL,
+ PRIMARY KEY(queue_id,recipient)
+ )`,
 		`CREATE INDEX IF NOT EXISTS idx_send_queue_due ON send_queue(status, next_attempt_at, created_at)`,
 		`CREATE TABLE IF NOT EXISTS send_audit_events (
 			id TEXT PRIMARY KEY,

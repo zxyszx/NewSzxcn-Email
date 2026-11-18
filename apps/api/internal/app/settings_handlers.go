@@ -17,6 +17,10 @@ type SystemSettings struct {
 	SMTPUsername                       string   `json:"smtpUsername"`
 	SMTPPasswordSet                    bool     `json:"smtpPasswordSet"`
 	SMTPRequireTLS                     bool     `json:"smtpRequireTls"`
+	SMTPRelayProviders                 []string `json:"smtpRelayProviders"`
+	SMTPRelayDomains                   string   `json:"smtpRelayDomains"`
+	SMTPDirectHost                     string   `json:"smtpDirectHost"`
+	SMTPDirectPort                     string   `json:"smtpDirectPort"`
 	MaildirRoot                        string   `json:"maildirRoot"`
 	MaildirScanSeconds                 int      `json:"maildirScanSeconds"`
 	SessionTTLHours                    int      `json:"sessionTtlHours"`
@@ -49,42 +53,46 @@ type SystemSettings struct {
 }
 
 type systemSettingsUpdate struct {
-	PublicHostname                  string   `json:"publicHostname"`
-	PublicBaseURL                   string   `json:"publicBaseUrl"`
-	SMTPHost                        string   `json:"smtpHost"`
-	SMTPPort                        string   `json:"smtpPort"`
-	SMTPUsername                    string   `json:"smtpUsername"`
-	SMTPPassword                    string   `json:"smtpPassword"`
-	SMTPRequireTLS                  bool     `json:"smtpRequireTls"`
-	MaildirRoot                     string   `json:"maildirRoot"`
-	MaildirScanSeconds              int      `json:"maildirScanSeconds"`
-	SessionTTLHours                 int      `json:"sessionTtlHours"`
-	AllowInsecureHTTP               bool     `json:"allowInsecureHttp"`
-	OpenRegistration                bool     `json:"openRegistration"`
-	TwoFactorEnabled                bool     `json:"twoFactorEnabled"`
-	TurnstileEnabled                bool     `json:"turnstileEnabled"`
-	TurnstileSiteKey                string   `json:"turnstileSiteKey"`
-	TurnstileSecretKey              string   `json:"turnstileSecretKey"`
-	CatchAllEnabled                 bool     `json:"catchAllEnabled"`
-	MailAutoRefresh                 bool     `json:"mailAutoRefresh"`
-	MailRefreshSeconds              int      `json:"mailRefreshSeconds"`
-	UserMailboxApplyEnabled         bool     `json:"userMailboxApplyEnabled"`
-	UserMailboxDomainIDs            []string `json:"userMailboxDomainIds"`
-	ReservedMailboxPrefixes         string   `json:"reservedMailboxPrefixes"`
-	ExternalIMAPEnabled             bool     `json:"externalImapEnabled"`
-	ExternalIMAPSecretKey           string   `json:"externalImapSecretKey"`
-	ExternalIMAPSyncSeconds         int      `json:"externalImapSyncSeconds"`
-	ExternalIMAPAllowPrivateHosts   bool     `json:"externalImapAllowPrivateHosts"`
-	ExternalIMAPGmailClientID       string   `json:"externalImapGmailClientId"`
-	ExternalIMAPGmailClientSecret   string   `json:"externalImapGmailClientSecret"`
-	ExternalIMAPOutlookClientID     string   `json:"externalImapOutlookClientId"`
-	ExternalIMAPOutlookClientSecret string   `json:"externalImapOutlookClientSecret"`
-	TelegramMailEnabled             bool     `json:"telegramMailEnabled"`
-	TelegramBotToken                string   `json:"telegramBotToken"`
-	TelegramPrivateChatID           string   `json:"telegramPrivateChatId"`
-	TelegramBodyMode                string   `json:"telegramBodyMode"`
-	TelegramMailboxIDs              []string `json:"telegramMailboxIds"`
-	TelegramIncludeUnregistered     bool     `json:"telegramIncludeUnregistered"`
+	PublicHostname                  string    `json:"publicHostname"`
+	PublicBaseURL                   string    `json:"publicBaseUrl"`
+	SMTPHost                        string    `json:"smtpHost"`
+	SMTPPort                        string    `json:"smtpPort"`
+	SMTPUsername                    string    `json:"smtpUsername"`
+	SMTPPassword                    string    `json:"smtpPassword"`
+	SMTPRequireTLS                  bool      `json:"smtpRequireTls"`
+	SMTPRelayProviders              *[]string `json:"smtpRelayProviders"`
+	SMTPRelayDomains                *string   `json:"smtpRelayDomains"`
+	SMTPDirectHost                  *string   `json:"smtpDirectHost"`
+	SMTPDirectPort                  *string   `json:"smtpDirectPort"`
+	MaildirRoot                     string    `json:"maildirRoot"`
+	MaildirScanSeconds              int       `json:"maildirScanSeconds"`
+	SessionTTLHours                 int       `json:"sessionTtlHours"`
+	AllowInsecureHTTP               bool      `json:"allowInsecureHttp"`
+	OpenRegistration                bool      `json:"openRegistration"`
+	TwoFactorEnabled                bool      `json:"twoFactorEnabled"`
+	TurnstileEnabled                bool      `json:"turnstileEnabled"`
+	TurnstileSiteKey                string    `json:"turnstileSiteKey"`
+	TurnstileSecretKey              string    `json:"turnstileSecretKey"`
+	CatchAllEnabled                 bool      `json:"catchAllEnabled"`
+	MailAutoRefresh                 bool      `json:"mailAutoRefresh"`
+	MailRefreshSeconds              int       `json:"mailRefreshSeconds"`
+	UserMailboxApplyEnabled         bool      `json:"userMailboxApplyEnabled"`
+	UserMailboxDomainIDs            []string  `json:"userMailboxDomainIds"`
+	ReservedMailboxPrefixes         string    `json:"reservedMailboxPrefixes"`
+	ExternalIMAPEnabled             bool      `json:"externalImapEnabled"`
+	ExternalIMAPSecretKey           string    `json:"externalImapSecretKey"`
+	ExternalIMAPSyncSeconds         int       `json:"externalImapSyncSeconds"`
+	ExternalIMAPAllowPrivateHosts   bool      `json:"externalImapAllowPrivateHosts"`
+	ExternalIMAPGmailClientID       string    `json:"externalImapGmailClientId"`
+	ExternalIMAPGmailClientSecret   string    `json:"externalImapGmailClientSecret"`
+	ExternalIMAPOutlookClientID     string    `json:"externalImapOutlookClientId"`
+	ExternalIMAPOutlookClientSecret string    `json:"externalImapOutlookClientSecret"`
+	TelegramMailEnabled             bool      `json:"telegramMailEnabled"`
+	TelegramBotToken                string    `json:"telegramBotToken"`
+	TelegramPrivateChatID           string    `json:"telegramPrivateChatId"`
+	TelegramBodyMode                string    `json:"telegramBodyMode"`
+	TelegramMailboxIDs              []string  `json:"telegramMailboxIds"`
+	TelegramIncludeUnregistered     bool      `json:"telegramIncludeUnregistered"`
 }
 
 type PublicSettings struct {
@@ -162,8 +170,8 @@ func (a *App) handleUpdateSystemSettings(w http.ResponseWriter, r *http.Request)
 	if next.SMTPPort == "" {
 		next.SMTPPort = "25"
 	}
-	if _, err := strconv.Atoi(next.SMTPPort); err != nil {
-		badRequest(w, errors.New("smtpPort must be a number"))
+	if port, err := strconv.Atoi(next.SMTPPort); err != nil || port < 1 || port > 65535 {
+		badRequest(w, errors.New("smtpPort must be between 1 and 65535"))
 		return
 	}
 	next.SMTPUsername = strings.TrimSpace(req.SMTPUsername)
@@ -171,6 +179,32 @@ func (a *App) handleUpdateSystemSettings(w http.ResponseWriter, r *http.Request)
 		next.SMTPPassword = req.SMTPPassword
 	}
 	next.SMTPRequireTLS = req.SMTPRequireTLS
+	if req.SMTPRelayProviders != nil {
+		for _, provider := range *req.SMTPRelayProviders {
+			key := strings.ToLower(strings.TrimSpace(provider))
+			if key != "all" && key != "custom" && !smtpProviderExists(key) {
+				badRequest(w, errors.New("不支持的收件邮箱厂商"))
+				return
+			}
+		}
+		next.SMTPRelayProviders = strings.Join(*req.SMTPRelayProviders, ",")
+		if len(*req.SMTPRelayProviders) == 0 {
+			next.SMTPRelayProviders = "none"
+		}
+	}
+	if req.SMTPRelayDomains != nil {
+		next.SMTPRelayDomains = *req.SMTPRelayDomains
+	}
+	if req.SMTPDirectHost != nil {
+		next.SMTPDirectHost = strings.TrimSpace(*req.SMTPDirectHost)
+	}
+	if req.SMTPDirectPort != nil {
+		next.SMTPDirectPort = strings.TrimSpace(*req.SMTPDirectPort)
+	}
+	if err := normalizeSMTPRoutingConfig(&next); err != nil {
+		badRequest(w, err)
+		return
+	}
 	next.MaildirRoot = strings.TrimSpace(req.MaildirRoot)
 	if req.MaildirScanSeconds <= 0 {
 		req.MaildirScanSeconds = 30
@@ -336,6 +370,10 @@ func (a *App) systemSettingsSnapshot() SystemSettings {
 		SMTPUsername:                       cfg.SMTPUsername,
 		SMTPPasswordSet:                    strings.TrimSpace(cfg.SMTPPassword) != "",
 		SMTPRequireTLS:                     cfg.SMTPRequireTLS,
+		SMTPRelayProviders:                 smtpRelayProviders(cfg),
+		SMTPRelayDomains:                   cfg.SMTPRelayDomains,
+		SMTPDirectHost:                     smtpDirectConfig(cfg).SMTPHost,
+		SMTPDirectPort:                     smtpDirectConfig(cfg).SMTPPort,
 		MaildirRoot:                        cfg.MaildirRoot,
 		MaildirScanSeconds:                 cfg.MaildirScanSeconds,
 		SessionTTLHours:                    cfg.SessionTTLHours,
@@ -385,6 +423,14 @@ func (a *App) loadPersistedSystemSettings(ctx context.Context) error {
 			cfg.PublicHostname = value
 		case "publicBaseUrl":
 			cfg.PublicBaseURL = value
+		case "smtpRelayProviders":
+			cfg.SMTPRelayProviders = value
+		case "smtpRelayDomains":
+			cfg.SMTPRelayDomains = value
+		case "smtpDirectHost":
+			cfg.SMTPDirectHost = value
+		case "smtpDirectPort":
+			cfg.SMTPDirectPort = value
 		case "smtpHost":
 			cfg.SMTPHost = value
 		case "smtpPort":
@@ -466,6 +512,9 @@ func (a *App) loadPersistedSystemSettings(ctx context.Context) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
+	if err := normalizeSMTPRoutingConfig(&cfg); err != nil {
+		return err
+	}
 	a.setConfig(cfg)
 	return nil
 }
@@ -474,6 +523,10 @@ func (a *App) saveSystemSettings(ctx context.Context, cfg Config, clearPendingTe
 	values := map[string]string{
 		"publicHostname":                  cfg.PublicHostname,
 		"publicBaseUrl":                   cfg.PublicBaseURL,
+		"smtpRelayProviders":              cfg.SMTPRelayProviders,
+		"smtpRelayDomains":                cfg.SMTPRelayDomains,
+		"smtpDirectHost":                  cfg.SMTPDirectHost,
+		"smtpDirectPort":                  cfg.SMTPDirectPort,
 		"smtpHost":                        cfg.SMTPHost,
 		"smtpPort":                        cfg.SMTPPort,
 		"smtpUsername":                    cfg.SMTPUsername,

@@ -30,6 +30,10 @@ type Config struct {
 	SMTPUsername                    string
 	SMTPPassword                    string
 	SMTPRequireTLS                  bool
+	SMTPRelayProviders              string
+	SMTPRelayDomains                string
+	SMTPDirectHost                  string
+	SMTPDirectPort                  string
 	SubmissionAddr                  string
 	SubmissionTLSAddr               string
 	SubmissionMaxMessageMB          int
@@ -100,6 +104,10 @@ func LoadConfig() Config {
 		SMTPUsername:                    getenv("LANQIN_SMTP_USERNAME", ""),
 		SMTPPassword:                    getenv("LANQIN_SMTP_PASSWORD", ""),
 		SMTPRequireTLS:                  getenvBool("LANQIN_SMTP_REQUIRE_TLS", false),
+		SMTPRelayProviders:              getenv("LANQIN_SMTP_RELAY_PROVIDERS", "all"),
+		SMTPRelayDomains:                getenv("LANQIN_SMTP_RELAY_DOMAINS", ""),
+		SMTPDirectHost:                  getenv("LANQIN_SMTP_DIRECT_HOST", "127.0.0.1"),
+		SMTPDirectPort:                  getenv("LANQIN_SMTP_DIRECT_PORT", "25"),
 		SubmissionAddr:                  getenv("LANQIN_SUBMISSION_ADDR", ""),
 		SubmissionTLSAddr:               getenv("LANQIN_SUBMISSION_TLS_ADDR", ""),
 		SubmissionMaxMessageMB:          getenvInt("LANQIN_SUBMISSION_MAX_MESSAGE_MB", 35),

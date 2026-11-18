@@ -1,0 +1,371 @@
+[
+  {
+    "key": "tencent",
+    "label": "QQ / 腾讯邮箱",
+    "domains": [
+      "qq.com",
+      "foxmail.com"
+    ],
+    "mxSuffixes": [
+      "mxbiz1.qq.com",
+      "mxbiz2.qq.com",
+      "mx1.qq.com",
+      "mx2.qq.com",
+      "mx3.qq.com",
+      "exmailqq.com"
+    ],
+    "commonGroup": "国内邮箱"
+  },
+  {
+    "key": "netease",
+    "label": "网易邮箱（163 / 126 / Yeah）",
+    "domains": [
+      "163.com",
+      "126.com",
+      "yeah.net",
+      "188.com",
+      "vip.163.com",
+      "vip.126.com",
+      "vip.188.com"
+    ],
+    "mxSuffixes": [
+      "mxmail.netease.com",
+      "qiye.163.com"
+    ],
+    "commonGroup": "国内邮箱"
+  },
+  {
+    "key": "alibaba",
+    "label": "阿里邮箱 / 万网",
+    "domains": [
+      "aliyun.com"
+    ],
+    "mxSuffixes": [
+      "qiye.aliyun.com",
+      "mxhichina.com"
+    ],
+    "commonGroup": ""
+  },
+  {
+    "key": "sina",
+    "label": "新浪邮箱",
+    "domains": [
+      "sina.com",
+      "sina.cn",
+      "vip.sina.com"
+    ],
+    "mxSuffixes": [],
+    "commonGroup": ""
+  },
+  {
+    "key": "sohu",
+    "label": "搜狐邮箱",
+    "domains": [
+      "sohu.com"
+    ],
+    "mxSuffixes": [],
+    "commonGroup": ""
+  },
+  {
+    "key": "china_mobile",
+    "label": "中国移动 / 139",
+    "domains": [
+      "139.com"
+    ],
+    "mxSuffixes": [],
+    "commonGroup": ""
+  },
+  {
+    "key": "china_telecom",
+    "label": "中国电信 / 189",
+    "domains": [
+      "189.cn",
+      "189.com"
+    ],
+    "mxSuffixes": [],
+    "commonGroup": ""
+  },
+  {
+    "key": "china_unicom",
+    "label": "中国联通 / 沃邮箱",
+    "domains": [
+      "wo.cn"
+    ],
+    "mxSuffixes": [],
+    "commonGroup": ""
+  },
+  {
+    "key": "tom",
+    "label": "TOM 邮箱",
+    "domains": [
+      "tom.com",
+      "vip.tom.com"
+    ],
+    "mxSuffixes": [],
+    "commonGroup": ""
+  },
+  {
+    "key": "feishu",
+    "label": "飞书邮箱",
+    "domains": [],
+    "mxSuffixes": [
+      "mx1.feishu.cn",
+      "mx2.feishu.cn",
+      "mx3.feishu.cn"
+    ],
+    "commonGroup": ""
+  },
+  {
+    "key": "lark",
+    "label": "Lark 邮箱",
+    "domains": [],
+    "mxSuffixes": [
+      "mx1.larksuite.com",
+      "mx2.larksuite.com",
+      "mx3.larksuite.com"
+    ],
+    "commonGroup": ""
+  },
+  {
+    "key": "microsoft",
+    "label": "微软（Outlook / Hotmail）",
+    "domains": [
+      "outlook.com",
+      "hotmail.com",
+      "live.com",
+      "msn.com",
+      "outlook.cn",
+      "hotmail.co.uk",
+      "hotmail.fr",
+      "hotmail.de",
+      "hotmail.co.jp",
+      "live.cn",
+      "live.co.uk",
+      "live.fr"
+    ],
+    "mxSuffixes": [
+      "mail.protection.outlook.com",
+      "mx.microsoft"
+    ],
+    "commonGroup": "国外邮箱"
+  },
+  {
+    "key": "yahoo",
+    "label": "雅虎（Yahoo / AOL）",
+    "domains": [
+      "yahoo.com",
+      "yahoo.co.uk",
+      "yahoo.co.jp",
+      "yahoo.fr",
+      "yahoo.de",
+      "yahoo.com.tw",
+      "yahoo.com.hk",
+      "yahoo.com.au",
+      "yahoo.ca",
+      "yahoo.co.in",
+      "yahoo.co.id",
+      "ymail.com",
+      "rocketmail.com",
+      "aol.com",
+      "aim.com"
+    ],
+    "mxSuffixes": [
+      "yahoodns.net"
+    ],
+    "commonGroup": "国外邮箱"
+  },
+  {
+    "key": "google",
+    "label": "谷歌（Gmail）",
+    "domains": [
+      "gmail.com",
+      "googlemail.com"
+    ],
+    "mxSuffixes": [
+      "google.com",
+      "googlemail.com"
+    ],
+    "commonGroup": "国外邮箱"
+  },
+  {
+    "key": "apple",
+    "label": "Apple / iCloud",
+    "domains": [
+      "icloud.com",
+      "me.com",
+      "mac.com"
+    ],
+    "mxSuffixes": [
+      "mail.icloud.com"
+    ],
+    "commonGroup": ""
+  },
+  {
+    "key": "proton",
+    "label": "Proton Mail",
+    "domains": [
+      "proton.me",
+      "protonmail.com",
+      "protonmail.ch",
+      "pm.me"
+    ],
+    "mxSuffixes": [
+      "mail.protonmail.ch",
+      "mailsec.protonmail.ch"
+    ],
+    "commonGroup": ""
+  },
+  {
+    "key": "zoho",
+    "label": "Zoho Mail",
+    "domains": [
+      "zoho.com",
+      "zohomail.com",
+      "zohomail.eu",
+      "zohomail.in"
+    ],
+    "mxSuffixes": [
+      "mx.zoho.com",
+      "mx2.zoho.com",
+      "mx3.zoho.com",
+      "mx.zoho.eu",
+      "mx2.zoho.eu",
+      "mx3.zoho.eu",
+      "mx.zoho.in",
+      "mx2.zoho.in",
+      "mx3.zoho.in",
+      "mx.zoho.com.au",
+      "mx2.zoho.com.au",
+      "mx3.zoho.com.au"
+    ],
+    "commonGroup": ""
+  },
+  {
+    "key": "fastmail",
+    "label": "Fastmail",
+    "domains": [
+      "fastmail.com",
+      "fastmail.fm"
+    ],
+    "mxSuffixes": [
+      "messagingengine.com"
+    ],
+    "commonGroup": ""
+  },
+  {
+    "key": "tuta",
+    "label": "Tuta / Tutanota",
+    "domains": [
+      "tuta.com",
+      "tuta.io",
+      "tutanota.com",
+      "tutanota.de",
+      "tutamail.com",
+      "keemail.me"
+    ],
+    "mxSuffixes": [],
+    "commonGroup": ""
+  },
+  {
+    "key": "gmx",
+    "label": "GMX",
+    "domains": [
+      "gmx.com",
+      "gmx.net",
+      "gmx.de",
+      "gmx.at",
+      "gmx.ch"
+    ],
+    "mxSuffixes": [],
+    "commonGroup": ""
+  },
+  {
+    "key": "mailcom",
+    "label": "Mail.com",
+    "domains": [
+      "mail.com",
+      "email.com",
+      "usa.com",
+      "post.com"
+    ],
+    "mxSuffixes": [],
+    "commonGroup": ""
+  },
+  {
+    "key": "webde",
+    "label": "WEB.DE",
+    "domains": [
+      "web.de"
+    ],
+    "mxSuffixes": [],
+    "commonGroup": ""
+  },
+  {
+    "key": "yandex",
+    "label": "Yandex",
+    "domains": [
+      "yandex.com",
+      "yandex.ru",
+      "ya.ru",
+      "yandex.by",
+      "yandex.kz"
+    ],
+    "mxSuffixes": [],
+    "commonGroup": ""
+  },
+  {
+    "key": "mailru",
+    "label": "Mail.ru",
+    "domains": [
+      "mail.ru",
+      "inbox.ru",
+      "list.ru",
+      "bk.ru",
+      "internet.ru"
+    ],
+    "mxSuffixes": [],
+    "commonGroup": ""
+  },
+  {
+    "key": "naver",
+    "label": "Naver",
+    "domains": [
+      "naver.com"
+    ],
+    "mxSuffixes": [],
+    "commonGroup": ""
+  },
+  {
+    "key": "daum",
+    "label": "Daum / Kakao",
+    "domains": [
+      "daum.net",
+      "hanmail.net",
+      "kakao.com"
+    ],
+    "mxSuffixes": [],
+    "commonGroup": ""
+  },
+  {
+    "key": "hey",
+    "label": "HEY",
+    "domains": [
+      "hey.com"
+    ],
+    "mxSuffixes": [],
+    "commonGroup": ""
+  },
+  {
+    "key": "zohocn",
+    "label": "Zoho 中国",
+    "domains": [
+      "zoho.com.cn"
+    ],
+    "mxSuffixes": [
+      "mx.zoho.com.cn",
+      "mx2.zoho.com.cn",
+      "mx3.zoho.com.cn"
+    ],
+    "commonGroup": ""
+  }
+]

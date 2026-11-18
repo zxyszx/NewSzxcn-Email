@@ -260,6 +260,10 @@ export type SystemSettings = {
   smtpUsername: string
   smtpPasswordSet: boolean
   smtpRequireTls: boolean
+  smtpRelayProviders?: string[]
+  smtpRelayDomains?: string
+  smtpDirectHost?: string
+  smtpDirectPort?: string
   maildirRoot: string
   maildirScanSeconds: number
   sessionTtlHours: number
